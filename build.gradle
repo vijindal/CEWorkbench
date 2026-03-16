@@ -1,0 +1,49 @@
+plugins {
+    id 'application'
+}
+
+group = 'org.ce'
+version = '1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['app/src/main/java']
+        }
+        resources {
+            srcDirs = ['app/src/main/resources']
+        }
+    }
+    test {
+        java {
+            srcDirs = ['app/src/test/java']
+        }
+        resources {
+            srcDirs = ['app/src/main/resources']
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.3'
+    testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.9.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+application {
+    mainClass = 'org.ce.ui.cli.Main'
+}

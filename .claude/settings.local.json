@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew build:*)",
+      "Bash(./gradlew test:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(grep -l \"org.ce.domain.identification\\\\|org.ce.infrastructure\" app/src/main/java/org/ce/domain/cluster/*.java)",
+      "Bash(__NEW_LINE_a6b1592be725041d__ echo:*)",
+      "Bash(__NEW_LINE_a6b1592be725041d__ done:*)",
+      "Bash(grep -l \"^package org.ce.domain.cvm\" app/src/main/java/org/ce/domain/cluster/*.java)",
+      "Bash(ls -1 app/src/main/java/org/ce/domain/cluster/*.java)",
+      "Bash(./gradlew run:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(sed -i 's/package org\\\\.ce\\\\.domain\\\\.identification\\\\.[a-z]*;/package org.ce.domain.cluster;/g' \"$f\")",
+      "Bash(sed -i 's/import org\\\\.ce\\\\.domain\\\\.identification\\\\.[a-z.]*\\\\.\\\\\\([^;]*\\\\\\);/import org.ce.domain.cluster.\\\\1;/g' \"$f\")",
+      "Bash(echo \"Fixed: $f\")",
+      "Bash(done)",
+      "Bash(sed -i 's/System.out.println\\(\"\".*╔.*═.*╗.*\"\"\\);/System.out.println\\(\"\"================================================================================\"\"\\);/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
+      "Bash(sed -i 's/System.out.println\\(\"\".*║.*\"\"\\);/System.out.println\\(\"\"                       CLUSTER IDENTIFICATION RESULT\"\"\\);/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
+      "Bash(sed -i 's/System.out.println\\(\"\".*╚.*═.*╝.*\"\"\\);/System.out.println\\(\"\"================================================================================\"\"\\);/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
+      "Bash(perl -i -pe 's/╔.*╗.*$/================================================================================/g; s/║.*║.*$/                       CLUSTER IDENTIFICATION RESULT/g; s/╚.*╝.*$/================================================================================/g; s/──.*──/------/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
+      "Bash(python3:*)"
+    ]
+  }
+}
