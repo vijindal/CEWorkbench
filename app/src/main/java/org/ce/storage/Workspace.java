@@ -3,8 +3,10 @@ package org.ce.storage;
 import java.nio.file.Path;
 
 /**
- * Represents the CEWorkbench workspace.
- * Responsible for resolving storage locations.
+ * Defines filesystem locations used by the application.
+ *
+ * The workspace is the root directory where user data
+ * (CEC database, results, etc.) are stored.
  */
 public class Workspace {
 
@@ -14,15 +16,31 @@ public class Workspace {
         this.root = root;
     }
 
+    /**
+     * Root workspace directory.
+     */
     public Path getRoot() {
         return root;
     }
 
-    public Path getClusterDataDirectory() {
-        return root.resolve("data").resolve("cluster");
+    /**
+     * Directory containing all system databases.
+     */
+    public Path systemsDir() {
+        return root.resolve("data").resolve("systems");
     }
 
-    public Path getHamiltonianDirectory() {
-        return root.resolve("data").resolve("hamiltonian");
+    /**
+     * Directory for a specific system.
+     */
+    public Path systemDir(String systemId) {
+        return systemsDir().resolve(systemId);
+    }
+
+    /**
+     * Path to the CEC database file.
+     */
+    public Path cecFile(String systemId) {
+        return systemDir(systemId).resolve("cec.json");
     }
 }
