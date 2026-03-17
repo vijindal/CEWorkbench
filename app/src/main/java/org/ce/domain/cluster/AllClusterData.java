@@ -18,6 +18,7 @@ public class AllClusterData {
     private final ClusterIdentificationResult orderedClusterResult;
     private final CFIdentificationResult disorderedCFResult;
     private final CFIdentificationResult orderedCFResult;
+    private final CMatrixResult cMatrixResult;
 
     /**
      * Creates AllClusterData from identification results for both phases.
@@ -31,17 +32,31 @@ public class AllClusterData {
      * @param orderedClusterResult cluster identification for ordered phase
      * @param disorderedCFResult correlation function identification for disordered phase
      * @param orderedCFResult correlation function identification for ordered phase
+     * @param cMatrixResult C-matrix identification result
      */
     public AllClusterData(
             ClusterIdentificationResult disorderedClusterResult,
             ClusterIdentificationResult orderedClusterResult,
             CFIdentificationResult disorderedCFResult,
-            CFIdentificationResult orderedCFResult) {
+            CFIdentificationResult orderedCFResult,
+            CMatrixResult cMatrixResult) {
 
         this.disorderedClusterResult = disorderedClusterResult;
         this.orderedClusterResult = orderedClusterResult;
         this.disorderedCFResult = disorderedCFResult;
         this.orderedCFResult = orderedCFResult;
+        this.cMatrixResult = cMatrixResult;
+    }
+
+    /**
+     * Default no-arg constructor for deserialization (e.g., JSON loading).
+     */
+    public AllClusterData() {
+        this.disorderedClusterResult = null;
+        this.orderedClusterResult = null;
+        this.disorderedCFResult = null;
+        this.orderedCFResult = null;
+        this.cMatrixResult = null;
     }
 
     // =========================================================================
@@ -62,6 +77,10 @@ public class AllClusterData {
 
     public CFIdentificationResult getOrderedCFResult() {
         return orderedCFResult;
+    }
+
+    public CMatrixResult getCMatrixResult() {
+        return cMatrixResult;
     }
 
     // =========================================================================

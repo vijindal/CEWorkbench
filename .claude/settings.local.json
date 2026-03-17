@@ -20,7 +20,9 @@
       "Bash(sed -i 's/System.out.println\\(\"\".*║.*\"\"\\);/System.out.println\\(\"\"                       CLUSTER IDENTIFICATION RESULT\"\"\\);/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
       "Bash(sed -i 's/System.out.println\\(\"\".*╚.*═.*╝.*\"\"\\);/System.out.println\\(\"\"================================================================================\"\"\\);/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
       "Bash(perl -i -pe 's/╔.*╗.*$/================================================================================/g; s/║.*║.*$/                       CLUSTER IDENTIFICATION RESULT/g; s/╚.*╝.*$/================================================================================/g; s/──.*──/------/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)"
     ]
   }
 }

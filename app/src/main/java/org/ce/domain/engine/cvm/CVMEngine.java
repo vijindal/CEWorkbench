@@ -1,8 +1,6 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.CMatrixBuilder;
-import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.result.EquilibriumState;
@@ -36,23 +34,53 @@ public class CVMEngine implements ThermodynamicEngine {
         String systemName = input.systemName;
 
         /*
-         * 1. Build C-Matrix (Stage 3)
-         * TODO: maxClusters - determine source for this parameter
+         * 1. Validate CMatrix exists
          */
-        CMatrixResult cmatrix = CMatrixBuilder.build(
-                clusterData.getDisorderedClusterResult(),
-                clusterData.getDisorderedCFResult(),
-                null,  // TODO: maxClusters
-                composition.length
-        );
+        if (clusterData.getCMatrixResult() == null) {
+            throw new IllegalStateException(
+                "CMatrix not found in AllClusterData. " +
+                "Ensure ClusterIdentificationWorkflow generated Stage 3."
+            );
+        }
 
         /*
-         * 2. Create CVMInput with complete topology (Stages 1-3)
+         * 2. Validate composition
+         */
+        if (composition == null || composition.length < 2) {
+            throw new IllegalArgumentException("Invalid composition array");
+        }
+
+        double sum = 0.0;
+        for (double x : composition) {
+            if (x < 0 || x > 1) {
+                throw new IllegalArgumentException("Composition values must be in [0,1]");
+            }
+            sum += x;
+        }
+
+        if (Math.abs(sum - 1.0) > 1e-9) {
+            throw new IllegalArgumentException("Composition must sum to 1.0, got: " + sum);
+        }
+
+        /*
+         * 3. Validate temperature
+         */
+        if (temperature <= 0) {
+            throw new IllegalArgumentException("Temperature must be positive: " + temperature);
+        }
+
+        /*
+         * 4. Use precomputed C-Matrix (from Type-1)
+         */
+        org.ce.domain.cluster.CMatrixResult clusterCMatrix = clusterData.getCMatrixResult();
+
+        /*
+         * 5. Create CVMInput with complete topology (Stages 1-3)
          */
         CVMInput cvmInput = new CVMInput(
                 clusterData.getDisorderedClusterResult(),
                 clusterData.getDisorderedCFResult(),
-                cmatrix,
+                clusterCMatrix,
                 systemId,
                 systemName,
                 composition.length
@@ -64,17 +92,28 @@ public class CVMEngine implements ThermodynamicEngine {
         double[] eci = evaluateECI(cec, temperature);
 
         /*
-         * 4. Validate ECI length matches ncf (prevents silent truncation)
+         * 5. Validate ECI length matches expected ncf exactly
          */
-        int ncf = cvmInput.getStage2().getNcf();
-        if (eci.length < ncf) {
-            throw new IllegalArgumentException(
-                    "ECI array length (" + eci.length + ") < ncf (" + ncf + "). " +
-                    "CEC database is incomplete or mismatched with cluster data.");
+        int expectedNcf = clusterData.getDisorderedCFResult().getNcf();
+
+        if (eci.length != expectedNcf) {
+            throw new IllegalStateException(
+                    "ECI length (" + eci.length + ") does not match ncf (" + expectedNcf + ")"
+            );
         }
 
         /*
-         * 5. Create CVMPhaseModel and run minimization
+         * 6. Validate CEC ncf field matches expected ncf
+         * (enforces: G = Σ (ECI_l * CF_l) → length(ECI) == ncf == number of CFs)
+         */
+        if (cec.ncf != expectedNcf) {
+            throw new IllegalArgumentException(
+                    "CEC ncf field (" + cec.ncf + ") does not match cluster data ncf (" + expectedNcf + ")"
+            );
+        }
+
+        /*
+         * 7. Create CVMPhaseModel and return equilibrium
          */
         CVMPhaseModel model = CVMPhaseModel.create(
                 cvmInput,
@@ -83,23 +122,7 @@ public class CVMEngine implements ThermodynamicEngine {
                 composition
         );
 
-        /*
-         * 6. Initialize model
-         */
-        boolean initOk = CVMPhaseModelExecutor.initializeModel(model);
-        if (!initOk) {
-            throw new RuntimeException("CVM initialization failed");
-        }
-
-        /*
-         * 7. Query equilibrium and return state
-         */
-        EquilibriumState state = CVMPhaseModelExecutor.queryModel(model);
-        if (state == null) {
-            throw new RuntimeException("CVM query failed");
-        }
-
-        return state;
+        return model.getEquilibriumState();
     }
 
     /**

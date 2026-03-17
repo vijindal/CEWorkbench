@@ -92,6 +92,9 @@ public class CECManagementWorkflow {
     /**
      * Validates that the CEC database matches the expected number
      * of correlation functions.
+     *
+     * <p>Enforces the physical law: G = Σ (ECI_l * CF_l)
+     * Therefore: length(ECI) == ncf == number of correlation functions</p>
      */
     public void validateCEC(CECEntry entry, int expectedNcf) {
 
@@ -104,6 +107,13 @@ public class CECManagementWorkflow {
                 "CEC term count (" + entry.cecTerms.length +
                 ") does not match expected number of correlation functions (" +
                 expectedNcf + ")"
+            );
+        }
+
+        if (entry.ncf != expectedNcf) {
+            throw new IllegalStateException(
+                "CEC ncf field (" + entry.ncf +
+                ") does not match expected ncf (" + expectedNcf + ")"
             );
         }
     }

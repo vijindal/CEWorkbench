@@ -46,6 +46,16 @@ public final class CMatrixResult {
         this.cfBasisIndices = cfBasisIndices;
     }
 
+    /**
+     * Default no-arg constructor for deserialization (e.g., JSON loading).
+     */
+    public CMatrixResult() {
+        this.cmat = null;
+        this.lcv = null;
+        this.wcv = null;
+        this.cfBasisIndices = null;
+    }
+
     public List<List<double[][]>> getCmat() {
         return cmat;
     }

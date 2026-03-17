@@ -109,7 +109,22 @@ public class ClusterIdentificationWorkflow {
         LOG.fine("CFs identified: tcfdis=" + cfResult.getTcfdis() + ", tcf=" + cfResult.getTcf());
 
         // =====================================================================
-        // 5. Package and return results
+        // 5. Build C-Matrix (Stage 3)
+        // =====================================================================
+        LOG.fine("Building C-Matrix...");
+
+        // Use orderedClusters as maxClusters (full geometry reference)
+        CMatrixResult cMatrix = CMatrixBuilder.build(
+                clusterResult,
+                cfResult,
+                orderedClusters,              // ✅ correct choice
+                config.getNumComponents()
+        );
+
+        LOG.fine("C-Matrix built successfully");
+
+        // =====================================================================
+        // 6. Package and return results
         // =====================================================================
         // Note: ClusterIdentificationResult and CFIdentificationResult each contain
         // analysis of both disordered and ordered phases. We pass them as both
@@ -120,7 +135,8 @@ public class ClusterIdentificationWorkflow {
                 clusterResult,    // disordered cluster result
                 clusterResult,    // ordered cluster result
                 cfResult,         // disordered CF result
-                cfResult          // ordered CF result
+                cfResult,         // ordered CF result
+                cMatrix           // C-Matrix result
         );
 
         LOG.info("ClusterIdentificationWorkflow.identify — EXIT: " + result.getSummary());

@@ -4,6 +4,7 @@ import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.result.EquilibriumState;
+import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.cec.CECEntry;
 import org.ce.workflow.cec.CECManagementWorkflow;
@@ -21,16 +22,20 @@ public class ThermodynamicWorkflow {
 
     private final CECManagementWorkflow cecWorkflow;
 
-    private final ThermodynamicEngine engine;
+    private final ThermodynamicEngine cvmEngine;
+
+    private final ThermodynamicEngine mcsEngine;
 
     public ThermodynamicWorkflow(
             ClusterDataStore clusterStore,
             CECManagementWorkflow cecWorkflow,
-            ThermodynamicEngine engine) {
+            ThermodynamicEngine cvmEngine,
+            ThermodynamicEngine mcsEngine) {
 
         this.clusterStore = clusterStore;
         this.cecWorkflow = cecWorkflow;
-        this.engine = engine;
+        this.cvmEngine = cvmEngine;
+        this.mcsEngine = mcsEngine;
     }
 
     /**
@@ -61,7 +66,7 @@ public class ThermodynamicWorkflow {
     /**
      * Runs a thermodynamic calculation.
      */
-    public EquilibriumState runCalculation(ThermodynamicRequest request) throws Exception {
+    public ThermodynamicResult runCalculation(ThermodynamicRequest request) throws Exception {
 
         ThermodynamicData data = loadThermodynamicData(request.systemId);
 
@@ -74,7 +79,21 @@ public class ThermodynamicWorkflow {
                 data.systemName
         );
 
-        return engine.compute(input);
+        ThermodynamicEngine engine;
+
+        switch (request.engineType) {
+            case "CVM":
+                engine = cvmEngine;
+                break;
+            case "MCS":
+                engine = mcsEngine;
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown engine: " + request.engineType);
+        }
+
+        EquilibriumState state = engine.compute(input);
+        return ThermodynamicResult.from(state);
     }
 
 }
