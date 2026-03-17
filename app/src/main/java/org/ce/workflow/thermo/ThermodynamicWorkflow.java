@@ -2,7 +2,8 @@ package org.ce.workflow.thermo;
 
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.engine.ThermodynamicEngine;
-import org.ce.domain.engine.ThermodynamicResult;
+import org.ce.domain.engine.ThermodynamicInput;
+import org.ce.domain.result.EquilibriumState;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.cec.CECEntry;
 import org.ce.workflow.cec.CECManagementWorkflow;
@@ -41,7 +42,11 @@ public class ThermodynamicWorkflow {
 
         CECEntry cec = cecWorkflow.loadAndValidateCEC(systemId);
 
-        return new ThermodynamicData(clusterData, cec);
+        // System name: can be derived from CECEntry (e.g., elements-structurePhase)
+        // For now, use systemId. Future: systemName = cec.elements + "-" + cec.structurePhase
+        String systemName = systemId;
+
+        return new ThermodynamicData(clusterData, cec, systemId, systemName);
     }
 
     /**
@@ -56,16 +61,20 @@ public class ThermodynamicWorkflow {
     /**
      * Runs a thermodynamic calculation.
      */
-    public ThermodynamicResult runCalculation(ThermodynamicRequest request) throws Exception {
+    public EquilibriumState runCalculation(ThermodynamicRequest request) throws Exception {
 
         ThermodynamicData data = loadThermodynamicData(request.systemId);
 
-        return engine.compute(
+        ThermodynamicInput input = new ThermodynamicInput(
                 data.clusterData,
                 data.cec,
                 request.temperature,
-                request.composition
+                request.composition,
+                data.systemId,
+                data.systemName
         );
+
+        return engine.compute(input);
     }
 
 }

@@ -1,7 +1,6 @@
 package org.ce.domain.engine;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.storage.cec.CECEntry;
+import org.ce.domain.result.EquilibriumState;
 
 /**
  * Interface for thermodynamic engines (CVM, Monte Carlo, etc.).
@@ -11,17 +10,9 @@ public interface ThermodynamicEngine {
     /**
      * Runs a thermodynamic calculation.
      *
-     * @param clusterData cluster topology and correlation functions
-     * @param cec CEC database
-     * @param temperature temperature
-     * @param composition composition vector
-     *
-     * @return calculation result
+     * @param input bundled thermodynamic calculation input
+     * @return equilibrium state with G, H, S, and thermodynamic properties
+     * @throws Exception if calculation fails
      */
-    ThermodynamicResult compute(
-            AllClusterData clusterData,
-            CECEntry cec,
-            double temperature,
-            double[] composition
-    );
+    EquilibriumState compute(ThermodynamicInput input) throws Exception;
 }

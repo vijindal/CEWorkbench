@@ -1,6 +1,7 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.CFIdentificationResult;
+import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.model.result.EngineMetrics;
 import org.ce.domain.model.result.EquilibriumState;
@@ -131,7 +132,7 @@ public class CVMPhaseModel {
      * <p>This is the canonical factory method. Pass the full mole-fraction
      * array {@code x[0..K-1]} — works for binary, ternary, and any K.</p>
      *
-     * @param input         CVMModelInput carrying cluster topology data
+     * @param input         CVMInput carrying cluster topology data (Stages 1-3)
      * @param eci           ncf-length effective cluster interactions (J/mol)
      * @param temperature   initial temperature in Kelvin
      * @param moleFractions mole fractions x[0..K-1]; must sum to 1.0
@@ -139,13 +140,13 @@ public class CVMPhaseModel {
      * @throws Exception if minimization fails or input is invalid
      */
     public static CVMPhaseModel create(
-            CVMModelInput input,
+            CVMInput input,
             double[] eci,
             double temperature,
             double[] moleFractions) throws Exception {
 
         if (input == null) {
-            throw new IllegalArgumentException("CVMModelInput must not be null");
+            throw new IllegalArgumentException("CVMInput must not be null");
         }
 
         CVMPhaseModel model = new CVMPhaseModel(input);
@@ -160,14 +161,14 @@ public class CVMPhaseModel {
      * Creates a CVM phase model using the binary B-fraction shorthand (K=2 only).
      *
      * <p>Convenience for callers that have a scalar x_B. Delegates to
-     * {@link #create(CVMModelInput, double[], double, double[])} via
+     * {@link #create(CVMInput, double[], double, double[])} via
      * {@code [1-xB, xB]}. For K &ge; 3 use the array overload directly.</p>
      *
-     * @deprecated Use {@link #create(CVMModelInput, double[], double, double[])} for all K
+     * @deprecated Use {@link #create(CVMInput, double[], double, double[])} for all K
      */
     @Deprecated
     public static CVMPhaseModel create(
-            CVMModelInput input,
+            CVMInput input,
             double[] eci,
             double temperature,
             double xB) throws Exception {
@@ -180,10 +181,10 @@ public class CVMPhaseModel {
     // =========================================================================
 
     /**
-     * Private constructor. Extracts and caches all stage data from CVMModelInput.
+     * Private constructor. Extracts and caches all stage data from CVMInput.
      * Only called by the factory method.
      */
-    private CVMPhaseModel(CVMModelInput input) {
+    private CVMPhaseModel(CVMInput input) {
         // Extract Stage 1: Cluster Identification
         ClusterIdentificationResult stage1 = input.getStage1();
         this.tcdis = stage1.getTcdis();
