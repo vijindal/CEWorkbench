@@ -1,7 +1,7 @@
 package org.ce.workflow.thermo;
 
 import org.ce.domain.cluster.AllClusterData;
-import org.ce.storage.cec.CECEntry;
+import org.ce.domain.hamiltonian.CECEntry;
 
 /**
  * Holds the scientific data required for thermodynamic calculations.

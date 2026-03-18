@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.Site;
 import java.util.List;
@@ -53,12 +55,14 @@ public class ClusCoordListResult {
      * @param tc                  total distinct cluster-type count
      * @param numPointSubClusFound number of point sub-clusters used for normalisation
      */
-    public ClusCoordListResult(List<Cluster>       clusCoordList,
-                               List<Double>        multiplicities,
-                               List<List<Cluster>> orbitList,
-                               List<List<Integer>> rcList,
-                               int                 tc,
-                               int                 numPointSubClusFound) {
+    @JsonCreator
+    public ClusCoordListResult(
+            @JsonProperty("clusCoordList")        List<Cluster>       clusCoordList,
+            @JsonProperty("multiplicities")       List<Double>        multiplicities,
+            @JsonProperty("orbitList")            List<List<Cluster>> orbitList,
+            @JsonProperty("rcList")               List<List<Integer>> rcList,
+            @JsonProperty("tc")                   int                 tc,
+            @JsonProperty("numPointSubClusFound") int                 numPointSubClusFound) {
         this.clusCoordList        = clusCoordList;
         this.multiplicities       = multiplicities;
         this.orbitList            = orbitList;

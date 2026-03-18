@@ -1,7 +1,7 @@
 package org.ce.workflow;
 
 import org.ce.domain.cluster.*;
-import org.ce.storage.input.InputLoader;
+import org.ce.storage.InputLoader;
 
 import java.util.List;
 import java.util.logging.Logger;

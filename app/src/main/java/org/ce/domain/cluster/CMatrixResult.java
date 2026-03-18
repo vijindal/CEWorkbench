@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
@@ -35,11 +37,12 @@ public final class CMatrixResult {
      */
     private final int[][] cfBasisIndices;
 
+    @JsonCreator
     public CMatrixResult(
-            List<List<double[][]>> cmat,
-            int[][] lcv,
-            List<List<int[]>> wcv,
-            int[][] cfBasisIndices) {
+            @JsonProperty("cmat")            List<List<double[][]>> cmat,
+            @JsonProperty("lcv")             int[][]                lcv,
+            @JsonProperty("wcv")             List<List<int[]>>      wcv,
+            @JsonProperty("cfBasisIndices")  int[][]                cfBasisIndices) {
         this.cmat = cmat;
         this.lcv = lcv;
         this.wcv = wcv;

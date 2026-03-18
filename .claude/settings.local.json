@@ -22,7 +22,9 @@
       "Bash(perl -i -pe 's/╔.*╗.*$/================================================================================/g; s/║.*║.*$/                       CLUSTER IDENTIFICATION RESULT/g; s/╚.*╝.*$/================================================================================/g; s/──.*──/------/g' app/src/main/java/org/ce/domain/cluster/ClusterIdentificationResult.java)",
       "Bash(python3:*)",
       "Bash(git add:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }

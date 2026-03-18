@@ -1,4 +1,4 @@
-package org.ce.storage.cec;
+package org.ce.domain.hamiltonian;
 
 /**
  * Represents a Cluster Expansion Coefficient (CEC) database entry.

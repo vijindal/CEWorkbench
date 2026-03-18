@@ -31,7 +31,8 @@ public class LineScanWorkflow {
      * @return results for each temperature point
      */
     public List<ThermodynamicResult> scanTemperature(
-            String systemId,
+            String clusterId,
+            String hamiltonianId,
             double[] composition,
             double tStart,
             double tEnd,
@@ -43,7 +44,8 @@ public class LineScanWorkflow {
         for (double T = tStart; T <= tEnd; T += tStep) {
 
             ThermodynamicRequest request = new ThermodynamicRequest(
-                    systemId,
+                    clusterId,
+                    hamiltonianId,
                     T,
                     composition,
                     engineType
@@ -67,7 +69,8 @@ public class LineScanWorkflow {
      * @return results for each composition point
      */
     public List<ThermodynamicResult> scanComposition(
-            String systemId,
+            String clusterId,
+            String hamiltonianId,
             double temperature,
             double xStart,
             double xEnd,
@@ -81,7 +84,8 @@ public class LineScanWorkflow {
             double[] composition = new double[]{1.0 - x, x};
 
             ThermodynamicRequest request = new ThermodynamicRequest(
-                    systemId,
+                    clusterId,
+                    hamiltonianId,
                     temperature,
                     composition,
                     engineType

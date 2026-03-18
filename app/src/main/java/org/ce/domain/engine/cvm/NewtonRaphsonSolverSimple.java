@@ -1,6 +1,10 @@
 package org.ce.domain.engine.cvm;
 
+import org.ce.domain.cluster.ClusterVariableEvaluator;
+import org.ce.domain.cluster.LinearAlgebra;
+
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -38,6 +42,81 @@ public final class NewtonRaphsonSolverSimple {
     private static final int MAX_ITER = 400;
 
     private NewtonRaphsonSolverSimple() { /* utility class */ }
+
+    // =========================================================================
+    // Result container
+    // =========================================================================
+
+    /** Immutable result of a CVM Newton-Raphson free-energy minimisation. */
+    public static final class CVMSolverResult {
+
+        /** Per-iteration Newton-Raphson diagnostics. */
+        public static final class IterationSnapshot {
+            private final int iteration;
+            private final double gibbsEnergy;
+            private final double enthalpy;
+            private final double entropy;
+            private final double gradientNorm;
+            private final double[] cf;
+            private final double[] dGdu;
+
+            public IterationSnapshot(int iteration, double gibbsEnergy, double enthalpy,
+                    double entropy, double gradientNorm, double[] cf, double[] dGdu) {
+                this.iteration = iteration;
+                this.gibbsEnergy = gibbsEnergy;
+                this.enthalpy = enthalpy;
+                this.entropy = entropy;
+                this.gradientNorm = gradientNorm;
+                this.cf = cf;
+                this.dGdu = dGdu;
+            }
+
+            public int getIteration()       { return iteration; }
+            public double getGibbsEnergy()  { return gibbsEnergy; }
+            public double getEnthalpy()     { return enthalpy; }
+            public double getEntropy()      { return entropy; }
+            public double getGradientNorm() { return gradientNorm; }
+            public double[] getCf()         { return cf; }
+            public double[] getDGdu()       { return dGdu; }
+        }
+
+        private final double[] equilibriumCFs;
+        private final double   gibbsEnergy;
+        private final double   enthalpy;
+        private final double   entropy;
+        private final int      iterations;
+        private final double   gradientNorm;
+        private final boolean  converged;
+        private final List<IterationSnapshot> iterationTrace;
+
+        public CVMSolverResult(double[] equilibriumCFs, double gibbsEnergy, double enthalpy,
+                double entropy, int iterations, double gradientNorm, boolean converged) {
+            this(equilibriumCFs, gibbsEnergy, enthalpy, entropy, iterations, gradientNorm,
+                    converged, Collections.emptyList());
+        }
+
+        public CVMSolverResult(double[] equilibriumCFs, double gibbsEnergy, double enthalpy,
+                double entropy, int iterations, double gradientNorm, boolean converged,
+                List<IterationSnapshot> iterationTrace) {
+            this.equilibriumCFs = equilibriumCFs;
+            this.gibbsEnergy = gibbsEnergy;
+            this.enthalpy = enthalpy;
+            this.entropy = entropy;
+            this.iterations = iterations;
+            this.gradientNorm = gradientNorm;
+            this.converged = converged;
+            this.iterationTrace = new ArrayList<>(iterationTrace);
+        }
+
+        public double[] getEquilibriumCFs()            { return equilibriumCFs; }
+        public double   getGibbsEnergy()               { return gibbsEnergy; }
+        public double   getEnthalpy()                  { return enthalpy; }
+        public double   getEntropy()                   { return entropy; }
+        public int      getIterations()                { return iterations; }
+        public double   getGradientNorm()              { return gradientNorm; }
+        public boolean  isConverged()                  { return converged; }
+        public List<IterationSnapshot> getIterationTrace() { return new ArrayList<>(iterationTrace); }
+    }
 
     // =========================================================================
     // Data holder for all CVM parameters

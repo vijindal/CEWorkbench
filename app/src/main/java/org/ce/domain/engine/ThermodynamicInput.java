@@ -1,7 +1,7 @@
 package org.ce.domain.engine;
 
 import org.ce.domain.cluster.AllClusterData;
-import org.ce.storage.cec.CECEntry;
+import org.ce.domain.hamiltonian.CECEntry;
 
 /**
  * Bundles all inputs required for thermodynamic calculations.

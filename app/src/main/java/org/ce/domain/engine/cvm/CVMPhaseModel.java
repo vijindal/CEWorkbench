@@ -3,8 +3,9 @@ package org.ce.domain.engine.cvm;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.model.result.EngineMetrics;
-import org.ce.domain.model.result.EquilibriumState;
+import org.ce.domain.cluster.ClusterVariableEvaluator;
+import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
+import org.ce.domain.result.EquilibriumState;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -52,6 +53,61 @@ import java.util.logging.Logger;
  * @see NewtonRaphsonSolverSimple
  */
 public class CVMPhaseModel {
+
+    // =========================================================================
+    // Input contract (moved here from standalone CVMInput.java to avoid an
+    // extra file — CVMPhaseModel is the sole consumer of this bundle)
+    // =========================================================================
+
+    /**
+     * Immutable input bundle wrapping Stage 1-3 topology data plus system metadata.
+     *
+     * <p>Created by {@link org.ce.domain.engine.cvm.CVMEngine} and consumed by
+     * {@link CVMPhaseModel#create} to decouple the engine from workbench containers.</p>
+     */
+    public static final class CVMInput {
+
+        private final ClusterIdentificationResult stage1;
+        private final CFIdentificationResult stage2;
+        private final CMatrixResult stage3;
+        private final String systemId;
+        private final String systemName;
+        private final int numComponents;
+
+        public CVMInput(
+                ClusterIdentificationResult stage1,
+                CFIdentificationResult stage2,
+                CMatrixResult stage3,
+                String systemId,
+                String systemName,
+                int numComponents) {
+
+            if (systemId == null || systemId.isBlank())
+                throw new IllegalArgumentException("systemId must not be blank");
+            if (systemName == null || systemName.isBlank())
+                throw new IllegalArgumentException("systemName must not be blank");
+            if (numComponents < 2)
+                throw new IllegalArgumentException("numComponents must be >= 2");
+            if (stage1 == null || stage2 == null || stage3 == null)
+                throw new IllegalArgumentException("Stage 1/2/3 data must be non-null");
+
+            this.stage1 = stage1;
+            this.stage2 = stage2;
+            this.stage3 = stage3;
+            this.systemId = systemId;
+            this.systemName = systemName;
+            this.numComponents = numComponents;
+        }
+
+        public ClusterIdentificationResult getStage1()  { return stage1; }
+        public CFIdentificationResult      getStage2()  { return stage2; }
+        public CMatrixResult               getStage3()  { return stage3; }
+        public String                      getSystemId()      { return systemId; }
+        public String                      getSystemName()    { return systemName; }
+        public int                         getNumComponents() { return numComponents; }
+    }
+
+    // =========================================================================
 
     private static final Logger LOG = Logger.getLogger(CVMPhaseModel.class.getName());
 
@@ -662,18 +718,11 @@ public class CVMPhaseModel {
      */
     public EquilibriumState getEquilibriumState() throws Exception {
         ensureMinimized();
-        return EquilibriumState.fromCvm(
+        return new EquilibriumState(
             temperature,
             moleFractions.clone(),
-            equilibriumCFs.clone(),
             equilibrium.H,
-            equilibrium.G,
-            equilibrium.S,
-            lastIterations > 0 && lastGradientNorm < tolerance,
-            lastIterations,
-            lastGradientNorm,
-            equilibrium.Gcu.clone(),
-            copyMatrix(equilibrium.Gcuu)
+            equilibrium.G
         );
     }
 

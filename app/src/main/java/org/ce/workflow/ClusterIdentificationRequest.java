@@ -1,6 +1,8 @@
 package org.ce.workflow;
 
 import org.ce.domain.cluster.Vector3D;
+import org.ce.domain.cluster.SpaceGroup;
+import org.ce.storage.InputLoader;
 
 /**
  * Configuration request for cluster and correlation function identification.
@@ -118,6 +120,10 @@ public class ClusterIdentificationRequest {
 
         public ClusterIdentificationRequest build() {
             validate();
+            // Auto-extract transformation matrix and translation vector from symmetry group files if not set
+            if (transformationMatrix == null || translationVector == null) {
+                extractTransformationFromSymmetryGroup();
+            }
             return new ClusterIdentificationRequest(this);
         }
 
@@ -134,14 +140,22 @@ public class ClusterIdentificationRequest {
             if (orderedSymmetryGroup == null || orderedSymmetryGroup.isBlank()) {
                 throw new IllegalArgumentException("orderedSymmetryGroup must not be blank");
             }
-            if (transformationMatrix == null || transformationMatrix.length != 3 || transformationMatrix[0].length != 3) {
-                throw new IllegalArgumentException("transformationMatrix must be a 3x3 matrix");
-            }
-            if (translationVector == null) {
-                throw new IllegalArgumentException("translationVector must not be null");
-            }
             if (numComponents < 2) {
                 throw new IllegalArgumentException("numComponents must be >= 2");
+            }
+        }
+
+        private void extractTransformationFromSymmetryGroup() {
+            try {
+                // Load the disordered symmetry group to extract transformation matrix and vector
+                SpaceGroup disorderedSG = InputLoader.parseSpaceGroup(disorderedSymmetryGroup);
+                this.transformationMatrix = disorderedSG.getRotateMat();
+                double[] translateMat = disorderedSG.getTranslateMat();
+                this.translationVector = new Vector3D(translateMat[0], translateMat[1], translateMat[2]);
+            } catch (Exception e) {
+                throw new RuntimeException(
+                    "Failed to extract transformation matrix and vector from symmetry group '" +
+                    disorderedSymmetryGroup + "': " + e.getMessage(), e);
             }
         }
     }

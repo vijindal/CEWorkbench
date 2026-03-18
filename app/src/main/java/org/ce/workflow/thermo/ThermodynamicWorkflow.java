@@ -6,7 +6,7 @@ import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.ClusterDataStore;
-import org.ce.storage.cec.CECEntry;
+import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.workflow.cec.CECManagementWorkflow;
 import org.ce.workflow.thermo.ThermodynamicRequest;
 
@@ -40,18 +40,20 @@ public class ThermodynamicWorkflow {
 
     /**
      * Loads the scientific data required for thermodynamic calculations.
+     *
+     * @param clusterId     element-agnostic cluster dataset ID, e.g. BCC_A2_T_bin
+     * @param hamiltonianId element-specific Hamiltonian ID, e.g. Nb-Ti_BCC_A2_T
      */
-    public ThermodynamicData loadThermodynamicData(String systemId) throws Exception {
+    public ThermodynamicData loadThermodynamicData(
+            String clusterId, String hamiltonianId) throws Exception {
 
-        AllClusterData clusterData = clusterStore.load(systemId);
+        AllClusterData clusterData = clusterStore.load(clusterId);
 
-        CECEntry cec = cecWorkflow.loadAndValidateCEC(systemId);
+        CECEntry cec = cecWorkflow.loadAndValidateCEC(clusterId, hamiltonianId);
 
-        // System name: can be derived from CECEntry (e.g., elements-structurePhase)
-        // For now, use systemId. Future: systemName = cec.elements + "-" + cec.structurePhase
-        String systemName = systemId;
+        String systemName = cec.elements + "_" + cec.structurePhase;
 
-        return new ThermodynamicData(clusterData, cec, systemId, systemName);
+        return new ThermodynamicData(clusterData, cec, clusterId, systemName);
     }
 
     /**
@@ -59,8 +61,7 @@ public class ThermodynamicWorkflow {
      */
     public ThermodynamicData prepareCalculation(ThermodynamicRequest request) throws Exception {
 
-        return loadThermodynamicData(request.systemId);
-
+        return loadThermodynamicData(request.clusterId, request.hamiltonianId);
     }
 
     /**
@@ -68,7 +69,7 @@ public class ThermodynamicWorkflow {
      */
     public ThermodynamicResult runCalculation(ThermodynamicRequest request) throws Exception {
 
-        ThermodynamicData data = loadThermodynamicData(request.systemId);
+        ThermodynamicData data = loadThermodynamicData(request.clusterId, request.hamiltonianId);
 
         ThermodynamicInput input = new ThermodynamicInput(
                 data.clusterData,

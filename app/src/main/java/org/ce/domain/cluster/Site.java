@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 
 /**
@@ -36,7 +38,10 @@ public class Site {
      * @param position fractional-coordinate position; must not be {@code null}
      * @param symbol   species label; may be {@code null} for undecorated sites
      */
-    public Site(Position position, String symbol) {
+    @JsonCreator
+    public Site(
+            @JsonProperty("position") Position position,
+            @JsonProperty("symbol") String symbol) {
         this.position = position;
         this.symbol   = symbol;
     }

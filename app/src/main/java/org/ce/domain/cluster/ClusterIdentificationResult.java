@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
@@ -112,18 +114,19 @@ public class ClusterIdentificationResult {
     // Constructor
     // -------------------------------------------------------------------------
 
+    @JsonCreator
     public ClusterIdentificationResult(
-            ClusCoordListResult   disClusterData,
-            int[][]               nijTable,
-            double[]              kbCoefficients,
-            ClusCoordListResult   phaseClusterData,
-            ClassifiedClusterResult ordClusterData,
-            int[]                 lc,
-            double[][]            mh,
-            int                   tcdis,
-            int                   nxcdis,
-            int                   tc,
-            int                   nxc) {
+            @JsonProperty("disClusterData")   ClusCoordListResult     disClusterData,
+            @JsonProperty("nijTable")         int[][]                 nijTable,
+            @JsonProperty("kbCoefficients")   double[]                kbCoefficients,
+            @JsonProperty("phaseClusterData") ClusCoordListResult     phaseClusterData,
+            @JsonProperty("ordClusterData")   ClassifiedClusterResult ordClusterData,
+            @JsonProperty("lc")               int[]                   lc,
+            @JsonProperty("mh")               double[][]              mh,
+            @JsonProperty("tcdis")            int                     tcdis,
+            @JsonProperty("nxcdis")           int                     nxcdis,
+            @JsonProperty("tc")               int                     tc,
+            @JsonProperty("nxc")              int                     nxc) {
 
         this.disClusterData   = disClusterData;
         this.nijTable         = nijTable;

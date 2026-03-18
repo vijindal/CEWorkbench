@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,7 +33,8 @@ public class Sublattice {
      *
      * @param sites mutable list of sites; ownership is transferred to this object
      */
-    public Sublattice(List<Site> sites) {
+    @JsonCreator
+    public Sublattice(@JsonProperty("sites") List<Site> sites) {
         this.sites = sites;
     }
 

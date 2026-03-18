@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 
 /**
@@ -34,7 +36,11 @@ public class Position {
      * @param y the y-component (fractional)
      * @param z the z-component (fractional)
      */
-    public Position(double x, double y, double z) {
+    @JsonCreator
+    public Position(
+            @JsonProperty("x") double x,
+            @JsonProperty("y") double y,
+            @JsonProperty("z") double z) {
         this.x = x;
         this.y = y;
         this.z = z;

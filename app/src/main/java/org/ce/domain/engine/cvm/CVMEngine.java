@@ -3,8 +3,9 @@ package org.ce.domain.engine.cvm;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
+import org.ce.domain.engine.cvm.CVMPhaseModel.CVMInput;
 import org.ce.domain.result.EquilibriumState;
-import org.ce.storage.cec.CECEntry;
+import org.ce.domain.hamiltonian.CECEntry;
 
 /**
  * CVM thermodynamic engine.

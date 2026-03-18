@@ -1,5 +1,7 @@
 package org.ce.domain.engine.cvm;
 
+import org.ce.domain.cluster.ClusterVariableEvaluator;
+
 import java.util.List;
 
 /**

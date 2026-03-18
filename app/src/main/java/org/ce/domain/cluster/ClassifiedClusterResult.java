@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.ce.domain.cluster.Cluster;
 import java.util.List;
 
@@ -10,11 +12,12 @@ public class ClassifiedClusterResult {
     private final List<List<List<Cluster>>> orbitList;
     private final List<List<List<Integer>>> rcList;
 
+    @JsonCreator
     public ClassifiedClusterResult(
-            List<List<Cluster>> coordList,
-            List<List<Double>> multiplicityList,
-            List<List<List<Cluster>>> orbitList,
-            List<List<List<Integer>>> rcList) {
+            @JsonProperty("coordList")        List<List<Cluster>>        coordList,
+            @JsonProperty("multiplicityList") List<List<Double>>          multiplicityList,
+            @JsonProperty("orbitList")        List<List<List<Cluster>>>   orbitList,
+            @JsonProperty("rcList")           List<List<List<Integer>>>   rcList) {
 
         this.coordList = coordList;
         this.multiplicityList = multiplicityList;

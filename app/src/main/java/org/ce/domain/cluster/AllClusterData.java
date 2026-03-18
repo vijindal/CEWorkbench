@@ -1,5 +1,10 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * Complete bundle of cluster and correlation function identification results
  * for both disordered and ordered phases.
@@ -12,6 +17,7 @@ package org.ce.domain.cluster;
  * e.g., A2→A2), the disordered and ordered result objects may be the same instance.
  * However, they represent logically distinct phase calculations.</p>
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AllClusterData {
 
     private final ClusterIdentificationResult disorderedClusterResult;
@@ -34,12 +40,13 @@ public class AllClusterData {
      * @param orderedCFResult correlation function identification for ordered phase
      * @param cMatrixResult C-matrix identification result
      */
+    @JsonCreator
     public AllClusterData(
-            ClusterIdentificationResult disorderedClusterResult,
-            ClusterIdentificationResult orderedClusterResult,
-            CFIdentificationResult disorderedCFResult,
-            CFIdentificationResult orderedCFResult,
-            CMatrixResult cMatrixResult) {
+            @JsonProperty("disorderedClusterResult") ClusterIdentificationResult disorderedClusterResult,
+            @JsonProperty("orderedClusterResult")    ClusterIdentificationResult orderedClusterResult,
+            @JsonProperty("disorderedCFResult")      CFIdentificationResult      disorderedCFResult,
+            @JsonProperty("orderedCFResult")         CFIdentificationResult      orderedCFResult,
+            @JsonProperty("cMatrixResult")           CMatrixResult               cMatrixResult) {
 
         this.disorderedClusterResult = disorderedClusterResult;
         this.orderedClusterResult = orderedClusterResult;
@@ -147,6 +154,7 @@ public class AllClusterData {
     /**
      * Returns a summary string of all results.
      */
+    @JsonIgnore
     public String getSummary() {
         return String.format(
                 "AllClusterData: dis(tcdis=%d, tc=%d) ord(tcdis=%d, tc=%d)",

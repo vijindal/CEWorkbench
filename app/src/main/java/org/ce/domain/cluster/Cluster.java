@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,7 +43,8 @@ public class Cluster {
      *
      * @param sublattices list of sublattices; must not be {@code null}
      */
-    public Cluster(List<Sublattice> sublattices) {
+    @JsonCreator
+    public Cluster(@JsonProperty("sublattices") List<Sublattice> sublattices) {
         this.sublattices = sublattices;
     }
 

@@ -21,18 +21,17 @@ public class ClusterDataStore {
         this.workspace = workspace;
     }
 
-    private Path getClusterFile(String systemId) {
-        return workspace.systemDir(systemId)
-                .resolve("all_cluster_data.json");
+    private Path getClusterFile(String clusterId) {
+        return workspace.clusterDataFile(clusterId);
     }
 
-    public boolean exists(String systemId) {
-        return Files.exists(getClusterFile(systemId));
+    public boolean exists(String clusterId) {
+        return Files.exists(getClusterFile(clusterId));
     }
 
-    public AllClusterData load(String systemId) throws IOException {
+    public AllClusterData load(String clusterId) throws IOException {
 
-        Path file = getClusterFile(systemId);
+        Path file = getClusterFile(clusterId);
 
         if (!Files.exists(file)) {
             throw new IOException("Cluster data not found: " + file);
@@ -41,9 +40,9 @@ public class ClusterDataStore {
         return mapper.readValue(file.toFile(), AllClusterData.class);
     }
 
-    public void save(String systemId, AllClusterData data) throws IOException {
+    public void save(String clusterId, AllClusterData data) throws IOException {
 
-        Path file = getClusterFile(systemId);
+        Path file = getClusterFile(clusterId);
 
         Files.createDirectories(file.getParent());
 

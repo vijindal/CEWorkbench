@@ -36,7 +36,8 @@ public class GridScanWorkflow {
      * @return 2D grid of results [temperature][composition]
      */
     public List<List<ThermodynamicResult>> scanTX(
-            String systemId,
+            String clusterId,
+            String hamiltonianId,
             double tStart,
             double tEnd,
             double tStep,
@@ -56,7 +57,8 @@ public class GridScanWorkflow {
                 double[] composition = new double[]{1.0 - x, x};
 
                 ThermodynamicRequest request = new ThermodynamicRequest(
-                        systemId,
+                        clusterId,
+                        hamiltonianId,
                         T,
                         composition,
                         engineType

@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
@@ -22,16 +24,17 @@ public class CFIdentificationResult {
         this(null, 0, null, null, null, null, 0, 0, 0);
     }
 
+    @JsonCreator
     public CFIdentificationResult(
-            ClusCoordListResult disCFData,
-            int tcfdis,
-            ClusCoordListResult phaseCFData,
-            ClassifiedClusterResult ordCFData,
-            GroupedCFResult groupedCFData,
-            int[][] lcf,
-            int tcf,
-            int nxcf,
-            int ncf) {
+            @JsonProperty("disCFData")     ClusCoordListResult     disCFData,
+            @JsonProperty("tcfdis")        int                     tcfdis,
+            @JsonProperty("phaseCFData")   ClusCoordListResult     phaseCFData,
+            @JsonProperty("ordCFData")     ClassifiedClusterResult ordCFData,
+            @JsonProperty("groupedCFData") GroupedCFResult         groupedCFData,
+            @JsonProperty("lcf")           int[][]                 lcf,
+            @JsonProperty("tcf")           int                     tcf,
+            @JsonProperty("nxcf")          int                     nxcf,
+            @JsonProperty("ncf")           int                     ncf) {
 
         this.disCFData = disCFData;
         this.tcfdis = tcfdis;

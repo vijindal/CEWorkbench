@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 public class GroupedCFResult {
@@ -9,11 +11,12 @@ public class GroupedCFResult {
     private final List<List<List<List<Cluster>>>> orbitData;
     private final List<List<List<List<Integer>>>> rcData;
 
+    @JsonCreator
     public GroupedCFResult(
-            List<List<List<Cluster>>> coordData,
-            List<List<List<Double>>> multiplicityData,
-            List<List<List<List<Cluster>>>> orbitData,
-            List<List<List<List<Integer>>>> rcData) {
+            @JsonProperty("coordData")        List<List<List<Cluster>>>          coordData,
+            @JsonProperty("multiplicityData") List<List<List<Double>>>            multiplicityData,
+            @JsonProperty("orbitData")        List<List<List<List<Cluster>>>>     orbitData,
+            @JsonProperty("rcData")           List<List<List<List<Integer>>>>     rcData) {
 
         this.coordData = coordData;
         this.multiplicityData = multiplicityData;
