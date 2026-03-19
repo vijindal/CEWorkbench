@@ -6,8 +6,11 @@ A scientific software framework for **Cluster Expansion (CE) based thermodynamic
 
 The CE Thermodynamics Workbench implements two fundamental classes of work:
 
-1. **Type-1: Generate reusable scientific data** → Cluster identification and correlation function analysis
-2. **Type-2: Compute thermodynamic equilibrium** → Free energy minimization and Monte Carlo simulations
+1. **Type-1a — Cluster identification:** Load ordered/disordered cluster files and symmetry groups, identify correlation functions, and build the C-matrix.
+2. **Type-1b — Hamiltonian scaffold:** Auto-generate an empty ECI (Hamiltonian) JSON file from saved cluster data, ready for editing.
+3. **Type-2 — Thermodynamic equilibrium:** Minimize free energy with CVM or run Monte Carlo simulations (MCS) to compute G, H, S as a function of temperature and composition.
+
+---
 
 ## Quick Start
 
@@ -16,99 +19,175 @@ The CE Thermodynamics Workbench implements two fundamental classes of work:
 - Java 25 or later
 - Gradle 9.3+
 
-### Build
+### Launch the GUI
 
 ```bash
-./gradlew clean build
+./gradlew runGui
 ```
 
-### Run
+Opens the VS Code-style dark workbench with three panels:
+
+| Panel | Purpose |
+|-------|---------|
+| **Activity bar** (left strip) | Switch between Data Prep / Hamiltonian / Calculate |
+| **Explorer** (side panel) | Parameters for the selected task |
+| **Output** (main area) | Results display + log output |
+
+### Run the CLI
 
 ```bash
+# Full pipeline — built-in defaults (A-B / BCC_B2 / T)
 ./gradlew run
+
+# Full pipeline — explicit system
+./gradlew run --args="all Nb-Ti BCC_A2 T"
+
+# Single mode
+./gradlew run --args="type1a"
+./gradlew run --args="type1b Nb-Ti BCC_A2 T"
+./gradlew run --args="type2  Nb-Ti BCC_A2 T"
 ```
 
-This runs the complete CVM identification pipeline with the A2 system example.
+**Argument signature:** `[mode] [elements] [structure] [model]`
 
-### Run Tests
+| Argument | Values | Default |
+|----------|--------|---------|
+| mode | `type1a` \| `type1b` \| `type2` \| `all` | `all` |
+| elements | e.g. `Nb-Ti`, `A-B` | `A-B` |
+| structure | e.g. `BCC_A2`, `BCC_B2` | `BCC_B2` |
+| model | e.g. `T` | `T` |
+
+### Build & Test
 
 ```bash
+./gradlew build
 ./gradlew test
 ```
 
+---
+
 ## Architecture
 
-The system is organized into **four clean layers** with strict dependency rules:
+Four clean layers with strict one-way dependencies:
 
 ```
 org.ce
- ├─ domain      → physics models and algorithms
- ├─ workflow    → calculation orchestration
- ├─ storage     → disk IO and resource management
- └─ ui          → GUI and CLI interfaces
+ ├─ domain      → physics models and algorithms  (no upward deps)
+ ├─ storage     → disk IO and persistence         (→ domain)
+ ├─ workflow    → calculation orchestration       (→ domain, storage)
+ └─ ui          → GUI and CLI interfaces          (→ workflow)
 ```
 
-### Dependency Rules (Golden Rule)
+### Domain Layer
+
+Pure physics and algorithms. No dependency on any other layer.
+
+| Package | Contents |
+|---------|----------|
+| `domain/cluster` | `ClusterIdentifier`, `CFIdentifier`, `CMatrixBuilder`, `AllClusterData`, `SpaceGroup`, `Vector3D`, `Position`, `Site`, `Sublattice`, + 30 supporting classes |
+| `domain/engine` | `ThermodynamicEngine` interface, `CVMEngine` (Cluster Variation Method), `MCSEngine` (Monte Carlo) |
+| `domain/hamiltonian` | `Hamiltonian`, `CECEntry`, `CECTerm` — ECI model objects |
+| `domain/result` | `ThermodynamicResult`, `EquilibriumState` |
+
+### Storage Layer
+
+All disk IO and data persistence.
+
+| Class | Role |
+|-------|------|
+| `Workspace` | Resolves paths under `~/CEWorkbench/` |
+| `InputLoader` | Parses `.txt` cluster and symmetry-group files |
+| `ClusterDataStore` | Save/load `AllClusterData` as JSON |
+| `HamiltonianStore` | Save/load `CECEntry` (Hamiltonian) as JSON |
+| `SystemId` | Derives canonical `clusterId` and `hamiltonianId` from elements/structure/model |
+
+### Workflow Layer
+
+Orchestrates domain operations without implementing physics.
+
+| Class | Role |
+|-------|------|
+| `ClusterIdentificationWorkflow` | Type-1a: cluster + CF identification |
+| `ClusterIdentificationRequest` | Builder-pattern config for Type-1a |
+| `CECManagementWorkflow` | Type-1b: scaffold, load, validate, update Hamiltonian |
+| `ThermodynamicWorkflow` | Type-2: single-point, temperature scan, composition scan |
+| `CalculationService` | High-level façade used by both GUI and CLI |
+| `LineScanWorkflow`, `GridScanWorkflow` | Batched parameter sweeps |
+
+### UI Layer
+
+| Package | Contents |
+|---------|----------|
+| `ui/cli` | `Main.java` — entry point with positional argument parsing |
+| `ui/gui` | VS Code-style dark workbench (see below) |
+
+---
+
+## GUI Components
 
 ```
-domain → (no dependencies on workflow, storage, or ui)
-workflow → domain, storage
-storage → domain
-ui → workflow
+JFrame (BorderLayout)
+ ├─ NORTH  → HeaderBar          — app name + active system (elements · structure · model)
+ ├─ WEST   → ActivityBar        — icon strip; switches ExplorerPanel cards
+ ├─ CENTER → JSplitPane
+ │            ├─ LEFT  → ExplorerPanel   — CardLayout; one parameter panel at a time
+ │            └─ RIGHT → OutputPanel     — JSplitPane; RESULTS top / LOG bottom
+ └─ SOUTH  → StatusBar          — one-line operation status
 ```
 
-### Domain Layer (Physics)
+| Component | Description |
+|-----------|-------------|
+| `ActivityBar` | 52 px strip, 3 items (Data Prep / Hamiltonian / Calculate), blue left-accent on active |
+| `ExplorerPanel` | CardLayout holder for the 3 parameter panels |
+| `DataPreparationPanel` | Type-1a inputs: ordered + disordered cluster files, symmetry groups, component count |
+| `CECManagementPanel` | Type-1b: scaffold / load / edit / save Hamiltonian ECI table |
+| `CalculationPanel` | Type-2: elements, structure, model, T, x_B, engine selector, Calculate button |
+| `OutputPanel` | Always-visible split pane: RESULTS rows (G/H/S/T/x_B/engine) + scrollable log |
+| `HeaderBar` | Dark top bar; auto-updates from `WorkbenchContext` |
+| `StatusBar` | Blue footer bar; one-line status from panels |
+| `WorkbenchContext` | Shared observable session state — system identity propagated across all panels |
 
-Scientific concepts and algorithms. **Never depends on other layers.**
+---
 
-**Subpackages:**
+## Calculation Workflows
 
-- **cluster** - Structural cluster information
-  - `Cluster`, `ClusterData`, `AllClusterData`
-  - `ClusterIdentifier`, `CFIdentifier`, `CMatrixBuilder`
-  - `Vector3D`, `Position`, `Site`, `Sublattice`
+### Type-1a — Cluster Identification
 
-- **engine** - Thermodynamic solvers
-  - `ThermodynamicEngine`, `CVMEngine`, `MCSEngine`
-  - Compute equilibrium and minimize free energy
+```
+Input files (clus/*.txt + sym/*.txt)
+  ↓
+ClusterIdentificationWorkflow.identify(config)
+  ↓  Stage 1 — ClusterIdentifier
+  ↓  Stage 2 — CFIdentifier
+  ↓  Stage 3 — CMatrixBuilder
+  ↓
+AllClusterData  →  ClusterDataStore.save(clusterId, data)
+                   ~/CEWorkbench/cluster-data/<clusterId>/cluster_data.json
+```
 
-- **result** - Result objects
-  - `EquilibriumState`, `EngineMetrics`
-  - Represent immutable thermodynamic results
+### Type-1b — Hamiltonian Scaffold
 
-### Workflow Layer (Orchestration)
+```
+ClusterDataStore.load(clusterId)  ← uses ncf from disordered CF result
+  ↓
+CECManagementWorkflow.scaffoldFromClusterData(...)
+  ↓
+hamiltonian.json  (all ECI terms set to 0 — edit a and b values)
+~/CEWorkbench/hamiltonians/<hamiltonianId>/hamiltonian.json
+```
 
-Coordinates domain operations without implementing physics.
+### Type-2 — Thermodynamic Calculation
 
-**Key classes:**
+```
+ClusterDataStore.load(clusterId)
+HamiltonianStore.load(hamiltonianId)
+  ↓
+ThermodynamicEngine (CVMEngine or MCSEngine)
+  ↓
+ThermodynamicResult { gibbsEnergy, enthalpy, entropy, temperature, composition }
+```
 
-- `ClusterIdentificationWorkflow` - Type-1: generate cluster data
-- `ClusterIdentificationRequest` - Configuration for cluster identification
-- `CalculationService` - General calculation orchestration (planned)
-
-### Storage Layer (IO)
-
-Handles all disk IO and data persistence.
-
-**Key classes:**
-
-- `InputLoader` - Parse cluster files and symmetry groups
-- `ClusterDataStore` - Persist cluster data (planned)
-- `HamiltonianStore` - Persist Hamiltonian models (planned)
-- `Workspace` - Manage workspace and file paths (planned)
-
-### UI Layer (User Interface)
-
-User-facing interfaces.
-
-**Current:**
-
-- **cli** - Command-line interface
-  - `Main.java` - Entry point for complete pipeline
-
-**Planned:**
-
-- **gui** - Graphical interface with calculation panels
+---
 
 ## Package Structure
 
@@ -121,203 +200,125 @@ app/src/main/java/org/ce
 │  │  ├─ CMatrixBuilder.java
 │  │  ├─ AllClusterData.java
 │  │  ├─ Vector3D.java
-│  │  └─ (40+ supporting classes)
+│  │  └─ (30+ supporting classes)
 │  ├─ engine
+│  │  ├─ ThermodynamicEngine.java
 │  │  ├─ CVMEngine.java
 │  │  ├─ MCSEngine.java
-│  │  └─ ThermodynamicEngine.java
+│  │  └─ cvm/  (CVMFreeEnergy, CVMPhaseModel, NewtonRaphsonSolverSimple)
+│  ├─ hamiltonian
+│  │  ├─ Hamiltonian.java
+│  │  ├─ CECEntry.java
+│  │  └─ CECTerm.java
 │  └─ result
+│     ├─ ThermodynamicResult.java
 │     └─ EquilibriumState.java
 │
+├─ storage
+│  ├─ SystemId.java
+│  ├─ Workspace.java
+│  ├─ InputLoader.java
+│  ├─ ClusterDataStore.java
+│  └─ HamiltonianStore.java
+│
 ├─ workflow
+│  ├─ CalculationService.java
 │  ├─ ClusterIdentificationWorkflow.java
 │  ├─ ClusterIdentificationRequest.java
-│  └─ CalculationService.java
-│
-├─ storage
-│  ├─ input
-│  │  ├─ InputLoader.java
-│  │  ├─ ClusterParser.java
-│  │  └─ SpaceGroupParser.java
-│  ├─ ClusterDataStore.java
-│  ├─ HamiltonianStore.java
-│  └─ Workspace.java
+│  ├─ cec/
+│  │  ├─ CECManagementWorkflow.java
+│  │  └─ CFMetadata.java
+│  └─ thermo/
+│     ├─ ThermodynamicWorkflow.java
+│     ├─ LineScanWorkflow.java
+│     ├─ GridScanWorkflow.java
+│     ├─ ThermodynamicRequest.java
+│     └─ ThermodynamicData.java
 │
 └─ ui
-   └─ cli
-      └─ Main.java
+   ├─ cli/
+   │  └─ Main.java
+   └─ gui/
+      ├─ MainWindow.java
+      ├─ WorkbenchContext.java
+      ├─ ActivityBar.java
+      ├─ ExplorerPanel.java
+      ├─ OutputPanel.java
+      ├─ HeaderBar.java
+      ├─ StatusBar.java
+      ├─ DataPreparationPanel.java
+      ├─ CECManagementPanel.java
+      └─ CalculationPanel.java
 ```
 
-## Calculation Workflows
+---
 
-### Type-1: Cluster Identification (Stage 1-3)
+## Input Data Files
 
-Generate cluster and correlation function data:
+Located in `data/CEWorkbench/inputs/` (runtime workspace) and mirrored in `app/src/main/resources/` (bundled defaults):
 
-```
-ClusterIdentificationWorkflow
- ↓
-1. Load disordered and ordered clusters
-2. Load symmetry operations
- ↓
-ClusterIdentifier → Stage 1: Identify clusters
- ↓
-CFIdentifier → Stage 2: Identify correlation functions
- ↓
-CMatrixBuilder → Stage 3: Build C-matrix
- ↓
-AllClusterData (results bundled)
- ↓
-ClusterDataStore.save()
-```
+| File | Description |
+|------|-------------|
+| `clus/BCC_A2-T.txt` | BCC A2 (disordered) cluster coordinates |
+| `clus/BCC_B2-T.txt` | BCC B2 (ordered) cluster coordinates |
+| `clus/FCC_A1-TO.txt` | FCC A1 cluster coordinates |
+| `sym/BCC_A2-SG.txt` | BCC A2 space group symmetry operations |
+| `sym/BCC_B2-SG.txt` | BCC B2 space group symmetry operations |
+| `sym/FCC_A1-SG.txt` | FCC A1 space group symmetry operations |
+| `sym/HCP_A3-SG.txt` | HCP A3 space group symmetry operations |
 
-**Example usage:**
+---
 
-```java
-ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
-    .disorderedClusterFile("clus/A2-T.txt")
-    .orderedClusterFile("clus/A2-T.txt")
-    .disorderedSymmetryGroup("A2-SG")
-    .orderedSymmetryGroup("A2-SG")
-    .transformationMatrix(new double[][]{{1,0,0},{0,1,0},{0,0,1}})
-    .translationVector(new Vector3D(0, 0, 0))
-    .numComponents(2)
-    .build();
+## Workspace Layout
 
-AllClusterData result = ClusterIdentificationWorkflow.identify(config);
-```
-
-### Type-2: Thermodynamic Equilibrium (Planned)
-
-Compute equilibrium states given cluster data and Hamiltonian:
+All persistent data is stored under `~/CEWorkbench/`:
 
 ```
-CalculationService
- ↓
-ClusterDataStore.load()
-HamiltonianStore.load()
- ↓
-ThermodynamicEngine (CVMEngine or MCSEngine)
- ↓
-EquilibriumState
- ↓
-UI → Display results
+~/CEWorkbench/
+ ├─ inputs/
+ │   ├─ clus/   ← cluster coordinate files
+ │   └─ sym/    ← symmetry group files
+ ├─ cluster-data/
+ │   └─ <clusterId>/
+ │       └─ cluster_data.json
+ └─ hamiltonians/
+     └─ <hamiltonianId>/
+         └─ hamiltonian.json    ← edit a and b ECI values here
 ```
 
-## Resources
+`SystemId` derives IDs deterministically:
+- `clusterId`      = `<elements>_<structure>_<model>`  e.g. `Nb-Ti_BCC_A2_T`
+- `hamiltonianId`  = same format, e.g. `Nb-Ti_BCC_A2_T`
 
-Input data files are located in `app/src/main/resources/`:
-
-- **clus/** - Cluster coordinate files (Mathematica format)
-  - A1-TO.txt, A2-T.txt, B2-T.txt
-
-- **sym/** - Space group symmetry operations
-  - A1-SG.txt, A2-SG.txt, B2-SG.txt
-
-## Key Concepts
-
-### Vector3D
-Immutable 3D vector for coordinates and transformations.
-- Fields: x, y, z (doubles)
-- Methods: getters, distance(), equals(), hashCode()
-
-### AllClusterData
-Bundles cluster and CF identification results for both disordered and ordered phases.
-- Maintains semantic distinction between phases
-- Internally: each result object contains both disordered and ordered data
-- Methods: getters, printResults(), getSummary()
-
-### ClusterIdentificationResult
-Contains complete cluster analysis for both phases.
-- Includes Nij table, Kikuchi-Baker coefficients
-- Stores cluster types, multiplicities, orbit information
-- Separates HSP (disordered) and ordered phase metrics
-
-## Testing
-
-Run the test suite:
-
-```bash
-./gradlew test
-```
-
-Example test: `ClusterIdentificationWorkflowTest.testA2B2SystemWithBinaryBasis()`
-
-Tests verify:
-- Cluster identification produces correct results
-- CF identification completes successfully
-- C-matrix construction works properly
-- Results are non-null and properly structured
-
-## Design Principles
-
-This architecture follows these principles:
-
-1. **Physics-first** - Domain layer contains pure physics/algorithms
-2. **Minimal abstractions** - No unnecessary factories, repositories, adapters
-3. **Clean separation** - Each layer has clear, single responsibility
-4. **Easy extension** - Add new workflows, engines, or UI components independently
-5. **Scientific clarity** - Structure mirrors the actual thermodynamic workflow
-
-## Building from Source
-
-### Prerequisites
-
-- Java 25 (JDK)
-- Gradle 9.3.1 (included in repo)
-
-### Development
-
-Edit source files in `app/src/main/java/org/ce/`
-
-Build and test:
-
-```bash
-./gradlew build
-```
-
-### Distribution
-
-Create executable JAR:
-
-```bash
-./gradlew assemble
-```
-
-Output: `build/libs/CEWorkbench-1.0.jar`
+---
 
 ## Project Status
 
-✅ **Complete:**
-- Layered architecture with clean dependencies
-- Cluster identification (Stage 1)
-- Correlation function identification (Stage 2)
-- C-matrix construction (Stage 3)
-- CLI interface
+**Complete:**
+- Layered architecture with clean dependency rules
+- Cluster identification — Stages 1, 2, 3 (cluster, CF, C-matrix)
+- CVM thermodynamic engine
+- MCS thermodynamic engine
+- Hamiltonian scaffold, load, edit, save workflow
+- VS Code dark GUI — Activity Bar, Explorer, Output panel, Header, Status bar
+- Shared `WorkbenchContext` — system identity propagated across all panels
+- CLI with positional system-identity arguments
 
-🔄 **In Progress:**
-- Storage layer for persistence
-- Thermodynamic engines (CVM, MCS)
+**In Progress / Planned:**
+- Additional symmetry groups and crystal structures
+- Phase diagram grid scan visualization
+- Export results to CSV / JSON
 
-📋 **Planned:**
-- GUI interface
-- Type-2 equilibrium calculations
-- Additional symmetry groups and systems
+---
 
-## Contributing
+## Design Principles
 
-The codebase is organized for easy extension:
+1. **Physics-first** — domain layer contains pure physics; no IO, no UI
+2. **Minimal abstractions** — no unnecessary factories, repositories, or adapters
+3. **Clean separation** — each layer has a single responsibility
+4. **Scientific clarity** — structure mirrors the actual thermodynamic workflow
 
-- **New domain algorithms** → Add to `domain/` packages
-- **New workflows** → Create in `workflow/` package
-- **New calculations** → Add `ThermodynamicWorkflow` class
-- **New UI** → Extend `ui/` with gui components
-
-## References
-
-- **Cluster Expansion Theory** - See comments in domain layer
-- **Symmetry Operations** - Load from resource files in sym/
-- **Mathematica Format** - ClusterParser handles .txt input format
+---
 
 ## License
 
@@ -326,5 +327,3 @@ The codebase is organized for easy extension:
 ## Authors
 
 - Project: CE Thermodynamics Workbench
-- Refactored architecture: Claude
-- Original algorithms: [Your names here]
