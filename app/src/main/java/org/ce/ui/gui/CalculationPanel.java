@@ -1,106 +1,231 @@
 package org.ce.ui.gui;
 
 import org.ce.domain.result.ThermodynamicResult;
+import org.ce.storage.SystemId;
 import org.ce.workflow.CalculationService;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.util.function.Consumer;
 
 /**
- * Panel for running single-point thermodynamic calculations.
+ * Parameter panel for single-point thermodynamic calculations (shown in the Explorer column).
+ *
+ * <p>Elements, Structure, and Model sync with the shared {@link WorkbenchContext}.
+ * Cluster ID and Hamiltonian ID are auto-derived (read-only). On completion, the
+ * result is sent to {@code resultSink} which calls
+ * {@link OutputPanel#showResult(ThermodynamicResult)}.</p>
+ *
+ * <p>Log output is routed to {@code logSink} and one-line status updates go to
+ * {@code statusSink}.</p>
  */
 public class CalculationPanel extends JPanel {
 
-    private final CalculationService service;
-    private final ResultsPanel       resultsPanel;
-    private final JTabbedPane        tabs;
+    // ── VS Code dark colours ──────────────────────────────────────────────────
+    private static final Color BG       = new Color(0x252526);
+    private static final Color LABEL_FG = new Color(0xCCCCCC);
+    private static final Color ID_FG    = new Color(0x4EC9B0);   // teal
 
-    private final JTextField clusterIdField     = new JTextField("BCC_A2_T_bin", 18);
-    private final JTextField hamiltonianIdField  = new JTextField("A-B_BCC_A2_T", 18);
-    private final JSpinner   temperatureField    = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
-    private final JSpinner   xBField             = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
-    private final JComboBox<String> engineBox    = new JComboBox<>(new String[]{"CVM", "MCS"});
-    private final JTextArea  logArea             = new JTextArea(8, 60);
-    private final JButton    calcButton          = new JButton("Calculate");
+    private final CalculationService             service;
+    private final WorkbenchContext               context;
+    private final Consumer<String>               statusSink;
+    private final Consumer<String>               logSink;
+    private final Consumer<ThermodynamicResult>  resultSink;
 
-    public CalculationPanel(CalculationService service, ResultsPanel resultsPanel, JTabbedPane tabs) {
-        this.service      = service;
-        this.resultsPanel = resultsPanel;
-        this.tabs         = tabs;
+    // User-editable inputs
+    private final JTextField elementsField  = new JTextField("A-B", 12);
+    private final JTextField structureField = new JTextField("BCC_B2", 10);
+    private final JTextField modelField     = new JTextField("T", 8);
 
-        setLayout(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+    // Auto-derived IDs (read-only)
+    private final JTextField clusterIdField    = new JTextField(20);
+    private final JTextField hamiltonianIdField = new JTextField(20);
 
+    private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
+    private final JSpinner          xBField          = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
+    private final JComboBox<String> engineBox        = new JComboBox<>(new String[]{"CVM", "MCS"});
+    private final JButton           calcButton       = new JButton("Calculate");
+
+    private boolean updatingFromContext = false;
+
+    public CalculationPanel(CalculationService service,
+                            WorkbenchContext context,
+                            Consumer<String> statusSink,
+                            Consumer<String> logSink,
+                            Consumer<ThermodynamicResult> resultSink) {
+        this.service     = service;
+        this.context     = context;
+        this.statusSink  = statusSink;
+        this.logSink     = logSink;
+        this.resultSink  = resultSink;
+
+        setBackground(BG);
+
+        for (JTextField f : new JTextField[]{ clusterIdField, hamiltonianIdField }) {
+            f.setEditable(false);
+            f.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
+            f.setForeground(ID_FG);
+        }
+
+        DocumentListener userEdit = new DocumentListener() {
+            public void insertUpdate(DocumentEvent e)  { onFieldChanged(); }
+            public void removeUpdate(DocumentEvent e)  { onFieldChanged(); }
+            public void changedUpdate(DocumentEvent e) { onFieldChanged(); }
+        };
+        elementsField.getDocument().addDocumentListener(userEdit);
+        structureField.getDocument().addDocumentListener(userEdit);
+        modelField.getDocument().addDocumentListener(userEdit);
+
+        context.addChangeListener(() -> {
+            if (context.hasSystem()) {
+                var sys = context.getSystem();
+                updatingFromContext = true;
+                if (!elementsField.getText().equals(sys.elements))   elementsField.setText(sys.elements);
+                if (!structureField.getText().equals(sys.structure))  structureField.setText(sys.structure);
+                if (!modelField.getText().equals(sys.model))          modelField.setText(sys.model);
+                updatingFromContext = false;
+                refreshIds();
+            }
+        });
+
+        if (context.hasSystem()) {
+            var sys = context.getSystem();
+            elementsField.setText(sys.elements);
+            structureField.setText(sys.structure);
+            modelField.setText(sys.model);
+        }
+
+        refreshIds();
+
+        setLayout(new BorderLayout(0, 0));
+        setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
         add(buildForm(), BorderLayout.NORTH);
-        add(buildLog(), BorderLayout.CENTER);
     }
+
+    // =========================================================================
+    // ID derivation + context propagation
+    // =========================================================================
+
+    private void onFieldChanged() {
+        refreshIds();
+        if (!updatingFromContext) {
+            String elements  = elementsField.getText().trim();
+            String structure = structureField.getText().trim();
+            String model     = modelField.getText().trim();
+            if (!elements.isBlank() && !structure.isBlank() && !model.isBlank()) {
+                context.setSystem(elements, structure, model);
+            }
+        }
+    }
+
+    private void refreshIds() {
+        String elements  = elementsField.getText().trim();
+        String structure = structureField.getText().trim();
+        String model     = modelField.getText().trim();
+        if (elements.isBlank() || structure.isBlank() || model.isBlank()) return;
+        try {
+            SystemId id = new SystemId(elements, structure, model);
+            clusterIdField.setText(id.clusterId());
+            hamiltonianIdField.setText(id.hamiltonianId());
+        } catch (IllegalArgumentException ignored) {}
+    }
+
+    // =========================================================================
+    // Form layout
+    // =========================================================================
 
     private JPanel buildForm() {
         JPanel form = new JPanel(new GridBagLayout());
+        form.setBackground(BG);
         form.setBorder(BorderFactory.createTitledBorder("Calculation Parameters"));
 
         GridBagConstraints lc = new GridBagConstraints();
-        lc.anchor = GridBagConstraints.WEST;
-        lc.insets = new Insets(4, 6, 4, 4);
+        lc.anchor  = GridBagConstraints.WEST;
+        lc.gridx   = 0;
+        lc.insets  = new Insets(2, 6, 1, 6);
 
         GridBagConstraints fc = new GridBagConstraints();
-        fc.fill = GridBagConstraints.HORIZONTAL;
-        fc.insets = new Insets(4, 0, 4, 14);
+        fc.fill    = GridBagConstraints.HORIZONTAL;
+        fc.weightx = 1.0;
+        fc.gridx   = 0;
+        fc.insets  = new Insets(0, 6, 4, 8);
 
         int row = 0;
 
-        lc.gridx = 0; lc.gridy = row; fc.gridx = 1; fc.gridy = row++;
-        form.add(new JLabel("Cluster ID:"), lc);
-        form.add(clusterIdField, fc);
+        // Elements
+        lc.gridy = row++;  form.add(makeLabel("Elements:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(elementsField, fc);
 
-        lc.gridy = row; fc.gridy = row++;
-        form.add(new JLabel("Hamiltonian ID:"), lc);
-        form.add(hamiltonianIdField, fc);
+        // Structure
+        lc.gridy = row++;  form.add(makeLabel("Structure:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(structureField, fc);
 
-        lc.gridy = row; fc.gridy = row++;
-        form.add(new JLabel("Temperature (K):"), lc);
-        form.add(temperatureField, fc);
+        // Model
+        lc.gridy = row++;  form.add(makeLabel("Model:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(modelField, fc);
 
-        lc.gridy = row; fc.gridy = row++;
-        form.add(new JLabel("Composition x_B:"), lc);
-        form.add(xBField, fc);
+        // Cluster ID
+        lc.gridy = row++;  form.add(makeLabel("Cluster ID:", ID_FG), lc);
+        fc.gridy = row++;  form.add(clusterIdField, fc);
 
-        lc.gridy = row; fc.gridy = row++;
-        form.add(new JLabel("Engine:"), lc);
-        form.add(engineBox, fc);
+        // Hamiltonian ID
+        lc.gridy = row++;  form.add(makeLabel("Hamiltonian ID:", ID_FG), lc);
+        fc.gridy = row++;  form.add(hamiltonianIdField, fc);
 
-        calcButton.addActionListener(e -> runCalculation());
+        // Temperature
+        lc.gridy = row++;  form.add(makeLabel("Temperature (K):", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(temperatureField, fc);
+
+        // Composition
+        lc.gridy = row++;  form.add(makeLabel("Composition x_B:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(xBField, fc);
+
+        // Engine
+        lc.gridy = row++;  form.add(makeLabel("Engine:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(engineBox, fc);
+
+        // Button
         GridBagConstraints bc = new GridBagConstraints();
-        bc.gridx = 1; bc.gridy = row;
+        bc.gridx = 0; bc.gridy = row;
         bc.anchor = GridBagConstraints.WEST;
-        bc.insets = new Insets(8, 0, 4, 6);
+        bc.insets = new Insets(6, 6, 4, 6);
+        calcButton.addActionListener(e -> runCalculation());
         form.add(calcButton, bc);
 
         return form;
     }
 
-    private JScrollPane buildLog() {
-        logArea.setEditable(false);
-        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        logArea.setText("Press Calculate to run a thermodynamic calculation.\n");
-        JScrollPane scroll = new JScrollPane(logArea);
-        scroll.setBorder(BorderFactory.createTitledBorder("Log"));
-        return scroll;
+    private static JLabel makeLabel(String text, Color fg) {
+        JLabel l = new JLabel(text);
+        l.setForeground(fg);
+        return l;
     }
+
+    // =========================================================================
+    // Calculation
+    // =========================================================================
 
     private void runCalculation() {
         String clusterId     = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
+        if (clusterId.isBlank() || hamiltonianId.isBlank()) {
+            logSink.accept("Fill in Elements, Structure, and Model first.");
+            return;
+        }
+
         double temperature   = ((Number) temperatureField.getValue()).doubleValue();
         double xB            = ((Number) xBField.getValue()).doubleValue();
         String engineType    = (String) engineBox.getSelectedItem();
         double[] composition = {1.0 - xB, xB};
 
         calcButton.setEnabled(false);
-        logArea.setText("Running " + engineType + " calculation...\n");
-        logArea.append("  Cluster     : " + clusterId + "\n");
-        logArea.append("  Hamiltonian : " + hamiltonianId + "\n");
-        logArea.append("  T = " + temperature + " K,  x_B = " + xB + "\n");
+        logSink.accept("Running " + engineType + " calculation...");
+        logSink.accept("  Cluster     : " + clusterId);
+        logSink.accept("  Hamiltonian : " + hamiltonianId);
+        logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
+        statusSink.accept("Running " + engineType + " at T=" + temperature + " K...");
 
         SwingWorker<ThermodynamicResult, Void> worker = new SwingWorker<>() {
             @Override
@@ -113,13 +238,15 @@ public class CalculationPanel extends JPanel {
                 calcButton.setEnabled(true);
                 try {
                     ThermodynamicResult result = get();
-                    logArea.append("\nCalculation complete.\n");
-                    logArea.append("  G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol\n");
-                    logArea.append("  H = " + String.format("%.4f", result.enthalpy) + " J/mol\n");
-                    resultsPanel.showResult(result);
-                    tabs.setSelectedIndex(3);
+                    logSink.accept("Calculation complete.");
+                    logSink.accept("  G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
+                    logSink.accept("  H = " + String.format("%.4f", result.enthalpy) + " J/mol");
+                    logSink.accept("  S = " + String.format("%.6f", result.entropy) + " J/mol/K");
+                    statusSink.accept("Done — G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
+                    resultSink.accept(result);
                 } catch (Exception ex) {
-                    logArea.append("\nError: " + ex.getMessage() + "\n");
+                    logSink.accept("Error: " + ex.getMessage());
+                    statusSink.accept("Error: " + ex.getMessage());
                 }
             }
         };

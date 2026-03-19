@@ -4,6 +4,7 @@ import org.ce.domain.cluster.*;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.ClusterDataStore;
+import org.ce.storage.SystemId;
 import org.ce.storage.Workspace;
 import org.ce.storage.HamiltonianStore;
 import org.ce.storage.InputLoader;
@@ -19,33 +20,47 @@ import java.util.List;
  * Main entry point for the CE Workbench CLI.
  *
  * Usage:
- *   ./gradlew run --args="type1a"   -- cluster identification + save cluster_data.json
- *   ./gradlew run --args="type1b"   -- scaffold empty Hamiltonian from saved cluster data
- *   ./gradlew run --args="type2"    -- thermodynamic calculation (requires type1a + type1b)
- *   ./gradlew run                   -- full pipeline: type1a -> type1b -> type2
+ *   ./gradlew run                                  -- full pipeline, built-in defaults
+ *   ./gradlew run --args="type1a"                  -- cluster identification only
+ *   ./gradlew run --args="type1b"                  -- Hamiltonian scaffold only
+ *   ./gradlew run --args="type2"                   -- thermodynamic calculation only
+ *   ./gradlew run --args="all  Nb-Ti BCC_A2 T"     -- explicit system, all modes
+ *   ./gradlew run --args="type2 Nb-Ti BCC_A2 T"    -- explicit system, type-2 only
+ *
+ * Arguments:  mode  [elements  structure  model]
+ *   mode       : type1a | type1b | type2 | all  (default: all)
+ *   elements   : element pair, e.g. Nb-Ti  (default: A-B)
+ *   structure  : structure ID,  e.g. BCC_A2 (default: BCC_B2)
+ *   model      : model ID,      e.g. T      (default: T)
  */
 public class Main {
 
-    // cluster data ID:   {structure}_{model}_{ncomp}  — element-agnostic
-    private static final String CLUSTER_ID     = "BCC_B2_T_bin";
-    // hamiltonian ID:    {elements}_{structure}_{model}  — element-specific
-    private static final String HAMILTONIAN_ID = "A-B_BCC_B2_T";
-
     public static void main(String[] args) {
 
-        String mode = args.length > 0 ? args[0].toLowerCase() : "all";
+        // Parse positional arguments — same three values as the GUI's system context
+        String mode      = args.length > 0 ? args[0].toLowerCase() : "all";
+        String elements  = args.length > 1 ? args[1] : "A-B";
+        String structure = args.length > 2 ? args[2] : "BCC_B2";
+        String model     = args.length > 3 ? args[3] : "T";
 
         if (!mode.equals("type1a") && !mode.equals("type1b")
                 && !mode.equals("type2") && !mode.equals("all")) {
             System.err.println("Unknown mode: " + mode);
-            System.err.println("Valid modes: type1a  type1b  type2  all");
+            System.err.println("Usage: [mode] [elements] [structure] [model]");
+            System.err.println("  mode: type1a | type1b | type2 | all");
             System.exit(1);
         }
+
+        SystemId system       = new SystemId(elements, structure, model);
+        String   CLUSTER_ID   = system.clusterId();
+        String   HAMILTONIAN_ID = system.hamiltonianId();
 
         System.out.println("================================================================================");
         System.out.println("                    CE THERMODYNAMICS WORKBENCH");
         System.out.println("================================================================================");
-        System.out.println("Mode: " + mode);
+        System.out.println("Mode      : " + mode);
+        System.out.println("System    : " + elements + "  /  " + structure + "  /  " + model);
+        System.out.println("Cluster ID: " + CLUSTER_ID + "   Hamiltonian ID: " + HAMILTONIAN_ID);
 
         try {
             Workspace workspace         = new Workspace();
@@ -64,17 +79,17 @@ public class Main {
 
                 // Transformation matrix and translation vector are automatically extracted from symmetry group files
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
-                        .disorderedClusterFile("clus/A2-T.txt")
-                        .orderedClusterFile("clus/B2-T.txt")
-                        .disorderedSymmetryGroup("A2-SG")
-                        .orderedSymmetryGroup("B2-SG")
+                        .disorderedClusterFile("clus/BCC_A2-T.txt")   // A2: disordered (HSP)
+                        .orderedClusterFile("clus/BCC_B2-T.txt")       // B2: ordered phase
+                        .disorderedSymmetryGroup("BCC_A2-SG")
+                        .orderedSymmetryGroup("BCC_B2-SG")
                         .numComponents(2)
                         .build();
 
                 AllClusterData clusterData = ClusterIdentificationWorkflow.identify(config);
                 System.out.println("Identification complete: " + clusterData.getSummary());
 
-                List<Cluster> maxClusters = InputLoader.parseClusterFileFromPath(inputsDir, "clus/A2-T.txt");
+                List<Cluster> maxClusters = InputLoader.parseClusterFile(inputsDir, "clus/BCC_A2-T.txt");
                 CMatrixResult cmatrix = CMatrixBuilder.build(
                         clusterData.getDisorderedClusterResult(),
                         clusterData.getDisorderedCFResult(),
@@ -105,14 +120,14 @@ public class Main {
                     System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
                     System.out.println("  Delete ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/ to re-scaffold.");
                 } else {
-                    cecWorkflow.scaffoldFromClusterData(HAMILTONIAN_ID, "A-B", "A2", "T");
+                    cecWorkflow.scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
                     System.out.println("Saved: ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/hamiltonian.json");
                     System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
                 }
             }
 
             // ------------------------------------------------------------------
-            // TYPE-2: Thermodynamic Calculation
+            // TYPE-2: Thermodynamic Calculation (CVM temperature scan)
             // ------------------------------------------------------------------
             if (mode.equals("type2") || mode.equals("all")) {
 
@@ -124,19 +139,26 @@ public class Main {
                 );
                 CalculationService service = new CalculationService(thermoWorkflow);
 
-                double temperature   = 1000.0;
                 double[] composition = {0.5, 0.5};
+                double tStart = 300.0;
+                double tEnd   = 2000.0;
+                double tStep  = 100.0;
 
-                System.out.println("Running CVM at T=" + temperature + " K, x_B=" + composition[1]);
-                ThermodynamicResult result = service.runSinglePoint(
-                        CLUSTER_ID, HAMILTONIAN_ID, temperature, composition, "CVM"
+                System.out.println("System      : " + CLUSTER_ID + " / " + HAMILTONIAN_ID);
+                System.out.println("Composition : x_B = " + composition[1]);
+                System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
+
+                List<ThermodynamicResult> results = service.runLineScanTemperature(
+                        CLUSTER_ID, HAMILTONIAN_ID, composition, tStart, tEnd, tStep, "CVM"
                 );
 
-                System.out.println("\nResult:");
-                System.out.println("  Temperature : " + result.temperature + " K");
-                System.out.println("  Composition : x_B = " + result.composition[1]);
-                System.out.println("  Free energy : " + String.format("%.6f", result.gibbsEnergy) + " J/mol");
-                System.out.println("  Enthalpy    : " + String.format("%.6f", result.enthalpy) + " J/mol");
+                System.out.println(String.format("  %-8s  %-16s  %-16s  %-16s",
+                        "T (K)", "G (J/mol)", "H (J/mol)", "S (J/mol/K)"));
+                System.out.println("  " + "-".repeat(62));
+                for (ThermodynamicResult r : results) {
+                    System.out.println(String.format("  %-8.1f  %-16.4f  %-16.4f  %-16.6f",
+                            r.temperature, r.gibbsEnergy, r.enthalpy, r.entropy));
+                }
             }
 
         } catch (Exception e) {

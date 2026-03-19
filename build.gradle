@@ -48,3 +48,10 @@ test {
 application {
     mainClass = 'org.ce.ui.cli.Main'
 }
+
+task runGui(type: JavaExec) {
+    group = 'application'
+    description = 'Launch the CE Workbench GUI'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.CEWorkbench'
+}

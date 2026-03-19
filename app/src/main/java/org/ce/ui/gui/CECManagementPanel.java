@@ -5,87 +5,197 @@ import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.workflow.cec.CECManagementWorkflow;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.function.Consumer;
 
 /**
- * Panel for scaffolding and inspecting the Hamiltonian (ECI) database.
+ * Parameter panel for scaffolding, inspecting, and editing the Hamiltonian (ECI) database.
+ *
+ * <p>Shown in the Explorer column. Log output is routed to {@code logSink}
+ * (displayed in {@link OutputPanel}). One-line status updates go to
+ * {@code statusSink} (displayed in {@link StatusBar}).</p>
  */
 public class CECManagementPanel extends JPanel {
 
-    private final CECManagementWorkflow cecWorkflow;
+    // ── VS Code dark colours ──────────────────────────────────────────────────
+    private static final Color BG        = new Color(0x252526);
+    private static final Color LABEL_FG  = new Color(0xCCCCCC);
+    private static final Color ID_FG     = new Color(0x4EC9B0);   // teal
 
-    private final JTextField clusterIdField     = new JTextField("BCC_A2_T_bin", 16);
-    private final JTextField hamiltonianIdField  = new JTextField("A-B_BCC_A2_T", 16);
-    private final JTextField elementsField       = new JTextField("A-B", 12);
-    private final JTextField structPhaseField    = new JTextField("A2", 10);
-    private final JTextField modelField          = new JTextField("T", 8);
-    private final JTextArea  statusArea          = new JTextArea(4, 60);
-    private final DefaultTableModel tableModel   = new DefaultTableModel(
-            new Object[]{"Name", "a (J/mol)", "b (J/mol/K)"}, 0);
+    private final CECManagementWorkflow cecWorkflow;
+    private final WorkbenchContext      context;
+    private final Consumer<String>      statusSink;
+    private final Consumer<String>      logSink;
+
+    // User-editable inputs
+    private final JTextField elementsField  = new JTextField("Nb-Ti", 12);
+    private final JTextField structureField = new JTextField("BCC_A2", 10);
+    private final JTextField modelField     = new JTextField("T", 8);
+
+    // Auto-derived IDs (read-only)
+    private final JTextField clusterIdField    = new JTextField(20);
+    private final JTextField hamiltonianIdField = new JTextField(20);
+
+    private final DefaultTableModel tableModel = new DefaultTableModel(
+            new Object[]{"Name", "a (J/mol)", "b (J/mol/K)"}, 0) {
+        @Override
+        public boolean isCellEditable(int row, int column) {
+            return column > 0;
+        }
+    };
     private final JTable cecTable = new JTable(tableModel);
 
-    public CECManagementPanel(CECManagementWorkflow cecWorkflow) {
+    private CECEntry currentEntry         = null;
+    private String   currentHamiltonianId = null;
+
+    public CECManagementPanel(CECManagementWorkflow cecWorkflow,
+                              WorkbenchContext context,
+                              Consumer<String> statusSink,
+                              Consumer<String> logSink) {
         this.cecWorkflow = cecWorkflow;
+        this.context     = context;
+        this.statusSink  = statusSink;
+        this.logSink     = logSink;
 
-        setLayout(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setBackground(BG);
 
-        add(buildForm(), BorderLayout.NORTH);
+        // Style read-only ID fields
+        for (JTextField f : new JTextField[]{ clusterIdField, hamiltonianIdField }) {
+            f.setEditable(false);
+            f.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
+            f.setForeground(ID_FG);
+        }
+
+        // Style table for dark theme
+        cecTable.setBackground(new Color(0x252526));
+        cecTable.setForeground(new Color(0xD4D4D4));
+        cecTable.setGridColor(new Color(0x3C3C3C));
+        cecTable.setSelectionBackground(new Color(0x094771));
+        cecTable.setSelectionForeground(Color.WHITE);
+        cecTable.getTableHeader().setBackground(new Color(0x2D2D2D));
+        cecTable.getTableHeader().setForeground(new Color(0xBBBBBB));
+
+        // Wire document listeners
+        DocumentListener refresh = new DocumentListener() {
+            public void insertUpdate(DocumentEvent e)  { onFieldChanged(); }
+            public void removeUpdate(DocumentEvent e)  { onFieldChanged(); }
+            public void changedUpdate(DocumentEvent e) { onFieldChanged(); }
+        };
+        elementsField.getDocument().addDocumentListener(refresh);
+        structureField.getDocument().addDocumentListener(refresh);
+        modelField.getDocument().addDocumentListener(refresh);
+
+        if (context.hasSystem()) {
+            var sys = context.getSystem();
+            elementsField.setText(sys.elements);
+            structureField.setText(sys.structure);
+            modelField.setText(sys.model);
+        }
+
+        context.addChangeListener(() -> {
+            if (context.hasSystem()) {
+                var sys = context.getSystem();
+                if (!elementsField.getText().equals(sys.elements))  elementsField.setText(sys.elements);
+                if (!structureField.getText().equals(sys.structure)) structureField.setText(sys.structure);
+                if (!modelField.getText().equals(sys.model))        modelField.setText(sys.model);
+            }
+        });
+
+        refreshIds();
+
+        setLayout(new BorderLayout(6, 6));
+        setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
+        add(buildForm(),         BorderLayout.NORTH);
         add(buildTableSection(), BorderLayout.CENTER);
-        add(buildStatus(), BorderLayout.SOUTH);
     }
+
+    // =========================================================================
+    // ID derivation + context propagation
+    // =========================================================================
+
+    private void onFieldChanged() {
+        refreshIds();
+        String elements  = elementsField.getText().trim();
+        String structure = structureField.getText().trim();
+        String model     = modelField.getText().trim();
+        if (!elements.isBlank() && !structure.isBlank() && !model.isBlank()) {
+            context.setSystem(elements, structure, model);
+        }
+    }
+
+    private void refreshIds() {
+        String elements  = elementsField.getText().trim();
+        String structure = structureField.getText().trim();
+        String model     = modelField.getText().trim();
+        if (elements.isBlank() || structure.isBlank() || model.isBlank()) return;
+        try {
+            clusterIdField.setText(CECManagementWorkflow.deriveClusterId(elements, structure, model));
+            hamiltonianIdField.setText(CECManagementWorkflow.deriveHamiltonianId(elements, structure, model));
+        } catch (IllegalArgumentException ignored) {}
+    }
+
+    // =========================================================================
+    // Form layout
+    // =========================================================================
 
     private JPanel buildForm() {
         JPanel form = new JPanel(new GridBagLayout());
+        form.setBackground(BG);
         form.setBorder(BorderFactory.createTitledBorder("Hamiltonian Database"));
 
         GridBagConstraints lc = new GridBagConstraints();
-        lc.anchor = GridBagConstraints.WEST;
-        lc.insets = new Insets(4, 6, 4, 4);
+        lc.anchor  = GridBagConstraints.WEST;
+        lc.gridx   = 0;
+        lc.insets  = new Insets(2, 6, 1, 6);
 
         GridBagConstraints fc = new GridBagConstraints();
-        fc.fill = GridBagConstraints.HORIZONTAL;
-        fc.insets = new Insets(4, 0, 4, 10);
+        fc.fill    = GridBagConstraints.HORIZONTAL;
+        fc.weightx = 1.0;
+        fc.gridx   = 0;
+        fc.insets  = new Insets(0, 6, 4, 8);
 
-        // Row 0: Cluster ID + Hamiltonian ID
-        int col = 0;
-        lc.gridx = col; lc.gridy = 0; fc.gridx = col + 1; fc.gridy = 0; col += 2;
-        form.add(new JLabel("Cluster ID:"), lc);
-        form.add(clusterIdField, fc);
+        int row = 0;
 
-        lc.gridx = col; fc.gridx = col + 1; col += 2;
-        form.add(new JLabel("Hamiltonian ID:"), lc);
-        form.add(hamiltonianIdField, fc);
+        // Elements
+        lc.gridy = row++;  form.add(makeLabel("Elements:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(elementsField, fc);
 
-        // Row 1: Elements + Structure-phase + Model
-        col = 0;
-        lc.gridx = col; lc.gridy = 1; fc.gridx = col + 1; fc.gridy = 1; col += 2;
-        form.add(new JLabel("Elements:"), lc);
-        form.add(elementsField, fc);
+        // Structure
+        lc.gridy = row++;  form.add(makeLabel("Structure:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(structureField, fc);
 
-        lc.gridx = col; fc.gridx = col + 1; col += 2;
-        form.add(new JLabel("Structure-phase:"), lc);
-        form.add(structPhaseField, fc);
+        // Model
+        lc.gridy = row++;  form.add(makeLabel("Model:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(modelField, fc);
 
-        lc.gridx = col; fc.gridx = col + 1;
-        form.add(new JLabel("Model:"), lc);
-        form.add(modelField, fc);
+        // Cluster ID
+        lc.gridy = row++;  form.add(makeLabel("Cluster ID:", ID_FG), lc);
+        fc.gridy = row++;  form.add(clusterIdField, fc);
 
-        // Row 2: buttons
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        JButton scaffoldBtn = new JButton("Scaffold Empty Hamiltonian");
-        JButton loadBtn     = new JButton("Load Hamiltonian");
+        // Hamiltonian ID
+        lc.gridy = row++;  form.add(makeLabel("Hamiltonian ID:", ID_FG), lc);
+        fc.gridy = row++;  form.add(hamiltonianIdField, fc);
+
+        // Buttons
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        btnPanel.setBackground(BG);
+        JButton scaffoldBtn = new JButton("Scaffold");
+        JButton loadBtn     = new JButton("Load");
+        JButton saveBtn     = new JButton("Save");
         scaffoldBtn.addActionListener(e -> scaffoldCEC());
         loadBtn.addActionListener(e -> loadCEC());
+        saveBtn.addActionListener(e -> saveCEC());
         btnPanel.add(scaffoldBtn);
         btnPanel.add(loadBtn);
+        btnPanel.add(saveBtn);
 
         GridBagConstraints bc = new GridBagConstraints();
-        bc.gridx = 0; bc.gridy = 2;
-        bc.gridwidth = 6;
+        bc.gridx = 0; bc.gridy = row;
         bc.anchor = GridBagConstraints.WEST;
-        bc.insets = new Insets(8, 6, 4, 6);
+        bc.insets = new Insets(6, 4, 4, 6);
         form.add(btnPanel, bc);
 
         return form;
@@ -93,48 +203,53 @@ public class CECManagementPanel extends JPanel {
 
     private JScrollPane buildTableSection() {
         cecTable.setFillsViewportHeight(true);
-        cecTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        cecTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         JScrollPane scroll = new JScrollPane(cecTable);
-        scroll.setBorder(BorderFactory.createTitledBorder("ECI Terms"));
+        scroll.setBorder(BorderFactory.createTitledBorder("ECI Terms  (edit a and b, then Save)"));
+        scroll.setBackground(new Color(0x252526));
+        scroll.getViewport().setBackground(new Color(0x252526));
         return scroll;
     }
 
-    private JPanel buildStatus() {
-        statusArea.setEditable(false);
-        statusArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
-        JScrollPane scroll = new JScrollPane(statusArea);
-        scroll.setPreferredSize(new Dimension(0, 90));
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder("Status"));
-        panel.add(scroll);
-        return panel;
+    private static JLabel makeLabel(String text, Color fg) {
+        JLabel l = new JLabel(text);
+        l.setForeground(fg);
+        return l;
     }
 
+    // =========================================================================
+    // Actions
+    // =========================================================================
+
     private void scaffoldCEC() {
-        String clusterId     = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
         String elements      = elementsField.getText().trim();
-        String structPhase   = structPhaseField.getText().trim();
+        String structure     = structureField.getText().trim();
         String model         = modelField.getText().trim();
+        if (hamiltonianId.isBlank()) return;
 
-        statusArea.setText("Scaffolding Hamiltonian for " + hamiltonianId + "...\n");
+        logSink.accept("Scaffolding Hamiltonian for " + hamiltonianId + "...");
+        statusSink.accept("Scaffolding " + hamiltonianId + "...");
 
         SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
             @Override
             protected CECEntry doInBackground() throws Exception {
-                return cecWorkflow.scaffoldFromClusterData(hamiltonianId, elements, structPhase, model);
+                return cecWorkflow.scaffoldFromClusterData(hamiltonianId, elements, structure, model);
             }
 
             @Override
             protected void done() {
                 try {
                     CECEntry entry = get();
+                    currentEntry = entry;
+                    currentHamiltonianId = hamiltonianId;
                     populateTable(entry);
-                    statusArea.append("Scaffolded " + entry.ncf + " terms. Saved to ~/CEWorkbench/hamiltonians/"
-                            + hamiltonianId + "/hamiltonian.json\n");
-                    statusArea.append("Edit hamiltonian.json to enter real ECI values.\n");
+                    logSink.accept("Scaffolded " + entry.ncf + " terms. Saved to hamiltonians/" + hamiltonianId + "/hamiltonian.json");
+                    logSink.accept("Edit a and b values in the table, then click Save.");
+                    statusSink.accept("Scaffolded " + hamiltonianId + "  (" + entry.ncf + " terms)");
                 } catch (Exception ex) {
-                    statusArea.append("Error: " + ex.getMessage() + "\n");
+                    logSink.accept("Error: " + ex.getMessage());
+                    statusSink.accept("Error: " + ex.getMessage());
                 }
             }
         };
@@ -144,7 +259,10 @@ public class CECManagementPanel extends JPanel {
     private void loadCEC() {
         String clusterId     = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
-        statusArea.setText("Loading Hamiltonian " + hamiltonianId + "...\n");
+        if (hamiltonianId.isBlank()) return;
+
+        logSink.accept("Loading Hamiltonian " + hamiltonianId + "...");
+        statusSink.accept("Loading " + hamiltonianId + "...");
 
         SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
             @Override
@@ -156,13 +274,65 @@ public class CECManagementPanel extends JPanel {
             protected void done() {
                 try {
                     CECEntry entry = get();
+                    currentEntry = entry;
+                    currentHamiltonianId = hamiltonianId;
                     populateTable(entry);
-                    statusArea.append("Loaded " + entry.ncf + " terms.\n");
-                    statusArea.append("Elements: " + entry.elements
-                            + "  Phase: " + entry.structurePhase
-                            + "  Units: " + entry.cecUnits + "\n");
+                    logSink.accept("Loaded " + entry.ncf + " terms.");
+                    logSink.accept("Elements: " + entry.elements
+                            + "  Structure: " + entry.structurePhase
+                            + "  Units: " + entry.cecUnits);
+                    logSink.accept("Edit a and b values in the table, then click Save.");
+                    statusSink.accept("Loaded " + hamiltonianId + "  (" + entry.ncf + " terms)");
                 } catch (Exception ex) {
-                    statusArea.append("Error: " + ex.getMessage() + "\n");
+                    logSink.accept("Error: " + ex.getMessage());
+                    statusSink.accept("Error: " + ex.getMessage());
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void saveCEC() {
+        if (currentEntry == null || currentHamiltonianId == null) {
+            logSink.accept("Nothing loaded. Scaffold or Load a Hamiltonian first.");
+            return;
+        }
+
+        if (cecTable.isEditing()) {
+            cecTable.getCellEditor().stopCellEditing();
+        }
+
+        for (int row = 0; row < tableModel.getRowCount(); row++) {
+            try {
+                currentEntry.cecTerms[row].a = Double.parseDouble(tableModel.getValueAt(row, 1).toString());
+                currentEntry.cecTerms[row].b = Double.parseDouble(tableModel.getValueAt(row, 2).toString());
+            } catch (NumberFormatException ex) {
+                logSink.accept("Invalid number at row " + (row + 1) + ": " + ex.getMessage());
+                return;
+            }
+        }
+
+        String id    = currentHamiltonianId;
+        CECEntry ent = currentEntry;
+        logSink.accept("Saving Hamiltonian " + id + "...");
+        statusSink.accept("Saving " + id + "...");
+
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                cecWorkflow.updateCEC(id, ent);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    logSink.accept("Saved to hamiltonians/" + id + "/hamiltonian.json");
+                    statusSink.accept("Saved " + id);
+                } catch (Exception ex) {
+                    logSink.accept("Error: " + ex.getMessage());
+                    statusSink.accept("Error: " + ex.getMessage());
                 }
             }
         };
@@ -173,7 +343,7 @@ public class CECManagementPanel extends JPanel {
         tableModel.setRowCount(0);
         if (entry.cecTerms == null) return;
         for (CECTerm term : entry.cecTerms) {
-            tableModel.addRow(new Object[]{term.name, term.a, term.b});
+            tableModel.addRow(new Object[]{ term.name, term.a, term.b });
         }
     }
 }
