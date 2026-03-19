@@ -7,6 +7,7 @@ import org.ce.workflow.thermo.ThermodynamicRequest;
 import org.ce.workflow.thermo.ThermodynamicWorkflow;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Central service for thermodynamic calculations.
@@ -40,9 +41,19 @@ public class CalculationService {
             double temperature,
             double[] composition,
             String engineType) throws Exception {
+        return runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType, null);
+    }
+
+    public ThermodynamicResult runSinglePoint(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            Consumer<String> progressSink) throws Exception {
 
         return thermoWorkflow.runCalculation(
-                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType)
+                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType, progressSink)
         );
     }
 

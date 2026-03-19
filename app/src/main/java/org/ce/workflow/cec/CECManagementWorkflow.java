@@ -18,7 +18,7 @@ import java.util.List;
  */
 public class CECManagementWorkflow {
 
-    private final HamiltonianStore store;
+    public final HamiltonianStore store;
 
     private final ClusterDataStore clusterStore;
 

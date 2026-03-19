@@ -14,10 +14,11 @@ import java.nio.file.Path;
  *   │
  *   ├─ inputs/                          ← Type-1 INPUT files (cluster geometry, symmetry)
  *   │   ├─ clus/
- *   │   │   └─ A2-T.txt
+ *   │   │   ├─ BCC_A2-T.txt
+ *   │   │   └─ BCC_B2-T.txt
  *   │   └─ sym/
- *   │       ├─ A2-SG.txt
- *   │       └─ A2-SG_mat.txt
+ *   │       ├─ BCC_A2-SG.txt
+ *   │       └─ BCC_B2-SG.txt
  *   │
  *   ├─ cluster-data/                    ← Type-1 OUTPUTS  (element-agnostic)
  *   │   │   ID = {structure}_{model}_{ncomp}

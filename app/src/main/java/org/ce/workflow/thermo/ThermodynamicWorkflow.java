@@ -77,7 +77,8 @@ public class ThermodynamicWorkflow {
                 request.temperature,
                 request.composition,
                 data.systemId,
-                data.systemName
+                data.systemName,
+                request.progressSink
         );
 
         ThermodynamicEngine engine;

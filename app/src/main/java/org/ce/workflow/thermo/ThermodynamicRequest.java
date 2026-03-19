@@ -10,6 +10,8 @@ package org.ce.workflow.thermo;
  *   <li>{@code hamiltonianId} -- element-specific, e.g. {@code Nb-Ti_BCC_A2_T}</li>
  * </ul>
  */
+import java.util.function.Consumer;
+
 public class ThermodynamicRequest {
 
     public final String clusterId;
@@ -22,17 +24,31 @@ public class ThermodynamicRequest {
 
     public final String engineType;
 
+    /** Optional sink for real-time progress messages. May be null. */
+    public final Consumer<String> progressSink;
+
     public ThermodynamicRequest(
             String clusterId,
             String hamiltonianId,
             double temperature,
             double[] composition,
-            String engineType) {
+            String engineType,
+            Consumer<String> progressSink) {
 
         this.clusterId     = clusterId;
         this.hamiltonianId = hamiltonianId;
         this.temperature   = temperature;
         this.composition   = composition;
         this.engineType    = engineType;
+        this.progressSink  = progressSink;
+    }
+
+    public ThermodynamicRequest(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType) {
+        this(clusterId, hamiltonianId, temperature, composition, engineType, null);
     }
 }

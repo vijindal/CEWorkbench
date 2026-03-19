@@ -132,9 +132,20 @@ public class CECManagementPanel extends JPanel {
         String model     = modelField.getText().trim();
         if (elements.isBlank() || structure.isBlank() || model.isBlank()) return;
         try {
-            clusterIdField.setText(CECManagementWorkflow.deriveClusterId(elements, structure, model));
-            hamiltonianIdField.setText(CECManagementWorkflow.deriveHamiltonianId(elements, structure, model));
-        } catch (IllegalArgumentException ignored) {}
+            String hamiltonianId = elements + "_" + structure + "_" + model;
+            hamiltonianIdField.setText(hamiltonianId);
+            // Cluster ID derived from hamiltonian ID
+            int sep = hamiltonianId.indexOf('_');
+            String structureModel = hamiltonianId.substring(sep + 1);
+            int ncomp = elements.split("-").length;
+            String suffix = switch (ncomp) {
+                case 2 -> "bin";
+                case 3 -> "tern";
+                case 4 -> "quat";
+                default -> "bin";
+            };
+            clusterIdField.setText(structureModel + "_" + suffix);
+        } catch (Exception ignored) {}
     }
 
     // =========================================================================
@@ -320,7 +331,7 @@ public class CECManagementPanel extends JPanel {
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                cecWorkflow.updateCEC(id, ent);
+                cecWorkflow.store.save(id, ent);
                 return null;
             }
 

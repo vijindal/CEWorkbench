@@ -312,7 +312,6 @@ public class DataPreparationPanel extends JPanel {
                 publish("Stage 1-2: Cluster + CF identification...");
 
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
-                        .inputsDir(inputsDir)
                         .orderedClusterFile(ordClus)
                         .orderedSymmetryGroup(ordSym)
                         .disorderedClusterFile(disClus)
@@ -325,7 +324,7 @@ public class DataPreparationPanel extends JPanel {
                 AllClusterData partial = ClusterIdentificationWorkflow.identify(config);
 
                 publish("Stage 3: Building C-matrix...");
-                List<Cluster> maxClusters = InputLoader.parseClusterFile(inputsDir, ordClus);
+                List<Cluster> maxClusters = InputLoader.parseClusterFile(ordClus);
                 CMatrixResult cmatrix = CMatrixBuilder.build(
                         partial.getDisorderedClusterResult(),
                         partial.getDisorderedCFResult(),

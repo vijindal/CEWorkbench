@@ -1,5 +1,6 @@
 package org.ce.domain.cluster;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -46,7 +47,7 @@ public class AllClusterData {
             @JsonProperty("orderedClusterResult")    ClusterIdentificationResult orderedClusterResult,
             @JsonProperty("disorderedCFResult")      CFIdentificationResult      disorderedCFResult,
             @JsonProperty("orderedCFResult")         CFIdentificationResult      orderedCFResult,
-            @JsonProperty("cMatrixResult")           CMatrixResult               cMatrixResult) {
+            @JsonProperty("cMatrixResult") @JsonAlias("cmatrixResult") CMatrixResult cMatrixResult) {
 
         this.disorderedClusterResult = disorderedClusterResult;
         this.orderedClusterResult = orderedClusterResult;

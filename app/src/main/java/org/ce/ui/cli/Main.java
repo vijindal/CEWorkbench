@@ -89,7 +89,7 @@ public class Main {
                 AllClusterData clusterData = ClusterIdentificationWorkflow.identify(config);
                 System.out.println("Identification complete: " + clusterData.getSummary());
 
-                List<Cluster> maxClusters = InputLoader.parseClusterFile(inputsDir, "clus/BCC_A2-T.txt");
+                List<Cluster> maxClusters = InputLoader.parseClusterFile("clus/BCC_A2-T.txt");
                 CMatrixResult cmatrix = CMatrixBuilder.build(
                         clusterData.getDisorderedClusterResult(),
                         clusterData.getDisorderedCFResult(),
@@ -151,13 +151,15 @@ public class Main {
                 List<ThermodynamicResult> results = service.runLineScanTemperature(
                         CLUSTER_ID, HAMILTONIAN_ID, composition, tStart, tEnd, tStep, "CVM"
                 );
+                // MCS single-point example (shows sweep progress on stdout):
+                // service.runSinglePoint(CLUSTER_ID, HAMILTONIAN_ID, 1000.0, composition, "MCS", System.out::println);
 
-                System.out.println(String.format("  %-8s  %-16s  %-16s  %-16s",
-                        "T (K)", "G (J/mol)", "H (J/mol)", "S (J/mol/K)"));
-                System.out.println("  " + "-".repeat(62));
+                System.out.println(String.format("  %-8s  %-16s  %-16s",
+                        "T (K)", "G (J/mol)", "H (J/mol)"));
+                System.out.println("  " + "-".repeat(48));
                 for (ThermodynamicResult r : results) {
-                    System.out.println(String.format("  %-8.1f  %-16.4f  %-16.4f  %-16.6f",
-                            r.temperature, r.gibbsEnergy, r.enthalpy, r.entropy));
+                    System.out.println(String.format("  %-8.1f  %-16.4f  %-16.4f",
+                            r.temperature, r.gibbsEnergy, r.enthalpy));
                 }
             }
 

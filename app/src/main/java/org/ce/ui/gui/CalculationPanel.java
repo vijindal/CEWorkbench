@@ -9,6 +9,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.util.function.Consumer;
+import java.util.List;
 
 /**
  * Parameter panel for single-point thermodynamic calculations (shown in the Explorer column).
@@ -227,10 +228,16 @@ public class CalculationPanel extends JPanel {
         logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
         statusSink.accept("Running " + engineType + " at T=" + temperature + " K...");
 
-        SwingWorker<ThermodynamicResult, Void> worker = new SwingWorker<>() {
+        SwingWorker<ThermodynamicResult, String> worker = new SwingWorker<>() {
             @Override
             protected ThermodynamicResult doInBackground() throws Exception {
-                return service.runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType);
+                return service.runSinglePoint(clusterId, hamiltonianId, temperature, composition,
+                        engineType, msg -> publish(msg));
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                for (String msg : chunks) logSink.accept(msg);
             }
 
             @Override
@@ -241,7 +248,6 @@ public class CalculationPanel extends JPanel {
                     logSink.accept("Calculation complete.");
                     logSink.accept("  G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
                     logSink.accept("  H = " + String.format("%.4f", result.enthalpy) + " J/mol");
-                    logSink.accept("  S = " + String.format("%.6f", result.entropy) + " J/mol/K");
                     statusSink.accept("Done — G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
                     resultSink.accept(result);
                 } catch (Exception ex) {

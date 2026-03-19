@@ -49,6 +49,14 @@ public class Vector3D {
         return String.format("(%.6f, %.6f, %.6f)", x, y, z);
     }
 
+    public Vector3D add(Vector3D other) {
+        return new Vector3D(this.x + other.x, this.y + other.y, this.z + other.z);
+    }
+
+    public Vector3D subtract(Vector3D other) {
+        return new Vector3D(this.x - other.x, this.y - other.y, this.z - other.z);
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof Vector3D)) return false;

@@ -1,0 +1,38 @@
+{
+  "elements" : "A-B",
+  "structurePhase" : "BCC_A2",
+  "model" : "T",
+  "cecTerms" : [ {
+    "name" : "CF_0",
+    "description" : "CF_0 (4 sites, multiplicity 6)",
+    "numSites" : 4,
+    "multiplicity" : 6.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_1",
+    "description" : "CF_1 (3 sites, multiplicity 12)",
+    "numSites" : 3,
+    "multiplicity" : 12.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_2",
+    "description" : "CF_2 (2 sites, multiplicity 4)",
+    "numSites" : 2,
+    "multiplicity" : 4.0,
+    "a" : -8.314,
+    "b" : 0.0
+  }, {
+    "name" : "CF_3",
+    "description" : "CF_3 (2 sites, multiplicity 3)",
+    "numSites" : 2,
+    "multiplicity" : 3.0,
+    "a" : 0.0,
+    "b" : 0.0
+  } ],
+  "cecUnits" : "J/mol",
+  "reference" : "",
+  "notes" : "Scaffolded empty CEC",
+  "ncf" : 4
+}

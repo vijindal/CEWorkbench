@@ -1,6 +1,7 @@
 package org.ce;
 
 import org.ce.domain.engine.cvm.CVMEngine;
+import org.ce.domain.engine.MCSEngine;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.Workspace;
 import org.ce.storage.HamiltonianStore;
@@ -30,8 +31,9 @@ public class CEWorkbench {
         HamiltonianStore  hamiltonianStore  = new HamiltonianStore(workspace);
         CECManagementWorkflow cecWorkflow   = new CECManagementWorkflow(hamiltonianStore, clusterStore);
         CVMEngine         cvmEngine         = new CVMEngine();
+        MCSEngine         mcsEngine         = new MCSEngine();
         ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                clusterStore, cecWorkflow, cvmEngine, null
+                clusterStore, cecWorkflow, cvmEngine, mcsEngine
         );
         CalculationService service = new CalculationService(thermoWorkflow);
 

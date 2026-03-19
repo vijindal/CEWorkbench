@@ -223,7 +223,7 @@ public class OutputPanel extends JPanel {
                     ? String.format("%.4f", result.composition[1]) : "—");
             gibbsLabel.setText(String.format("%.6f", result.gibbsEnergy));
             enthlLabel.setText(String.format("%.6f", result.enthalpy));
-            entrLabel.setText(String.format("%.6f", result.entropy));
+            entrLabel.setText("—");
         });
     }
 

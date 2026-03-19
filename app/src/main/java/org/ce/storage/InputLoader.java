@@ -20,7 +20,7 @@ import java.util.List;
  *
  * <h2>Resource naming conventions</h2>
  * <ul>
- *   <li>Cluster files:    {@code cluster/<name>.txt}  (e.g. {@code cluster/A2-T.txt})</li>
+ *   <li>Cluster files:    {@code clus/<name>.txt}  (e.g. {@code clus/BCC_A2-T.txt})</li>
  *   <li>Space-group files: {@code sym/<baseName>.txt} and {@code sym/<baseName>_mat.txt}</li>
  * </ul>
  */
@@ -35,7 +35,7 @@ public class InputLoader {
     /**
      * Parses a cluster file from the classpath.
      *
-     * @param path classpath-relative path (e.g. {@code "cluster/A2-T.txt"})
+     * @param path classpath-relative path (e.g. {@code "clus/BCC_A2-T.txt"})
      * @return list of parsed {@link Cluster} objects
      */
     public static List<Cluster> parseClusterFile(String path) {
