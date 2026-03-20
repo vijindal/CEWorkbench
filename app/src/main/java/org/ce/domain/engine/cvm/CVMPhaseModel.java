@@ -769,6 +769,20 @@ public class CVMPhaseModel {
     }
 
     /**
+     * Computes G, H, S for a given non-point CF vector using the current model state.
+     * Used by CVMEngine to compute thermodynamic properties at each N-R iteration.
+     *
+     * @param nonPointCFs the non-point cluster fractions (length ncf)
+     * @return {G, H, S} in J/mol and J/(mol·K)
+     */
+    double[] computeGHS(double[] nonPointCFs) {
+        CVMFreeEnergy.EvalResult r = CVMFreeEnergy.evaluate(
+            nonPointCFs, moleFractions, numComponents, temperature, eci,
+            mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf, lcf, cfBasisIndices);
+        return new double[]{r.G, r.H, r.S};
+    }
+
+    /**
      * Summary report.
      */
     public String getSummary() {

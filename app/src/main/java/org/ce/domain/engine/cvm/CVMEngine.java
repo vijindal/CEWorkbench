@@ -1,11 +1,15 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.AllClusterData;
+import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.engine.cvm.CVMPhaseModel.CVMInput;
+import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.hamiltonian.CECEntry;
+
+import java.util.List;
 
 /**
  * CVM thermodynamic engine.
@@ -122,6 +126,27 @@ public class CVMEngine implements ThermodynamicEngine {
                 temperature,
                 composition
         );
+
+        /*
+         * 8. Emit post-hoc N-R iteration trace as structured chart events.
+         *    CVMPhaseModel.create() throws on convergence failure, so this block
+         *    only runs when the solver succeeded — the chart always shows a converged trace.
+         */
+        if (input.eventSink != null) {
+            input.eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
+            List<CVMSolverResult.IterationSnapshot> trace = model.getLastIterationTrace();
+            double T = input.temperature;
+            for (CVMSolverResult.IterationSnapshot snap : trace) {
+                double[] ghs = model.computeGHS(snap.getCf());
+                input.eventSink.accept(new ProgressEvent.CvmIteration(
+                        snap.getIteration(),
+                        snap.getGibbsEnergy(),
+                        snap.getGradientNorm(),
+                        ghs[1],      // enthalpy (H)
+                        -T * ghs[2], // −T·S
+                        null));      // cfs unused
+            }
+        }
 
         return model.getEquilibriumState();
     }

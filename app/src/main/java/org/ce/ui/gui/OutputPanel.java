@@ -1,147 +1,66 @@
 package org.ce.ui.gui;
 
+import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.SystemId;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * VS Code-style main output panel (third column, fills remaining width).
  *
  * <p>Divided vertically by a draggable splitter:</p>
  * <ul>
- *   <li><b>Top — RESULTS</b>: displays the latest {@link ThermodynamicResult} with
- *       a dark card layout. Subscribes to {@link WorkbenchContext} to show the
- *       active system identity.</li>
- *   <li><b>Bottom — OUTPUT</b>: dark terminal-style {@link JTextArea} where all
- *       panels append log lines via {@link #appendLog(String)}.</li>
- * </ul>
- *
- * <p>Visual spec (VS Code Dark+):</p>
- * <ul>
- *   <li>Background:       {@code #1E1E1E}</li>
- *   <li>Section headers:  {@code #2D2D2D} bar, {@code #BBBBBB} text</li>
- *   <li>Label dim:        {@code #858585}</li>
- *   <li>Value text:       {@code #D4D4D4} monospaced</li>
- *   <li>Teal accent:      {@code #4EC9B0} (system identity)</li>
- *   <li>Log bg/fg:        {@code #1E1E1E} / {@code #CCCCCC}</li>
+ *   <li><b>Top — RESULTS</b>: live chart of engine progress plus a scalar result strip.
+ *       MCS shows energy-per-site vs sweep; CVM shows log₁₀|∇G| vs N-R iteration.
+ *       Correlation functions (CFs) at each step are carried in the event and also
+ *       reported in the log.</li>
+ *   <li><b>Bottom — OUTPUT</b>: dark terminal-style log for text progress messages.</li>
  * </ul>
  */
 public class OutputPanel extends JPanel {
 
     // ── colours ───────────────────────────────────────────────────────────────
-    private static final Color BG           = new Color(0x1E1E1E);
-    private static final Color HDR_BG       = new Color(0x2D2D2D);
-    private static final Color HDR_FG       = new Color(0xBBBBBB);
-    private static final Color BORDER_CLR   = new Color(0x3C3C3C);
-    private static final Color LABEL_DIM    = new Color(0x858585);
-    private static final Color VALUE_FG     = new Color(0xD4D4D4);
-    private static final Color TEAL         = new Color(0x4EC9B0);
-    private static final Color LOG_FG       = new Color(0xCCCCCC);
+    private static final Color BG         = new Color(0x1E1E1E);
+    private static final Color HDR_BG     = new Color(0x2D2D2D);
+    private static final Color HDR_FG     = new Color(0xBBBBBB);
+    private static final Color BORDER_CLR = new Color(0x2D2D2D);
+    private static final Color LOG_FG     = new Color(0xCCCCCC);
 
-    // ── result labels ─────────────────────────────────────────────────────────
-    private final JLabel sysLabel   = makeValueLabel("— no system selected —");
-    private final JLabel tempLabel  = makeValueLabel("—");
-    private final JLabel compLabel  = makeValueLabel("—");
-    private final JLabel gibbsLabel = makeValueLabel("—");
-    private final JLabel enthlLabel = makeValueLabel("—");
-    private final JLabel entrLabel  = makeValueLabel("—");
-
-    // ── log ───────────────────────────────────────────────────────────────────
-    private final JTextArea logArea = new JTextArea();
+    private final ResultChartPanel chartPanel;
+    private final JTextArea        logArea = new JTextArea();
 
     public OutputPanel(WorkbenchContext context) {
         setLayout(new BorderLayout());
         setBackground(BG);
 
+        chartPanel = new ResultChartPanel(context);
+
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                buildResultsSection(context),
+                buildResultsSection(),
                 buildLogSection());
-        split.setDividerLocation(300);
-        split.setDividerSize(4);
+        split.setDividerLocation(320);
+        split.setDividerSize(1);
         split.setContinuousLayout(true);
         split.setBorder(null);
         split.setBackground(BG);
 
         add(split, BorderLayout.CENTER);
-
-        // Update system label when context changes
-        context.addChangeListener(() -> {
-            if (context.hasSystem()) {
-                SystemId s = context.getSystem();
-                sysLabel.setText(s.elements + "  /  " + s.structure + "  /  " + s.model);
-                sysLabel.setForeground(TEAL);
-            } else {
-                sysLabel.setText("— no system selected —");
-                sysLabel.setForeground(LABEL_DIM);
-            }
-        });
     }
 
     // =========================================================================
-    // Results section (top)
+    // Results section (top) — chart + scalar strip
     // =========================================================================
 
-    private JPanel buildResultsSection(WorkbenchContext context) {
+    private JPanel buildResultsSection() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(BG);
         panel.add(makeSectionHeader("RESULTS"), BorderLayout.NORTH);
-
-        JPanel grid = new JPanel(new GridBagLayout());
-        grid.setBackground(BG);
-        grid.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
-
-        GridBagConstraints lc = new GridBagConstraints();
-        lc.anchor = GridBagConstraints.WEST;
-        lc.insets = new Insets(6, 0, 6, 20);
-
-        GridBagConstraints vc = new GridBagConstraints();
-        vc.anchor  = GridBagConstraints.WEST;
-        vc.fill    = GridBagConstraints.HORIZONTAL;
-        vc.weightx = 1.0;
-        vc.insets  = new Insets(6, 0, 6, 0);
-
-        sysLabel.setForeground(LABEL_DIM);
-
-        addRow(grid, lc, vc, 0, "System",            sysLabel);
-        addRow(grid, lc, vc, 1, "Temperature  (K)",  tempLabel);
-        addRow(grid, lc, vc, 2, "Composition  x_B",  compLabel);
-        addRow(grid, lc, vc, 3, "Gibbs  (J/mol)",    gibbsLabel);
-        addRow(grid, lc, vc, 4, "Enthalpy  (J/mol)", enthlLabel);
-        addRow(grid, lc, vc, 5, "Entropy  (J/mol/K)", entrLabel);
-
-        // Push rows to top
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.gridx = 0; gc.gridy = 6; gc.weighty = 1.0;
-        gc.gridwidth = 2;
-        grid.add(Box.createGlue(), gc);
-
-        JScrollPane scroll = new JScrollPane(grid);
-        scroll.setBorder(null);
-        scroll.setBackground(BG);
-        scroll.getViewport().setBackground(BG);
-        panel.add(scroll, BorderLayout.CENTER);
-
+        panel.add(chartPanel, BorderLayout.CENTER);
         return panel;
-    }
-
-    private void addRow(JPanel p, GridBagConstraints lc, GridBagConstraints vc,
-                        int row, String name, JLabel value) {
-        lc.gridx = 0; lc.gridy = row;
-        vc.gridx = 1; vc.gridy = row;
-        JLabel lbl = new JLabel(name);
-        lbl.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        lbl.setForeground(LABEL_DIM);
-        p.add(lbl, lc);
-        p.add(value, vc);
-    }
-
-    private static JLabel makeValueLabel(String text) {
-        JLabel l = new JLabel(text);
-        l.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-        l.setForeground(VALUE_FG);
-        return l;
     }
 
     // =========================================================================
@@ -194,11 +113,7 @@ public class OutputPanel extends JPanel {
     // Public API
     // =========================================================================
 
-    /**
-     * Appends a line to the Output log. Thread-safe — can be called from any thread.
-     *
-     * @param text text to append (newline appended automatically if not present)
-     */
+    /** Appends a line to the Output log. Thread-safe. */
     public void appendLog(String text) {
         String line = text.endsWith("\n") ? text : text + "\n";
         SwingUtilities.invokeLater(() -> {
@@ -213,28 +128,498 @@ public class OutputPanel extends JPanel {
     }
 
     /**
-     * Populates the Results section with a completed calculation result.
+     * Routes a structured engine event to the chart panel and logs iteration details.
+     * Called on the EDT via SwingWorker.process() — no extra invokeLater needed.
+     */
+    public void onChartEvent(ProgressEvent event) {
+        // Log per-iteration/sweep details with CFs
+        if (event instanceof ProgressEvent.CvmIteration) {
+            ProgressEvent.CvmIteration ci = (ProgressEvent.CvmIteration) event;
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("  iter %3d  |∇G| = %.3e  G = %.4f",
+                                   ci.iteration, ci.gradientNorm, ci.gibbsEnergy));
+            if (ci.cfs != null && ci.cfs.length > 0) {
+                sb.append("  CFs: [");
+                for (int i = 0; i < ci.cfs.length; i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(String.format("%.4f", ci.cfs[i]));
+                }
+                sb.append("]");
+            }
+            appendLog(sb.toString());
+        } else if (event instanceof ProgressEvent.McSweep) {
+            ProgressEvent.McSweep ms = (ProgressEvent.McSweep) event;
+            // Only log averaging sweeps with CFs; equilibration is too noisy
+            if (!ms.equilibration && ms.cfs != null && ms.cfs.length > 0) {
+                StringBuilder sb = new StringBuilder();
+                sb.append(String.format("  sweep %3d  E/site = %.4f  acc = %.3f",
+                                       ms.step, ms.energyPerSite, ms.acceptanceRate));
+                sb.append("  CFs: [");
+                for (int i = 0; i < ms.cfs.length; i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(String.format("%.4f", ms.cfs[i]));
+                }
+                sb.append("]");
+                appendLog(sb.toString());
+            }
+        }
+        chartPanel.onEvent(event);
+    }
+
+    /**
+     * Populates the Results strip with a completed calculation result.
      * Thread-safe — can be called from any thread.
      */
     public void showResult(ThermodynamicResult result) {
-        SwingUtilities.invokeLater(() -> {
-            tempLabel.setText(String.format("%.1f", result.temperature));
-            compLabel.setText(result.composition != null && result.composition.length > 1
-                    ? String.format("%.4f", result.composition[1]) : "—");
-            gibbsLabel.setText(String.format("%.6f", result.gibbsEnergy));
-            enthlLabel.setText(String.format("%.6f", result.enthalpy));
-            entrLabel.setText("—");
-        });
+        SwingUtilities.invokeLater(() -> chartPanel.showResult(result));
     }
 
-    /** Resets all result fields to placeholder dashes. Thread-safe. */
+    /** Resets the chart. Thread-safe. */
     public void clearResult() {
-        SwingUtilities.invokeLater(() -> {
-            tempLabel.setText("—");
-            compLabel.setText("—");
-            gibbsLabel.setText("—");
-            enthlLabel.setText("—");
-            entrLabel.setText("—");
-        });
+        SwingUtilities.invokeLater(() -> chartPanel.clear());
+    }
+
+    // =========================================================================
+    // Inner class: ResultChartPanel
+    // =========================================================================
+
+    private static class ResultChartPanel extends JPanel {
+
+        // ── chart colours ─────────────────────────────────────────────────────
+        private static final Color BG        = new Color(0x1E1E1E);
+        private static final Color PLOT_BG   = new Color(0x252526);
+        private static final Color GRID_CLR  = new Color(0x2D2D2D);
+        private static final Color AXIS_FG   = new Color(0x858585);
+        private static final Color EQUIL_CLR = new Color(0x569CD6);  // VS Code blue
+        private static final Color AVG_CLR   = new Color(0x4EC9B0);  // teal
+        private static final Color CVM_CLR   = new Color(0xDCDCAA);  // yellow
+        private static final Color BORDER    = new Color(0x3C3C3C);
+        private static final Color STRIP_BG  = new Color(0x252526);
+        private static final Color LABEL_DIM = new Color(0x858585);
+        private static final Color VALUE_FG  = new Color(0xD4D4D4);
+
+        // ── chart margins ─────────────────────────────────────────────────────
+        private static final int ML = 64, MB = 34, MT = 22, MR = 16;
+        private static final int STRIP_H = 54;
+
+        private enum Mode { IDLE, MCS, CVM }
+
+        private Mode   mode = Mode.IDLE;
+
+        // MCS data: [step, energyPerSite]
+        private final List<double[]> equilData = new ArrayList<>();
+        private final List<double[]> avgData   = new ArrayList<>();
+        // CVM data: [iteration, log10(gradNorm)]
+        private final List<double[]> cvmData   = new ArrayList<>();
+        // CVM thermodynamic properties on secondary axis: [iteration, value]
+        private final List<double[]> cvmGData    = new ArrayList<>();
+        private final List<double[]> cvmHData    = new ArrayList<>();
+        private final List<double[]> cvmNegTSData = new ArrayList<>();
+
+        private ThermodynamicResult lastResult = null;
+        private String systemText = "no system selected";
+
+        ResultChartPanel(WorkbenchContext context) {
+            setBackground(BG);
+            context.addChangeListener(() -> {
+                if (context.hasSystem()) {
+                    SystemId s = context.getSystem();
+                    systemText = s.elements + "  /  " + s.structure + "  /  " + s.model;
+                } else {
+                    systemText = "no system selected";
+                }
+                repaint();
+            });
+        }
+
+        // ── public API ────────────────────────────────────────────────────────
+
+        void clear() {
+            mode = Mode.IDLE;
+            equilData.clear();
+            avgData.clear();
+            cvmData.clear();
+            cvmGData.clear();
+            cvmHData.clear();
+            cvmNegTSData.clear();
+            lastResult = null;
+            repaint();
+        }
+
+        void onEvent(ProgressEvent evt) {
+            if (evt instanceof ProgressEvent.EngineStart) {
+                ProgressEvent.EngineStart es = (ProgressEvent.EngineStart) evt;
+                clear();
+                mode = "MCS".equals(es.engineType) ? Mode.MCS : Mode.CVM;
+            } else if (evt instanceof ProgressEvent.McSweep) {
+                ProgressEvent.McSweep ms = (ProgressEvent.McSweep) evt;
+                if (ms.equilibration) equilData.add(new double[]{ms.step, ms.energyPerSite});
+                else                  avgData.add(new double[]{ms.step, ms.energyPerSite});
+                // Store CF data during averaging phase
+                if (!ms.equilibration && ms.cfs != null && ms.cfs.length > 0) {
+                    double[] cfEntry = new double[ms.cfs.length + 1];
+                    cfEntry[0] = ms.step;
+                    System.arraycopy(ms.cfs, 0, cfEntry, 1, ms.cfs.length);
+                    mcsCfData.add(cfEntry);
+                }
+            } else if (evt instanceof ProgressEvent.CvmIteration) {
+                ProgressEvent.CvmIteration ci = (ProgressEvent.CvmIteration) evt;
+                double logNorm = ci.gradientNorm > 0 ? Math.log10(ci.gradientNorm) : -15.0;
+                cvmData.add(new double[]{ci.iteration, logNorm, ci.gibbsEnergy});
+                // Store CF data per iteration
+                if (ci.cfs != null && ci.cfs.length > 0) {
+                    double[] cfEntry = new double[ci.cfs.length + 1];
+                    cfEntry[0] = ci.iteration;
+                    System.arraycopy(ci.cfs, 0, cfEntry, 1, ci.cfs.length);
+                    cvmCfData.add(cfEntry);
+                }
+            }
+            repaint();
+        }
+
+        void showResult(ThermodynamicResult result) {
+            lastResult = result;
+            repaint();
+        }
+
+        // ── painting ──────────────────────────────────────────────────────────
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            Graphics2D g = (Graphics2D) g0;
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+            int w = getWidth(), h = getHeight();
+            g.setColor(BG);
+            g.fillRect(0, 0, w, h);
+
+            int chartH = h - STRIP_H;
+            drawChart(g, w, chartH);
+            drawStrip(g, 0, chartH, w, STRIP_H);
+        }
+
+        // ── chart area ────────────────────────────────────────────────────────
+
+        private void drawChart(Graphics2D g, int w, int h) {
+            // Dynamic right margin: expand if we have CF data to show secondary Y axis
+            List<double[]> cfSrc = mode == Mode.CVM ? cvmCfData : mcsCfData;
+            boolean hasCfs = !cfSrc.isEmpty();
+            int mr = hasCfs ? 60 : MR;
+
+            int px = ML, py = MT, pw = w - ML - mr, ph = h - MT - MB;
+            if (pw <= 0 || ph <= 0) return;
+
+            // Plot background
+            g.setColor(PLOT_BG);
+            g.fillRect(px, py, pw, ph);
+
+            if (mode == Mode.IDLE) {
+                g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+                g.setColor(LABEL_DIM);
+                FontMetrics fm = g.getFontMetrics();
+                String msg = "Run a calculation to see the convergence chart";
+                g.drawString(msg, px + (pw - fm.stringWidth(msg)) / 2, py + ph / 2 + 4);
+                g.setColor(BORDER);
+                g.drawRect(px, py, pw, ph);
+                return;
+            }
+
+            // Gather data
+            List<double[]> primary   = mode == Mode.MCS ? equilData : new ArrayList<>();
+            List<double[]> secondary = mode == Mode.MCS ? avgData   : cvmData;
+            List<double[]> all       = new ArrayList<>(primary);
+            all.addAll(secondary);
+
+            if (all.isEmpty()) {
+                g.setColor(BORDER);
+                g.drawRect(px, py, pw, ph);
+                return;
+            }
+
+            // Compute axis ranges
+            double xMin = all.get(0)[0], xMax = all.get(all.size() - 1)[0];
+            double yMin = Double.MAX_VALUE, yMax = -Double.MAX_VALUE;
+            for (double[] pt : all) {
+                if (pt[1] < yMin) yMin = pt[1];
+                if (pt[1] > yMax) yMax = pt[1];
+            }
+            if (xMax == xMin) xMax = xMin + 1;
+            double yPad = (yMax - yMin) * 0.12;
+            if (yPad == 0) yPad = 0.001;
+            yMin -= yPad; yMax += yPad;
+
+            // Compute secondary Y axis range (CFs) if available
+            double cfMin = Double.MAX_VALUE, cfMax = -Double.MAX_VALUE;
+            if (hasCfs) {
+                for (double[] pt : cfSrc) {
+                    for (int k = 1; k < pt.length; k++) {
+                        if (pt[k] < cfMin) cfMin = pt[k];
+                        if (pt[k] > cfMax) cfMax = pt[k];
+                    }
+                }
+                double cfPad = (cfMax - cfMin) * 0.12;
+                if (cfPad == 0) cfPad = 0.1;
+                cfMin -= cfPad; cfMax += cfPad;
+            }
+
+            // Grid
+            g.setStroke(new BasicStroke(1f));
+            g.setColor(GRID_CLR);
+            int nGrid = 5;
+            for (int i = 0; i <= nGrid; i++) {
+                double frac = (double) i / nGrid;
+                g.drawLine(px, py + (int)(frac * ph), px + pw, py + (int)(frac * ph));
+                g.drawLine(px + (int)(frac * pw), py, px + (int)(frac * pw), py + ph);
+            }
+
+            // Y-axis labels (left)
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+            g.setColor(AXIS_FG);
+            FontMetrics fm = g.getFontMetrics();
+            for (int i = 0; i <= nGrid; i++) {
+                double val = yMax - (double) i / nGrid * (yMax - yMin);
+                int    gy  = py + (int)((double) i / nGrid * ph);
+                String lbl = formatAxisVal(val);
+                g.drawString(lbl, px - fm.stringWidth(lbl) - 4, gy + fm.getAscent() / 2);
+            }
+
+            // Y-axis labels (right, for CF secondary axis)
+            if (hasCfs) {
+                for (int i = 0; i <= nGrid; i++) {
+                    double val = cfMax - (double) i / nGrid * (cfMax - cfMin);
+                    int    gy  = py + (int)((double) i / nGrid * ph);
+                    String lbl = String.format("%.3f", val);
+                    g.drawString(lbl, px + pw + 4, gy + fm.getAscent() / 2);
+                }
+            }
+
+            // X-axis labels
+            for (int i = 0; i <= nGrid; i++) {
+                double val = xMin + (double) i / nGrid * (xMax - xMin);
+                int    gx  = px + (int)((double) i / nGrid * pw);
+                String lbl = String.format("%.0f", val);
+                g.drawString(lbl, gx - fm.stringWidth(lbl) / 2, py + ph + 14);
+            }
+
+            // Axis titles
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = g.getFontMetrics();
+            String xTitle = mode == Mode.MCS ? "Sweep" : "Iteration";
+            String yTitle = mode == Mode.MCS ? "E / site" : "log\u2081\u2080 |\u2207G|";
+            g.drawString(xTitle, px + (pw - fm.stringWidth(xTitle)) / 2, py + ph + 28);
+
+            // Rotated Y title (left)
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.translate(10, py + ph / 2);
+            g2.rotate(-Math.PI / 2);
+            g2.setColor(AXIS_FG);
+            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = g2.getFontMetrics();
+            g2.drawString(yTitle, -fm.stringWidth(yTitle) / 2, fm.getAscent() / 2);
+            g2.dispose();
+
+            // Rotated Y title (right, for CF secondary axis)
+            if (hasCfs) {
+                Graphics2D g3 = (Graphics2D) g.create();
+                g3.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g3.translate(w - 10, py + ph / 2);
+                g3.rotate(Math.PI / 2);
+                g3.setColor(AXIS_FG);
+                g3.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+                fm = g3.getFontMetrics();
+                g3.drawString("CF", -fm.stringWidth("CF") / 2, fm.getAscent() / 2);
+                g3.dispose();
+            }
+
+            // Chart title (top-centre)
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
+            g.setColor(AXIS_FG);
+            fm = g.getFontMetrics();
+            String title = mode == Mode.MCS
+                    ? "Monte Carlo — Energy per Site  [" + systemText + "]"
+                    : "CVM Newton-Raphson Convergence  [" + systemText + "]";
+            String shortened = title.length() > 72 ? title.substring(0, 69) + "..." : title;
+            g.drawString(shortened, px + (pw - fm.stringWidth(shortened)) / 2, py - 6);
+
+            // MCS phase boundary (dashed vertical line)
+            if (mode == Mode.MCS && !avgData.isEmpty()) {
+                int bx = toX(avgData.get(0)[0], xMin, xMax, px, pw);
+                g.setColor(new Color(0x555555));
+                float[] dash = {4f, 4f};
+                g.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, dash, 0f));
+                g.drawLine(bx, py, bx, py + ph);
+                g.setStroke(new BasicStroke(1f));
+            }
+
+            // Clip to plot area for polylines
+            Shape oldClip = g.getClip();
+            g.setClip(px, py, pw, ph);
+
+            drawSeries(g, primary,   EQUIL_CLR, px, py, pw, ph, xMin, xMax, yMin, yMax);
+            drawSeries(g, secondary, mode == Mode.MCS ? AVG_CLR : CVM_CLR, px, py, pw, ph, xMin, xMax, yMin, yMax);
+
+            // Draw CF series on secondary Y axis
+            if (hasCfs) {
+                int numCfs = cfSrc.isEmpty() ? 0 : cfSrc.get(0).length - 1;
+                for (int cfIdx = 0; cfIdx < numCfs; cfIdx++) {
+                    Color cfColor = CF_COLORS[cfIdx % CF_COLORS.length];
+                    drawCfSeries(g, cfSrc, cfIdx, cfColor, px, py, pw, ph, xMin, xMax, cfMin, cfMax);
+                }
+            }
+
+            g.setClip(oldClip);
+
+            // Plot border
+            g.setStroke(new BasicStroke(1f));
+            g.setColor(BORDER);
+            g.drawRect(px, py, pw, ph);
+
+            // Legend (top-right inside plot)
+            drawLegend(g, px + pw - 8, py + 8);
+        }
+
+        private void drawSeries(Graphics2D g, List<double[]> data, Color color,
+                                int px, int py, int pw, int ph,
+                                double xMin, double xMax, double yMin, double yMax) {
+            if (data.isEmpty()) return;
+            g.setColor(color);
+            g.setStroke(new BasicStroke(1.5f));
+            if (data.size() == 1) {
+                int sx = toX(data.get(0)[0], xMin, xMax, px, pw);
+                int sy = toY(data.get(0)[1], yMin, yMax, py, ph);
+                g.fillOval(sx - 2, sy - 2, 4, 4);
+                return;
+            }
+            int[] xs = new int[data.size()], ys = new int[data.size()];
+            for (int i = 0; i < data.size(); i++) {
+                xs[i] = toX(data.get(i)[0], xMin, xMax, px, pw);
+                ys[i] = toY(data.get(i)[1], yMin, yMax, py, ph);
+            }
+            g.drawPolyline(xs, ys, data.size());
+        }
+
+        private void drawCfSeries(Graphics2D g, List<double[]> cfData, int cfIdx, Color color,
+                                  int px, int py, int pw, int ph,
+                                  double xMin, double xMax, double cfMin, double cfMax) {
+            if (cfData.isEmpty()) return;
+            g.setColor(color);
+            g.setStroke(new BasicStroke(1.0f));
+            if (cfData.size() == 1) {
+                int sx = toX(cfData.get(0)[0], xMin, xMax, px, pw);
+                int sy = toYR(cfData.get(0)[cfIdx + 1], cfMin, cfMax, py, ph);
+                g.fillOval(sx - 2, sy - 2, 4, 4);
+                return;
+            }
+            int[] xs = new int[cfData.size()], ys = new int[cfData.size()];
+            for (int i = 0; i < cfData.size(); i++) {
+                xs[i] = toX(cfData.get(i)[0], xMin, xMax, px, pw);
+                ys[i] = toYR(cfData.get(i)[cfIdx + 1], cfMin, cfMax, py, ph);
+            }
+            g.drawPolyline(xs, ys, cfData.size());
+        }
+
+        private void drawLegend(Graphics2D g, int rightX, int topY) {
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+            g.setStroke(new BasicStroke(1.5f));
+            int lineW = 14;
+            int y = topY;
+            int lineH = 12;
+
+            if (mode == Mode.MCS) {
+                g.setColor(EQUIL_CLR);
+                g.drawLine(rightX - 100, y + 6, rightX - 100 + lineW, y + 6);
+                g.setColor(AXIS_FG);
+                g.drawString("Equilibration", rightX - 83, y + 9);
+                y += lineH;
+                g.setColor(AVG_CLR);
+                g.drawLine(rightX - 100, y + 6, rightX - 100 + lineW, y + 6);
+                g.setColor(AXIS_FG);
+                g.drawString("Averaging", rightX - 83, y + 9);
+                y += lineH;
+            } else if (mode == Mode.CVM) {
+                g.setColor(CVM_CLR);
+                g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
+                g.setColor(AXIS_FG);
+                g.drawString("|\u2207G| (log)", rightX - 63, y + 9);
+                y += lineH;
+            }
+
+            // CF legend entries (show up to 3, then "+N more")
+            List<double[]> cfSrc = mode == Mode.CVM ? cvmCfData : mcsCfData;
+            if (!cfSrc.isEmpty()) {
+                int numCfs = cfSrc.get(0).length - 1;
+                int showCfs = Math.min(numCfs, 3);
+                for (int i = 0; i < showCfs; i++) {
+                    g.setColor(CF_COLORS[i % CF_COLORS.length]);
+                    g.drawLine(rightX - 100, y + 6, rightX - 100 + lineW, y + 6);
+                    g.setColor(AXIS_FG);
+                    g.drawString("CF " + (i + 1), rightX - 83, y + 9);
+                    y += lineH;
+                }
+                if (numCfs > 3) {
+                    g.setColor(AXIS_FG);
+                    g.drawString("+" + (numCfs - 3) + " more", rightX - 83, y + 9);
+                }
+            }
+        }
+
+        // ── scalar result strip ───────────────────────────────────────────────
+
+        private void drawStrip(Graphics2D g, int x, int y, int w, int h) {
+            g.setColor(STRIP_BG);
+            g.fillRect(x, y, w, h);
+            g.setColor(BORDER);
+            g.drawLine(x, y, x + w, y);
+
+            if (lastResult == null) {
+                g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+                g.setColor(LABEL_DIM);
+                g.drawString("— awaiting result —", x + 16, y + h / 2 + 4);
+                return;
+            }
+
+            int colW = (w - 24) / 4;
+            int x0   = x + 12;
+            int row1 = y + 16, row2 = y + 36;
+
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            g.setColor(LABEL_DIM);
+            g.drawString("T (K)",       x0,               row1);
+            g.drawString("x\u2082",     x0 + colW,        row1);
+            g.drawString("G  (J/mol)",  x0 + 2 * colW,    row1);
+            g.drawString("H  (J/mol)",  x0 + 3 * colW,    row1);
+
+            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            g.setColor(VALUE_FG);
+            g.drawString(String.format("%.1f",  lastResult.temperature),  x0,             row2);
+            g.drawString(lastResult.composition.length > 1
+                    ? String.format("%.4f", lastResult.composition[1]) : "\u2014",
+                    x0 + colW,  row2);
+            g.drawString(String.format("%.4f", lastResult.gibbsEnergy), x0 + 2 * colW, row2);
+            g.drawString(String.format("%.4f", lastResult.enthalpy),    x0 + 3 * colW, row2);
+        }
+
+        // ── helpers ───────────────────────────────────────────────────────────
+
+        private static int toX(double v, double vMin, double vMax, int px, int pw) {
+            return px + (int)((v - vMin) / (vMax - vMin) * pw);
+        }
+
+        private static int toY(double v, double vMin, double vMax, int py, int ph) {
+            return py + ph - (int)((v - vMin) / (vMax - vMin) * ph);
+        }
+
+        private static int toYR(double v, double vMin, double vMax, int py, int ph) {
+            return py + ph - (int)((v - vMin) / (vMax - vMin) * ph);
+        }
+
+        private static String formatAxisVal(double v) {
+            double abs = Math.abs(v);
+            if (abs == 0) return "0";
+            if (abs >= 100 || (abs > 0 && abs < 0.01)) return String.format("%.2e", v);
+            return String.format("%.3f", v);
+        }
     }
 }
