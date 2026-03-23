@@ -43,7 +43,8 @@ public class MCSEngine implements ThermodynamicEngine {
                 .nAvg(nAvg)
                 .L(L)
                 .seed(System.currentTimeMillis())
-                .R(GAS_CONSTANT);
+                .R(GAS_CONSTANT)
+                .cancellationCheck(Thread.currentThread()::isInterrupted);
 
         Consumer<String> strSink = input.progressSink;
         Consumer<ProgressEvent> evtSink = input.eventSink;
@@ -80,12 +81,129 @@ public class MCSEngine implements ThermodynamicEngine {
 
         MCResult result = builder.build().run();
 
+        // Post-run statistics summary
+        if (strSink != null) {
+            strSink.accept(
+                "  ── MCS Statistics ─────────────────────────────────────────");
+            strSink.accept(String.format(
+                "  τ_int = %.1f sweeps  s = %.3f  n_eff = %d  (block size = %d, %d blocks)",
+                result.getTauInt(), result.getStatInefficiency(),
+                result.getNEff(), result.getBlockSizeUsed(), result.getNBlocks()));
+            strSink.accept(String.format(
+                "  ⟨H⟩/site = %.6f ± %.6f  J/mol",
+                result.getHmixPerSite(), nanZero(result.getStdHmixPerSite())));
+            strSink.accept(String.format(
+                "  ⟨E⟩/site = %.6f ± %.6f  J/mol",
+                result.getEnergyPerSite(), nanZero(result.getStdEnergyPerSite())));
+            strSink.accept(String.format(
+                "  Cv       = %.6f ± %.6f  J/(mol·K)  [jackknife]",
+                result.getCvJackknife(), nanZero(result.getCvStdErr())));
+
+            // Correlation functions
+            double[] cfs    = result.getAvgCFs();
+            double[] stdCFs = result.getStdCFs();
+            if (cfs != null && cfs.length > 0) {
+                strSink.accept(
+                    "  ── Correlation Functions ────────────────────────────────");
+                for (int i = 0; i < cfs.length; i++) {
+                    double sigma = (stdCFs != null && i < stdCFs.length) ? stdCFs[i] : Double.NaN;
+                    strSink.accept(String.format(
+                        "  CF[%2d] = %+.6f ± %.6f",
+                        i, cfs[i], nanZero(sigma)));
+                }
+            }
+
+            // Parameter recommendations
+            emitParameterRecommendations(strSink, result, L, nEquil, nAvg);
+        }
+
         return new EquilibriumState(
                 result.getTemperature(),
                 result.getComposition(),
-                result.getHmixPerSite(),   // enthalpy (energy of mixing per site)
-                result.getHmixPerSite()    // free energy — G not directly from MCS; use Hmix as proxy
+                result.getHmixPerSite(),    // enthalpy (energy of mixing per site)
+                result.getHmixPerSite(),    // free energy — G not directly from MCS; use Hmix as proxy
+                result.getStdHmixPerSite(), // enthalpy std error from MCS
+                result.getCvJackknife(),    // heat capacity from jackknife
+                result.getAvgCFs(),         // mean correlation functions
+                result.getStdCFs()          // CF standard errors from block averaging
         );
+    }
+
+    /**
+     * Emits post-run parameter recommendations to the log sink.
+     *
+     * <p>Three tiers of advice:</p>
+     * <ul>
+     *   <li><b>nAvg</b> — exact: derived from τ_int to reach n_eff ≥ 100</li>
+     *   <li><b>nEquil</b> — heuristic: 20·τ_int ensures decorrelation before averaging</li>
+     *   <li><b>L</b> — heuristic: fixed floor + τ_int proxy for correlation length</li>
+     * </ul>
+     */
+    private static void emitParameterRecommendations(
+            Consumer<String> sink, MCResult result, int L, int nEquil, int nAvg) {
+
+        double tauInt = result.getTauInt();
+        double s      = result.getStatInefficiency();
+        int    nEff   = result.getNEff();
+
+        boolean anyIssue = false;
+
+        // ── nAvg ────────────────────────────────────────────────────────────
+        if (nEff < 100) {
+            int nAvgMin = (int) Math.ceil(100.0 * s);
+            sink.accept(String.format(
+                "  *** WARNING: n_eff = %d < 100 — error bars are unreliable", nEff));
+            sink.accept(String.format(
+                "      → set nAvg ≥ %d  (= ⌈100 × s⌉, guarantees n_eff ≥ 100)", nAvgMin));
+            anyIssue = true;
+        } else if (nEff < 200) {
+            sink.accept(String.format(
+                "  ⚠  n_eff = %d — marginal; consider nAvg ≥ %d for publication",
+                nEff, (int) Math.ceil(200.0 * s)));
+            anyIssue = true;
+        }
+
+        // ── nEquil ──────────────────────────────────────────────────────────
+        int nEquilMin = Math.max(200, (int) Math.ceil(20.0 * tauInt));
+        if (nEquil < nEquilMin) {
+            sink.accept(String.format(
+                "  *** WARNING: nEquil = %d may be too short (τ_int = %.1f sweeps)",
+                nEquil, tauInt));
+            sink.accept(String.format(
+                "      → set nEquil ≥ %d  (= max(200, ⌈20 × τ_int⌉))", nEquilMin));
+            anyIssue = true;
+        }
+
+        // ── L ───────────────────────────────────────────────────────────────
+        if (L < 6) {
+            sink.accept(String.format(
+                "  ⚠  L = %d (%d sites) — minimum for any meaningful result is L = 6 (432 sites)",
+                L, 2 * L * L * L));
+            anyIssue = true;
+        } else if (L < 10) {
+            sink.accept(String.format(
+                "  ⚠  L = %d (%d sites) — small supercell; thermodynamic finite-size effects are likely",
+                L, 2 * L * L * L));
+            sink.accept(
+                "      → verify by comparing ⟨H⟩/site at L and L+4 (e.g. L=" + (L + 4) + ", " + (2*(L+4)*(L+4)*(L+4)) + " sites)");
+            anyIssue = true;
+        }
+        if (tauInt > 50) {
+            sink.accept(String.format(
+                "  ⚠  τ_int = %.1f sweeps is large — correlation length may approach box size (L = %d)",
+                tauInt, L));
+            anyIssue = true;
+        }
+
+        // Size convergence check is always recommended — finite-size effects are
+        // thermodynamic and cannot be detected from τ_int or n_eff alone
+        sink.accept(String.format(
+            "  ℹ  Size check: compare ⟨H⟩/site at L=%d and L=%d to confirm thermodynamic limit",
+            L, L + 4));
+
+        if (!anyIssue) {
+            sink.accept("  ✓  Statistical parameters look sufficient (n_eff ≥ 100, nEquil ≥ 20·τ_int)");
+        }
     }
 
     /** Extracts temperature-dependent ECI: J(T) = a + b*T */
@@ -95,5 +213,10 @@ public class MCSEngine implements ThermodynamicEngine {
             eci[i] = terms[i].a + terms[i].b * temperature;
         }
         return eci;
+    }
+
+    /** Helper: returns 0 if value is NaN, otherwise returns the value. */
+    private static double nanZero(double value) {
+        return Double.isNaN(value) ? 0.0 : value;
     }
 }

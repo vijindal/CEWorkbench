@@ -6,6 +6,7 @@ import org.ce.domain.cluster.LinearAlgebra;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -277,6 +278,8 @@ public final class NewtonRaphsonSolverSimple {
         List<CVMSolverResult.IterationSnapshot> trace = new ArrayList<>();
 
         for (iter = 1; iter <= maxIter; iter++) {
+            if (Thread.currentThread().isInterrupted())
+                throw new CancellationException("CVM cancelled at iteration " + iter);
             // Evaluate function and derivatives
             double[] vals = usrfun(data, u, Gu, Guu);
             G = vals[0];

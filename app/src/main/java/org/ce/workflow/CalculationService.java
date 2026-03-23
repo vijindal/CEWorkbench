@@ -2,6 +2,7 @@ package org.ce.workflow;
 
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
+import org.ce.workflow.thermo.FiniteSizeScanWorkflow;
 import org.ce.workflow.thermo.GridScanWorkflow;
 import org.ce.workflow.thermo.LineScanWorkflow;
 import org.ce.workflow.thermo.ThermodynamicRequest;
@@ -22,14 +23,16 @@ import java.util.function.Consumer;
  */
 public class CalculationService {
 
-    private final ThermodynamicWorkflow thermoWorkflow;
-    private final LineScanWorkflow lineScanWorkflow;
-    private final GridScanWorkflow gridScanWorkflow;
+    private final ThermodynamicWorkflow  thermoWorkflow;
+    private final LineScanWorkflow       lineScanWorkflow;
+    private final GridScanWorkflow       gridScanWorkflow;
+    private final FiniteSizeScanWorkflow fssWorkflow;
 
     public CalculationService(ThermodynamicWorkflow thermoWorkflow) {
-        this.thermoWorkflow = thermoWorkflow;
+        this.thermoWorkflow   = thermoWorkflow;
         this.lineScanWorkflow = new LineScanWorkflow(thermoWorkflow);
         this.gridScanWorkflow = new GridScanWorkflow(thermoWorkflow);
+        this.fssWorkflow      = new FiniteSizeScanWorkflow(thermoWorkflow);
     }
 
     // =========================================================================
@@ -85,6 +88,25 @@ public class CalculationService {
                 new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType,
                         progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg)
         );
+    }
+
+    // =========================================================================
+    // Finite-Size Scaling Scan (production-grade MCS)
+    // =========================================================================
+
+    public ThermodynamicResult runFiniteSizeScan(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            int nEquil,
+            int nAvg,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink) throws Exception {
+
+        return fssWorkflow.run(
+                clusterId, hamiltonianId, temperature, composition,
+                nEquil, nAvg, progressSink, eventSink);
     }
 
     // =========================================================================

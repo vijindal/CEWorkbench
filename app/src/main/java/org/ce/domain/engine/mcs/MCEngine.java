@@ -69,8 +69,11 @@ public class MCEngine {
                 currentEnergy += dE;
                 sweepDeltaE   += dE;
             }
-            emitUpdate(s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.EQUILIBRATION,
-                    step.acceptRate(), startTime, null);
+            // Emit update every 100 sweeps or on final equilibration sweep
+            if ((s + 1) % 100 == 0 || s + 1 == nEquil) {
+                emitUpdate(s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.EQUILIBRATION,
+                        step.acceptRate(), startTime, null);
+            }
         }
 
         step.resetCounters();
@@ -86,10 +89,16 @@ public class MCEngine {
                 currentEnergy += dE;
                 sweepDeltaE   += dE;
             }
-            sampler.sample(config, emb);
-            emitUpdate(nEquil + s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.AVERAGING,
-                    step.acceptRate(), startTime, sampler.meanCFs());
+            sampler.sample(config, emb, currentEnergy);
+            // Emit update every 100 sweeps or on final averaging sweep
+            if ((nEquil + s + 1) % 100 == 0 || s + 1 == nAvg) {
+                emitUpdate(nEquil + s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.AVERAGING,
+                        step.acceptRate(), startTime, sampler.meanCFs());
+            }
         }
+
+        // Compute statistics from stored time series
+        sampler.computeStatistics(T);
 
         LOG.fine("MCEngine.run — done: acceptRate=" + String.format("%.3f", step.acceptRate()));
         return buildResult(config, sampler, step.acceptRate(), currentEnergy);
@@ -111,7 +120,22 @@ public class MCEngine {
         double[] cfs  = sampler.meanCFs();
         double   hmix = sampler.meanHmixPerSite();
         int      N    = config.getN();
-        return new MCResult(T, config.composition(), cfs, currentEnergy / N, hmix,
-                sampler.heatCapacityPerSite(T), acceptRate, nEquil, nAvg, L, N);
+
+        // Use corrected energy from time average if available, otherwise fallback
+        double energy = Double.isNaN(sampler.meanEnergyPerSite())
+                ? currentEnergy / N               // fallback for < 4 samples
+                : sampler.meanEnergyPerSite();    // true ⟨E⟩/N
+
+        // Use jackknife Cv if available, otherwise fallback to old estimator
+        double cv = Double.isNaN(sampler.cvJackknife())
+                ? sampler.heatCapacityPerSite(T)  // old estimator as fallback
+                : sampler.cvJackknife();
+
+        return new MCResult(T, config.composition(), cfs, energy, hmix, cv,
+                acceptRate, nEquil, nAvg, L, N,
+                sampler.getTauInt(), sampler.getStatInefficiency(), sampler.getNEff(),
+                sampler.getBlockSizeUsed(), sampler.getNBlocks(),
+                sampler.stdEnergyPerSite(), sampler.stdHmixPerSite(),
+                sampler.stdCFs(), sampler.cvJackknife(), sampler.cvStdErr());
     }
 }

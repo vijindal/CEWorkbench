@@ -550,7 +550,7 @@ public class OutputPanel extends JPanel {
                 return;
             }
 
-            int colW = (w - 24) / 4;
+            int colW = (w - 24) / 6;
             int x0   = x + 12;
             int row1 = y + 16, row2 = y + 36;
 
@@ -560,6 +560,8 @@ public class OutputPanel extends JPanel {
             g.drawString("x\u2082",     x0 + colW,        row1);
             g.drawString("G  (J/mol)",  x0 + 2 * colW,    row1);
             g.drawString("H  (J/mol)",  x0 + 3 * colW,    row1);
+            g.drawString("Cv",          x0 + 4 * colW,    row1);
+            g.drawString("σH",          x0 + 5 * colW,    row1);
 
             g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
             g.setColor(VALUE_FG);
@@ -569,6 +571,12 @@ public class OutputPanel extends JPanel {
                     x0 + colW,  row2);
             g.drawString(String.format("%.4f", lastResult.gibbsEnergy), x0 + 2 * colW, row2);
             g.drawString(String.format("%.4f", lastResult.enthalpy),    x0 + 3 * colW, row2);
+            g.drawString(!Double.isNaN(lastResult.heatCapacity)
+                    ? String.format("%.5f", lastResult.heatCapacity) : "\u2014",
+                    x0 + 4 * colW, row2);
+            g.drawString(!Double.isNaN(lastResult.stdEnthalpy)
+                    ? "±" + String.format("%.5f", lastResult.stdEnthalpy) : "\u2014",
+                    x0 + 5 * colW, row2);
         }
 
         // ── helpers ───────────────────────────────────────────────────────────

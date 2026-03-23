@@ -50,6 +50,9 @@ public class CalculationPanel extends JPanel {
     private final JSpinner          xBField          = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
     private final JComboBox<String> engineBox        = new JComboBox<>(new String[]{"CVM", "MCS"});
     private final JButton           calcButton       = new JButton("Calculate");
+    private final JButton           abortButton      = new JButton("Abort");
+    private final JButton           prodButton       = new JButton("Production Run");
+    private SwingWorker<?, ?>       activeWorker     = null;
 
     // MCS-specific parameters (show/hide based on engine selection)
     private final JSpinner lField      = new JSpinner(new SpinnerNumberModel(4, 1, 32, 1));
@@ -111,6 +114,15 @@ public class CalculationPanel extends JPanel {
         refreshIds();
 
         engineBox.addActionListener(e -> updateMcsFieldVisibility());
+
+        abortButton.setEnabled(false);
+        abortButton.setForeground(new Color(0xF44747));
+        abortButton.addActionListener(e -> {
+            if (activeWorker != null) activeWorker.cancel(true);
+        });
+
+        prodButton.setToolTipText("Run MCS at L=12, 16, 24 and extrapolate to thermodynamic limit (1/N → 0)");
+        prodButton.addActionListener(e -> runProductionScan());
 
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
@@ -226,13 +238,18 @@ public class CalculationPanel extends JPanel {
         lc.gridy = row++;  form.add(nAvgLabel, lc);
         fc.gridy = row++;  form.add(nAvgField, fc);
 
-        // Button
+        // Buttons row
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        btnRow.setBackground(BG);
+        calcButton.addActionListener(e -> runCalculation());
+        btnRow.add(calcButton);
+        btnRow.add(abortButton);
+        btnRow.add(prodButton);
         GridBagConstraints bc = new GridBagConstraints();
         bc.gridx = 0; bc.gridy = row;
         bc.anchor = GridBagConstraints.WEST;
-        bc.insets = new Insets(6, 6, 4, 6);
-        calcButton.addActionListener(e -> runCalculation());
-        form.add(calcButton, bc);
+        bc.insets = new Insets(6, 0, 4, 6);
+        form.add(btnRow, bc);
 
         return form;
     }
@@ -246,6 +263,78 @@ public class CalculationPanel extends JPanel {
     // =========================================================================
     // Calculation
     // =========================================================================
+
+    private void runProductionScan() {
+        String clusterId     = clusterIdField.getText().trim();
+        String hamiltonianId = hamiltonianIdField.getText().trim();
+        if (clusterId.isBlank() || hamiltonianId.isBlank()) {
+            logSink.accept("Fill in Elements, Structure, and Model first.");
+            return;
+        }
+
+        double temperature   = ((Number) temperatureField.getValue()).doubleValue();
+        double xB            = ((Number) xBField.getValue()).doubleValue();
+        double[] composition = {1.0 - xB, xB};
+        int mcsNEquil        = ((Number) nEquilField.getValue()).intValue();
+        int mcsNAvg          = ((Number) nAvgField.getValue()).intValue();
+
+        calcButton.setEnabled(false);
+        prodButton.setEnabled(false);
+        abortButton.setEnabled(true);
+        logSink.accept("Production Run (FSS): L=12, 16, 24 — MCS with 1/N extrapolation");
+        logSink.accept("  Cluster     : " + clusterId);
+        logSink.accept("  Hamiltonian : " + hamiltonianId);
+        logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
+        logSink.accept("  nEquil=" + mcsNEquil + "  nAvg=" + mcsNAvg + " per L-value");
+        statusSink.accept("Production Run at T=" + temperature + " K…");
+
+        SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<ThermodynamicResult, Object>() {
+            @Override
+            protected ThermodynamicResult doInBackground() throws Exception {
+                return service.runFiniteSizeScan(
+                        clusterId, hamiltonianId, temperature, composition,
+                        mcsNEquil, mcsNAvg,
+                        msg -> publish((Object) msg),
+                        evt -> publish((Object) evt));
+            }
+
+            @Override
+            protected void process(List<Object> chunks) {
+                for (Object obj : chunks) {
+                    if (obj instanceof String)        logSink.accept((String) obj);
+                    else if (obj instanceof ProgressEvent) chartSink.accept((ProgressEvent) obj);
+                }
+            }
+
+            @Override
+            protected void done() {
+                calcButton.setEnabled(true);
+                prodButton.setEnabled(true);
+                abortButton.setEnabled(false);
+                activeWorker = null;
+                if (isCancelled()) {
+                    logSink.accept("Production run aborted.");
+                    statusSink.accept("Aborted.");
+                    return;
+                }
+                try {
+                    ThermodynamicResult result = get();
+                    logSink.accept("\nProduction run complete — extrapolated (∞-limit) values:");
+                    logSink.accept("  H(∞) = " + String.format("%+.6f", result.enthalpy)
+                        + " ± " + String.format("%.6f", result.stdEnthalpy) + " J/mol");
+                    statusSink.accept("Production done — H(∞) = "
+                        + String.format("%+.4f", result.enthalpy) + " J/mol");
+                    resultSink.accept(result);
+                } catch (Exception ex) {
+                    String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    logSink.accept("Error: " + msg);
+                    statusSink.accept("Error: " + msg);
+                }
+            }
+        };
+        activeWorker = worker;
+        worker.execute();
+    }
 
     private void runCalculation() {
         String clusterId     = clusterIdField.getText().trim();
@@ -265,6 +354,7 @@ public class CalculationPanel extends JPanel {
         int mcsNAvg   = ((Number) nAvgField.getValue()).intValue();
 
         calcButton.setEnabled(false);
+        abortButton.setEnabled(true);
         logSink.accept("Running " + engineType + " calculation...");
         logSink.accept("  Cluster     : " + clusterId);
         logSink.accept("  Hamiltonian : " + hamiltonianId);
@@ -296,6 +386,13 @@ public class CalculationPanel extends JPanel {
             @Override
             protected void done() {
                 calcButton.setEnabled(true);
+                abortButton.setEnabled(false);
+                activeWorker = null;
+                if (isCancelled()) {
+                    logSink.accept("Calculation aborted.");
+                    statusSink.accept("Aborted.");
+                    return;
+                }
                 try {
                     ThermodynamicResult result = get();
                     logSink.accept("Calculation complete.");
@@ -304,11 +401,13 @@ public class CalculationPanel extends JPanel {
                     statusSink.accept("Done — G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
                     resultSink.accept(result);
                 } catch (Exception ex) {
-                    logSink.accept("Error: " + ex.getMessage());
-                    statusSink.accept("Error: " + ex.getMessage());
+                    String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    logSink.accept("Error: " + msg);
+                    statusSink.accept("Error: " + msg);
                 }
             }
         };
+        activeWorker = worker;
         worker.execute();
     }
 }
