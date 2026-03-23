@@ -21,7 +21,7 @@ public class ExplorerPanel extends JPanel {
 
     private static final Color BG         = new Color(0x252526);
     private static final Color TITLE_FG   = new Color(0xBBBBBB);
-    private static final Color BORDER_CLR = new Color(0x3C3C3C);
+    private static final Color BORDER_CLR = new Color(0x2D2D2D);
 
     private static final String[] TITLES = {
         "DATA PREPARATION",

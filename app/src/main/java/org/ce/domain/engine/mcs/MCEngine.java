@@ -27,6 +27,8 @@ public class MCEngine {
     private Consumer<MCSUpdate> updateListener    = null;
     private RollingWindow       deltaEWindow      = new RollingWindow(500);
     private BooleanSupplier     cancellationCheck = () -> false;
+    // Sampler reference kept for passing running-avg CFs to updateListener during averaging
+    private MCSampler           activeSampler     = null;
 
     public MCEngine(EmbeddingData emb, double[] eci, List<List<Cluster>> orbits, int numComp,
                     double T, int nEquil, int nAvg, double R, Random rng) {
@@ -50,6 +52,7 @@ public class MCEngine {
     }
 
     public MCResult run(LatticeConfig config, MCSampler sampler) {
+        this.activeSampler = sampler;
         ExchangeStep step = new ExchangeStep(emb, eci, orbits, numComp, T, R, rng);
         int N = config.getN();
         deltaEWindow.clear();
@@ -67,7 +70,7 @@ public class MCEngine {
                 sweepDeltaE   += dE;
             }
             emitUpdate(s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.EQUILIBRATION,
-                    step.acceptRate(), startTime);
+                    step.acceptRate(), startTime, null);
         }
 
         step.resetCounters();
@@ -85,7 +88,7 @@ public class MCEngine {
             }
             sampler.sample(config, emb);
             emitUpdate(nEquil + s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.AVERAGING,
-                    step.acceptRate(), startTime);
+                    step.acceptRate(), startTime, sampler.meanCFs());
         }
 
         LOG.fine("MCEngine.run — done: acceptRate=" + String.format("%.3f", step.acceptRate()));
@@ -93,13 +96,13 @@ public class MCEngine {
     }
 
     private void emitUpdate(int sweepNum, double currentEnergy, double sweepDeltaE,
-                            MCSUpdate.Phase phase, double acceptRate, long startTime) {
+                            MCSUpdate.Phase phase, double acceptRate, long startTime, double[] cfs) {
         if (updateListener == null) return;
         long elapsedMs = System.currentTimeMillis() - startTime;
         updateListener.accept(new MCSUpdate(
                 sweepNum, currentEnergy, sweepDeltaE,
                 deltaEWindow.getStdDev(), deltaEWindow.getMean(),
-                phase, acceptRate, System.currentTimeMillis(), elapsedMs));
+                phase, acceptRate, System.currentTimeMillis(), elapsedMs, cfs));
     }
 
     private MCResult buildResult(LatticeConfig config, MCSampler sampler,

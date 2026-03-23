@@ -12,9 +12,9 @@ import java.awt.*;
  */
 public class StatusBar extends JPanel {
 
-    private static final Color BG  = new Color(0x007ACC);   // VS Code blue
-    private static final Color FG  = Color.WHITE;
-    private static final Color TOP = new Color(0x005F9E);
+    private static final Color BG  = new Color(0x1A1A1A);
+    private static final Color FG  = new Color(0x858585);
+    private static final Color TOP = new Color(0x000000);
 
     private final JLabel label;
 

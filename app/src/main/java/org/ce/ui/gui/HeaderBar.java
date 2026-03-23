@@ -22,11 +22,11 @@ import java.awt.*;
  */
 public class HeaderBar extends JPanel {
 
-    private static final Color BG          = new Color(0x323233);
-    private static final Color TEXT_TITLE  = Color.WHITE;
+    private static final Color BG          = new Color(0x1A1A1A);
+    private static final Color TEXT_TITLE  = new Color(0xCCCCCC);
     private static final Color TEXT_SYSTEM = new Color(0x9CDCFE);
     private static final Color TEXT_NONE   = new Color(0x555555);
-    private static final Color SEPARATOR   = new Color(0x444444);
+    private static final Color SEPARATOR   = new Color(0x333333);
 
     private final WorkbenchContext context;
     private final JLabel systemLabel;
@@ -37,7 +37,7 @@ public class HeaderBar extends JPanel {
         setBackground(BG);
         setPreferredSize(new Dimension(0, 28));
         setLayout(new BorderLayout(0, 0));
-        setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0x1A1A1A)));
+        setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0x000000)));
 
         JLabel titleLabel = new JLabel("  CE WORKBENCH");
         titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));

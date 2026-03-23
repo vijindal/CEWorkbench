@@ -24,7 +24,8 @@ disorderedClusterResult.kbCoefficients                  ← 27 bytes
 disorderedClusterResult.nijTable                        ← 85 bytes  [kept for KB recomputation]
 disorderedClusterResult.mh / lc / tcdis / nxcdis / tc  ← ~69 bytes
 disorderedCFResult.lcf / tcf / nxcf / ncf / tcfdis     ← ~28 bytes
-cmatrixResult  (all 4 fields)                           ← 2,799 bytes
+cmatrixResult.cmat, lcv, wcv, cfBasisIndices            ← 2,799 bytes
+  (cfBasisIndices: site-operator decoration indices [tcf][rank], critical for ternary CVM)
 ```
 
 ### MCS (`EmbeddingGenerator`)
@@ -32,6 +33,7 @@ cmatrixResult  (all 4 fields)                           ← 2,799 bytes
 disorderedClusterResult.disClusterData.orbitList        ← 21,234 bytes (raw)
 disorderedClusterResult.disClusterData.tc               ← 1 byte
   — from each Cluster: sublattices → sites → symbol + position
+cmatrixResult: NOT used by MCS (CVM only)
 ```
 
 ### Neither engine reads
@@ -74,6 +76,15 @@ Also add `@JsonIgnoreProperties(ignoreUnknown = true)` to `Cluster` so old JSON 
 
 ## Complete changes
 
+### ✓ DONE — `AllClusterData`
+
+- `@JsonIgnoreProperties(ignoreUnknown = true)` — already present on class
+- `@JsonIgnore` on `getSummary()` — already present
+
+All other items below still pending.
+
+---
+
 ### A — Stop serializing duplicate top-level objects (add `@JsonIgnore` to getter)
 
 | File | Getter | Why |
@@ -103,8 +114,10 @@ Also add `@JsonIgnoreProperties(ignoreUnknown = true)` to `Cluster` so old JSON 
 
 ### D — Add `@JsonIgnoreProperties(ignoreUnknown = true)` for backward compatibility
 
-All classes that will have `@JsonIgnore` getters (so old JSON files with those fields still load):
+All classes that will have `@JsonIgnore` getters (so old JSON files with those fields still load).
+Note: `AllClusterData` already has this annotation.
 
+Classes to update:
 `Cluster`, `ClusterIdentificationResult`, `CFIdentificationResult`, `ClusCoordListResult`, `ClassifiedClusterResult`, `GroupedCFResult`, `CMatrixResult`
 
 ### E — `@JsonProperty` constructor params remain unchanged (backward compat read path)
@@ -132,6 +145,12 @@ For every dropped field, **keep** its `@JsonProperty` annotation on the `@JsonCr
 
 - **KB coefficients**: `nijTable` is kept. CVM reads pre-computed `kbCoefficients` directly (`CVMPhaseModel:248`); it never re-derives them from `nijTable`. `nijTable` is retained as the source material needed to recompute KB coefficients without a full type-1a re-run.
 - **C-Matrix**: `cmatrixResult` is exponentially expensive to recompute — kept in full.
+  - **`cmat`**, **`lcv`**, **`wcv`**: standard C-matrix data structures.
+  - **`cfBasisIndices`** (site-operator decoration indices): critical for CVM. Encodes `[k₁, k₂, ..., kₙ]` for each CF column, used to:
+    1. Compute the random-state N-R initial guess (multi-site CFs factorize into products of point CFs)
+    2. Route point CFs to their correct columns in the full CF vector (essential for ternary K≥3)
+    3. Derive cluster rank via `cfBasisIndices[l].length`
+- **`cv` (C-matrix dot product)**: NOT a stored field. `cv[i][j] = cmat[i][j] · uList` is computed at runtime during each N-R iteration. Do not confuse with `cfBasisIndices`.
 - **No logic changes**: All changes are annotations only. No computation paths or data structures change.
 
 ---

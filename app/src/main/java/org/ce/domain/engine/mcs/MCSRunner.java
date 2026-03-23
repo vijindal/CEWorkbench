@@ -97,9 +97,9 @@ public class MCSRunner {
         private int                 numComp           = 2;
         private double              T;
         private double[]            xFrac;
-        private int                 nEquil            = 1000;
-        private int                 nAvg              = 2000;
-        private int                 L                 = 4;
+        private int                 nEquil            = 500;
+        private int                 nAvg              = 500;
+        private int                 L                 = 12;
         private List<Vector3D>      customPositions   = null;
         private long                seed              = 0L;
         private double              R                 = 1.0;

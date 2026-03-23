@@ -1,5 +1,6 @@
 package org.ce.ui.gui;
 
+import org.ce.domain.engine.ProgressEvent;
 import org.ce.storage.ClusterDataStore;
 import org.ce.workflow.CalculationService;
 import org.ce.workflow.cec.CECManagementWorkflow;
@@ -65,6 +66,7 @@ public class MainWindow extends JFrame {
         java.util.function.Consumer<String> statusSink = this::postStatus;
         java.util.function.Consumer<org.ce.domain.result.ThermodynamicResult> resultSink =
                 outputPanel::showResult;
+        java.util.function.Consumer<ProgressEvent> chartSink = outputPanel::onChartEvent;
 
         // ── parameter panels (go into the explorer) ───────────────────────────
         DataPreparationPanel dataPrepPanel = new DataPreparationPanel(
@@ -74,7 +76,7 @@ public class MainWindow extends JFrame {
                 cecWorkflow, context, statusSink, logSink);
 
         CalculationPanel calcPanel = new CalculationPanel(
-                calculationService, context, statusSink, logSink, resultSink);
+                calculationService, context, statusSink, logSink, resultSink, chartSink);
 
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();
@@ -94,10 +96,10 @@ public class MainWindow extends JFrame {
         JSplitPane contentSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 explorerPanel, outputPanel);
         contentSplit.setDividerLocation(290);
-        contentSplit.setDividerSize(4);
+        contentSplit.setDividerSize(1);
         contentSplit.setContinuousLayout(true);
         contentSplit.setBorder(null);
-        contentSplit.setBackground(new Color(0x1E1E1E));
+        contentSplit.setBackground(new Color(0x1A1A1A));
 
         JPanel centre = new JPanel(new BorderLayout());
         centre.setBackground(new Color(0x1E1E1E));
@@ -110,7 +112,7 @@ public class MainWindow extends JFrame {
         add(centre,   BorderLayout.CENTER);
         add(statusBar, BorderLayout.SOUTH);
 
-        navigate(0);    // start on Data Prep
+        navigate(2);    // start on Calculation panel
     }
 
     // =========================================================================
@@ -178,5 +180,8 @@ public class MainWindow extends JFrame {
         // Scroll bar
         UIManager.put("ScrollBar.thumb",        new Color(0x424242));
         UIManager.put("ScrollBar.track",        new Color(0x1E1E1E));
+        // Split pane
+        UIManager.put("SplitPane.background",           new Color(0x1A1A1A));
+        UIManager.put("SplitPaneDivider.draggingColor", new Color(0x007ACC));
     }
 }

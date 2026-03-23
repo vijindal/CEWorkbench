@@ -1,0 +1,136 @@
+{
+  "elements" : "Nb-Ti-V",
+  "structurePhase" : "BCC_A2",
+  "model" : "T",
+  "cecTerms" : [ {
+    "name" : "CF_0",
+    "description" : "CF_0 (4 sites, multiplicity 6)",
+    "numSites" : 4,
+    "multiplicity" : 6.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_1",
+    "description" : "CF_1 (3 sites, multiplicity 12)",
+    "numSites" : 3,
+    "multiplicity" : 12.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_2",
+    "description" : "CF_2 (2 sites, multiplicity 4)",
+    "numSites" : 2,
+    "multiplicity" : 4.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_3",
+    "description" : "CF_3 (2 sites, multiplicity 3)",
+    "numSites" : 2,
+    "multiplicity" : 3.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_4",
+    "description" : "CF_4 (1 site, multiplicity 1)",
+    "numSites" : 1,
+    "multiplicity" : 1.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_5",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_6",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_7",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_8",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_9",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_10",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_11",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_12",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_13",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_14",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_15",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_16",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "CF_17",
+    "description" : null,
+    "numSites" : null,
+    "multiplicity" : null,
+    "a" : 0.0,
+    "b" : 0.0
+  } ],
+  "cecUnits" : "J/mol",
+  "reference" : "",
+  "notes" : "Scaffolded empty CEC",
+  "ncf" : 18
+}

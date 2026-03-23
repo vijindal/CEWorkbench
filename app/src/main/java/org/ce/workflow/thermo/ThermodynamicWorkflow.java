@@ -78,7 +78,11 @@ public class ThermodynamicWorkflow {
                 request.composition,
                 data.systemId,
                 data.systemName,
-                request.progressSink
+                request.progressSink,
+                request.eventSink,
+                request.mcsL,
+                request.mcsNEquil,
+                request.mcsNAvg
         );
 
         ThermodynamicEngine engine;

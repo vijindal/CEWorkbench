@@ -19,8 +19,54 @@ public class ThermodynamicInput {
     public final double[] composition;
     public final String systemId;
     public final String systemName;
-    /** Optional sink for real-time progress messages (sweep updates, etc.). May be null. */
+    /** Optional sink for real-time text progress messages. May be null. */
     public final Consumer<String> progressSink;
+    /** Optional sink for structured engine events (chart data). May be null. */
+    public final Consumer<ProgressEvent> eventSink;
+    /** MCS lattice size (default 4) */
+    public final int mcsL;
+    /** MCS equilibration sweeps (default 1000) */
+    public final int mcsNEquil;
+    /** MCS averaging sweeps (default 2000) */
+    public final int mcsNAvg;
+
+    public ThermodynamicInput(
+            AllClusterData clusterData,
+            CECEntry cec,
+            double temperature,
+            double[] composition,
+            String systemId,
+            String systemName,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink,
+            int mcsL,
+            int mcsNEquil,
+            int mcsNAvg) {
+
+        this.clusterData  = clusterData;
+        this.cec          = cec;
+        this.temperature  = temperature;
+        this.composition  = composition;
+        this.systemId     = systemId;
+        this.systemName   = systemName;
+        this.progressSink = progressSink;
+        this.eventSink    = eventSink;
+        this.mcsL         = mcsL;
+        this.mcsNEquil    = mcsNEquil;
+        this.mcsNAvg      = mcsNAvg;
+    }
+
+    public ThermodynamicInput(
+            AllClusterData clusterData,
+            CECEntry cec,
+            double temperature,
+            double[] composition,
+            String systemId,
+            String systemName,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink) {
+        this(clusterData, cec, temperature, composition, systemId, systemName, progressSink, eventSink, 4, 1000, 2000);
+    }
 
     public ThermodynamicInput(
             AllClusterData clusterData,
@@ -30,14 +76,7 @@ public class ThermodynamicInput {
             String systemId,
             String systemName,
             Consumer<String> progressSink) {
-
-        this.clusterData  = clusterData;
-        this.cec          = cec;
-        this.temperature  = temperature;
-        this.composition  = composition;
-        this.systemId     = systemId;
-        this.systemName   = systemName;
-        this.progressSink = progressSink;
+        this(clusterData, cec, temperature, composition, systemId, systemName, progressSink, null);
     }
 
     public ThermodynamicInput(
@@ -47,6 +86,6 @@ public class ThermodynamicInput {
             double[] composition,
             String systemId,
             String systemName) {
-        this(clusterData, cec, temperature, composition, systemId, systemName, null);
+        this(clusterData, cec, temperature, composition, systemId, systemName, null, null);
     }
 }

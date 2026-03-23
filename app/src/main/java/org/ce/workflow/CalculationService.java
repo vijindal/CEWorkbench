@@ -1,5 +1,6 @@
 package org.ce.workflow;
 
+import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.workflow.thermo.GridScanWorkflow;
 import org.ce.workflow.thermo.LineScanWorkflow;
@@ -51,9 +52,38 @@ public class CalculationService {
             double[] composition,
             String engineType,
             Consumer<String> progressSink) throws Exception {
+        return runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType, progressSink, null);
+    }
+
+    public ThermodynamicResult runSinglePoint(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink) throws Exception {
 
         return thermoWorkflow.runCalculation(
-                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType, progressSink)
+                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType, progressSink, eventSink)
+        );
+    }
+
+    public ThermodynamicResult runSinglePoint(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink,
+            int mcsL,
+            int mcsNEquil,
+            int mcsNAvg) throws Exception {
+
+        return thermoWorkflow.runCalculation(
+                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType,
+                        progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg)
         );
     }
 

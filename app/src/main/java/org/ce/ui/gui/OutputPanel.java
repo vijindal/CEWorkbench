@@ -132,12 +132,13 @@ public class OutputPanel extends JPanel {
      * Called on the EDT via SwingWorker.process() — no extra invokeLater needed.
      */
     public void onChartEvent(ProgressEvent event) {
-        // Log per-iteration/sweep details with CFs
+        // Log per-iteration/sweep details with H, -TS, and CFs
         if (event instanceof ProgressEvent.CvmIteration) {
             ProgressEvent.CvmIteration ci = (ProgressEvent.CvmIteration) event;
             StringBuilder sb = new StringBuilder();
-            sb.append(String.format("  iter %3d  |∇G| = %.3e  G = %.4f",
-                                   ci.iteration, ci.gradientNorm, ci.gibbsEnergy));
+            sb.append(String.format("  iter %3d  |∇G| = %.3e  G = %.4f  H = %.4f  −TS = %.4f",
+                                   ci.iteration, ci.gradientNorm, ci.gibbsEnergy,
+                                   ci.enthalpy, ci.negTS));
             if (ci.cfs != null && ci.cfs.length > 0) {
                 sb.append("  CFs: [");
                 for (int i = 0; i < ci.cfs.length; i++) {
@@ -337,18 +338,10 @@ public class OutputPanel extends JPanel {
             if (yPad == 0) yPad = 0.001;
             yMin -= yPad; yMax += yPad;
 
-            // Compute secondary Y axis range (CVM thermodynamic properties) if available
+            // Compute secondary Y axis range (CVM Gibbs energy only) if available
             double thermoMin = Double.MAX_VALUE, thermoMax = -Double.MAX_VALUE;
             if (hasThermo) {
                 for (double[] pt : cvmGData) {
-                    if (pt[1] < thermoMin) thermoMin = pt[1];
-                    if (pt[1] > thermoMax) thermoMax = pt[1];
-                }
-                for (double[] pt : cvmHData) {
-                    if (pt[1] < thermoMin) thermoMin = pt[1];
-                    if (pt[1] > thermoMax) thermoMax = pt[1];
-                }
-                for (double[] pt : cvmNegTSData) {
                     if (pt[1] < thermoMin) thermoMin = pt[1];
                     if (pt[1] > thermoMax) thermoMax = pt[1];
                 }
@@ -454,11 +447,9 @@ public class OutputPanel extends JPanel {
             drawSeries(g, primary,   EQUIL_CLR, px, py, pw, ph, xMin, xMax, yMin, yMax);
             drawSeries(g, secondary, mode == Mode.MCS ? AVG_CLR : CVM_CLR, px, py, pw, ph, xMin, xMax, yMin, yMax);
 
-            // Draw CVM thermodynamic properties on secondary Y axis
+            // Draw CVM Gibbs energy (G) on secondary Y axis
             if (hasThermo) {
                 drawSeriesOnSecondaryAxis(g, cvmGData, CVM_CLR, px, py, pw, ph, xMin, xMax, thermoMin, thermoMax);
-                drawSeriesOnSecondaryAxis(g, cvmHData, EQUIL_CLR, px, py, pw, ph, xMin, xMax, thermoMin, thermoMax);
-                drawSeriesOnSecondaryAxis(g, cvmNegTSData, AVG_CLR, px, py, pw, ph, xMin, xMax, thermoMin, thermoMax);
             }
 
             g.setClip(oldClip);
@@ -536,21 +527,11 @@ public class OutputPanel extends JPanel {
                 g.setColor(AXIS_FG);
                 g.drawString("|\u2207G| (log)", rightX - 63, y + 9);
                 y += lineH;
-                // CVM secondary axis properties
+                // CVM secondary axis: Gibbs energy only
                 g.setColor(CVM_CLR);
                 g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
                 g.setColor(AXIS_FG);
                 g.drawString("G", rightX - 63, y + 9);
-                y += lineH;
-                g.setColor(EQUIL_CLR);
-                g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
-                g.setColor(AXIS_FG);
-                g.drawString("H", rightX - 63, y + 9);
-                y += lineH;
-                g.setColor(AVG_CLR);
-                g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
-                g.setColor(AXIS_FG);
-                g.drawString("\u2212T\u00b7S", rightX - 63, y + 9);
             }
         }
 

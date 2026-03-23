@@ -1,5 +1,6 @@
 package org.ce.ui.gui;
 
+import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.SystemId;
 import org.ce.workflow.CalculationService;
@@ -8,8 +9,8 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.util.function.Consumer;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Parameter panel for single-point thermodynamic calculations (shown in the Explorer column).
@@ -29,25 +30,32 @@ public class CalculationPanel extends JPanel {
     private static final Color LABEL_FG = new Color(0xCCCCCC);
     private static final Color ID_FG    = new Color(0x4EC9B0);   // teal
 
-    private final CalculationService             service;
-    private final WorkbenchContext               context;
-    private final Consumer<String>               statusSink;
-    private final Consumer<String>               logSink;
-    private final Consumer<ThermodynamicResult>  resultSink;
+    private final CalculationService            service;
+    private final WorkbenchContext              context;
+    private final Consumer<String>              statusSink;
+    private final Consumer<String>              logSink;
+    private final Consumer<ThermodynamicResult> resultSink;
+    private final Consumer<ProgressEvent>       chartSink;
 
     // User-editable inputs
     private final JTextField elementsField  = new JTextField("A-B", 12);
-    private final JTextField structureField = new JTextField("BCC_B2", 10);
+    private final JTextField structureField = new JTextField("BCC_A2", 10);
     private final JTextField modelField     = new JTextField("T", 8);
 
     // Auto-derived IDs (read-only)
     private final JTextField clusterIdField    = new JTextField(20);
     private final JTextField hamiltonianIdField = new JTextField(20);
 
-    private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
+    private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(7.0, 1.0, 10000.0, 100.0));
     private final JSpinner          xBField          = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
     private final JComboBox<String> engineBox        = new JComboBox<>(new String[]{"CVM", "MCS"});
     private final JButton           calcButton       = new JButton("Calculate");
+
+    // MCS-specific parameters (show/hide based on engine selection)
+    private final JSpinner lField      = new JSpinner(new SpinnerNumberModel(4, 1, 32, 1));
+    private final JSpinner nEquilField = new JSpinner(new SpinnerNumberModel(1000, 100, 100000, 100));
+    private final JSpinner nAvgField   = new JSpinner(new SpinnerNumberModel(2000, 100, 100000, 100));
+    private JLabel lLabel, nEquilLabel, nAvgLabel;
 
     private boolean updatingFromContext = false;
 
@@ -55,12 +63,14 @@ public class CalculationPanel extends JPanel {
                             WorkbenchContext context,
                             Consumer<String> statusSink,
                             Consumer<String> logSink,
-                            Consumer<ThermodynamicResult> resultSink) {
-        this.service     = service;
-        this.context     = context;
-        this.statusSink  = statusSink;
-        this.logSink     = logSink;
-        this.resultSink  = resultSink;
+                            Consumer<ThermodynamicResult> resultSink,
+                            Consumer<ProgressEvent> chartSink) {
+        this.service    = service;
+        this.context    = context;
+        this.statusSink = statusSink;
+        this.logSink    = logSink;
+        this.resultSink = resultSink;
+        this.chartSink  = chartSink;
 
         setBackground(BG);
 
@@ -100,9 +110,13 @@ public class CalculationPanel extends JPanel {
 
         refreshIds();
 
+        engineBox.addActionListener(e -> updateMcsFieldVisibility());
+
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
         add(buildForm(), BorderLayout.NORTH);
+
+        updateMcsFieldVisibility();
     }
 
     // =========================================================================
@@ -131,6 +145,18 @@ public class CalculationPanel extends JPanel {
             clusterIdField.setText(id.clusterId());
             hamiltonianIdField.setText(id.hamiltonianId());
         } catch (IllegalArgumentException ignored) {}
+    }
+
+    private void updateMcsFieldVisibility() {
+        boolean mcs = "MCS".equals(engineBox.getSelectedItem());
+        if (lLabel != null) {
+            lLabel.setVisible(mcs);
+            lField.setVisible(mcs);
+            nEquilLabel.setVisible(mcs);
+            nEquilField.setVisible(mcs);
+            nAvgLabel.setVisible(mcs);
+            nAvgField.setVisible(mcs);
+        }
     }
 
     // =========================================================================
@@ -187,6 +213,19 @@ public class CalculationPanel extends JPanel {
         lc.gridy = row++;  form.add(makeLabel("Engine:", LABEL_FG), lc);
         fc.gridy = row++;  form.add(engineBox, fc);
 
+        // MCS parameters (initially hidden, shown when MCS is selected)
+        lLabel = makeLabel("Lattice size L:", LABEL_FG);
+        lc.gridy = row++;  form.add(lLabel, lc);
+        fc.gridy = row++;  form.add(lField, fc);
+
+        nEquilLabel = makeLabel("Equil. sweeps:", LABEL_FG);
+        lc.gridy = row++;  form.add(nEquilLabel, lc);
+        fc.gridy = row++;  form.add(nEquilField, fc);
+
+        nAvgLabel = makeLabel("Avg. sweeps:", LABEL_FG);
+        lc.gridy = row++;  form.add(nAvgLabel, lc);
+        fc.gridy = row++;  form.add(nAvgField, fc);
+
         // Button
         GridBagConstraints bc = new GridBagConstraints();
         bc.gridx = 0; bc.gridy = row;
@@ -221,6 +260,10 @@ public class CalculationPanel extends JPanel {
         String engineType    = (String) engineBox.getSelectedItem();
         double[] composition = {1.0 - xB, xB};
 
+        int mcsL      = ((Number) lField.getValue()).intValue();
+        int mcsNEquil = ((Number) nEquilField.getValue()).intValue();
+        int mcsNAvg   = ((Number) nAvgField.getValue()).intValue();
+
         calcButton.setEnabled(false);
         logSink.accept("Running " + engineType + " calculation...");
         logSink.accept("  Cluster     : " + clusterId);
@@ -228,16 +271,26 @@ public class CalculationPanel extends JPanel {
         logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
         statusSink.accept("Running " + engineType + " at T=" + temperature + " K...");
 
-        SwingWorker<ThermodynamicResult, String> worker = new SwingWorker<>() {
+        // SwingWorker publishes heterogeneous chunks: String (log) and ProgressEvent (chart)
+        SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<ThermodynamicResult, Object>() {
             @Override
             protected ThermodynamicResult doInBackground() throws Exception {
                 return service.runSinglePoint(clusterId, hamiltonianId, temperature, composition,
-                        engineType, msg -> publish(msg));
+                        engineType,
+                        msg -> publish((Object) msg),
+                        evt -> publish((Object) evt),
+                        mcsL, mcsNEquil, mcsNAvg);
             }
 
             @Override
-            protected void process(List<String> chunks) {
-                for (String msg : chunks) logSink.accept(msg);
+            protected void process(List<Object> chunks) {
+                for (Object obj : chunks) {
+                    if (obj instanceof String) {
+                        logSink.accept((String) obj);
+                    } else if (obj instanceof ProgressEvent) {
+                        chartSink.accept((ProgressEvent) obj);
+                    }
+                }
             }
 
             @Override

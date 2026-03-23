@@ -46,7 +46,7 @@ public class ActivityBar extends JPanel {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBackground(BG);
         setPreferredSize(new Dimension(52, 0));
-        setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, new Color(0x252526)));
+        setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, new Color(0x000000)));
 
         for (int i = 0; i < ITEMS.length; i++) {
             ActivityItem item = new ActivityItem(i, ITEMS[i][0], ITEMS[i][1], callbacks[i]);
