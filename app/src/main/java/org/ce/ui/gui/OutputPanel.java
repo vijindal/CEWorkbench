@@ -255,24 +255,13 @@ public class OutputPanel extends JPanel {
                 ProgressEvent.McSweep ms = (ProgressEvent.McSweep) evt;
                 if (ms.equilibration) equilData.add(new double[]{ms.step, ms.energyPerSite});
                 else                  avgData.add(new double[]{ms.step, ms.energyPerSite});
-                // Store CF data during averaging phase
-                if (!ms.equilibration && ms.cfs != null && ms.cfs.length > 0) {
-                    double[] cfEntry = new double[ms.cfs.length + 1];
-                    cfEntry[0] = ms.step;
-                    System.arraycopy(ms.cfs, 0, cfEntry, 1, ms.cfs.length);
-                    mcsCfData.add(cfEntry);
-                }
             } else if (evt instanceof ProgressEvent.CvmIteration) {
                 ProgressEvent.CvmIteration ci = (ProgressEvent.CvmIteration) evt;
                 double logNorm = ci.gradientNorm > 0 ? Math.log10(ci.gradientNorm) : -15.0;
-                cvmData.add(new double[]{ci.iteration, logNorm, ci.gibbsEnergy});
-                // Store CF data per iteration
-                if (ci.cfs != null && ci.cfs.length > 0) {
-                    double[] cfEntry = new double[ci.cfs.length + 1];
-                    cfEntry[0] = ci.iteration;
-                    System.arraycopy(ci.cfs, 0, cfEntry, 1, ci.cfs.length);
-                    cvmCfData.add(cfEntry);
-                }
+                cvmData.add(new double[]{ci.iteration, logNorm});
+                cvmGData.add(new double[]{ci.iteration, ci.gibbsEnergy});
+                cvmHData.add(new double[]{ci.iteration, ci.enthalpy});
+                cvmNegTSData.add(new double[]{ci.iteration, ci.negTS});
             }
             repaint();
         }
@@ -302,10 +291,9 @@ public class OutputPanel extends JPanel {
         // ── chart area ────────────────────────────────────────────────────────
 
         private void drawChart(Graphics2D g, int w, int h) {
-            // Dynamic right margin: expand if we have CF data to show secondary Y axis
-            List<double[]> cfSrc = mode == Mode.CVM ? cvmCfData : mcsCfData;
-            boolean hasCfs = !cfSrc.isEmpty();
-            int mr = hasCfs ? 60 : MR;
+            // For CVM, show secondary axis with G, H, -TS; for MCS, no secondary axis
+            boolean hasThermo = mode == Mode.CVM && !cvmGData.isEmpty();
+            int mr = hasThermo ? 60 : MR;
 
             int px = ML, py = MT, pw = w - ML - mr, ph = h - MT - MB;
             if (pw <= 0 || ph <= 0) return;
@@ -349,18 +337,24 @@ public class OutputPanel extends JPanel {
             if (yPad == 0) yPad = 0.001;
             yMin -= yPad; yMax += yPad;
 
-            // Compute secondary Y axis range (CFs) if available
-            double cfMin = Double.MAX_VALUE, cfMax = -Double.MAX_VALUE;
-            if (hasCfs) {
-                for (double[] pt : cfSrc) {
-                    for (int k = 1; k < pt.length; k++) {
-                        if (pt[k] < cfMin) cfMin = pt[k];
-                        if (pt[k] > cfMax) cfMax = pt[k];
-                    }
+            // Compute secondary Y axis range (CVM thermodynamic properties) if available
+            double thermoMin = Double.MAX_VALUE, thermoMax = -Double.MAX_VALUE;
+            if (hasThermo) {
+                for (double[] pt : cvmGData) {
+                    if (pt[1] < thermoMin) thermoMin = pt[1];
+                    if (pt[1] > thermoMax) thermoMax = pt[1];
                 }
-                double cfPad = (cfMax - cfMin) * 0.12;
-                if (cfPad == 0) cfPad = 0.1;
-                cfMin -= cfPad; cfMax += cfPad;
+                for (double[] pt : cvmHData) {
+                    if (pt[1] < thermoMin) thermoMin = pt[1];
+                    if (pt[1] > thermoMax) thermoMax = pt[1];
+                }
+                for (double[] pt : cvmNegTSData) {
+                    if (pt[1] < thermoMin) thermoMin = pt[1];
+                    if (pt[1] > thermoMax) thermoMax = pt[1];
+                }
+                double thermoPad = (thermoMax - thermoMin) * 0.12;
+                if (thermoPad == 0) thermoPad = 1.0;
+                thermoMin -= thermoPad; thermoMax += thermoPad;
             }
 
             // Grid
@@ -384,12 +378,12 @@ public class OutputPanel extends JPanel {
                 g.drawString(lbl, px - fm.stringWidth(lbl) - 4, gy + fm.getAscent() / 2);
             }
 
-            // Y-axis labels (right, for CF secondary axis)
-            if (hasCfs) {
+            // Y-axis labels (right, for CVM thermodynamic secondary axis)
+            if (hasThermo) {
                 for (int i = 0; i <= nGrid; i++) {
-                    double val = cfMax - (double) i / nGrid * (cfMax - cfMin);
+                    double val = thermoMax - (double) i / nGrid * (thermoMax - thermoMin);
                     int    gy  = py + (int)((double) i / nGrid * ph);
-                    String lbl = String.format("%.3f", val);
+                    String lbl = formatAxisVal(val);
                     g.drawString(lbl, px + pw + 4, gy + fm.getAscent() / 2);
                 }
             }
@@ -420,8 +414,8 @@ public class OutputPanel extends JPanel {
             g2.drawString(yTitle, -fm.stringWidth(yTitle) / 2, fm.getAscent() / 2);
             g2.dispose();
 
-            // Rotated Y title (right, for CF secondary axis)
-            if (hasCfs) {
+            // Rotated Y title (right, for CVM thermodynamic secondary axis)
+            if (hasThermo) {
                 Graphics2D g3 = (Graphics2D) g.create();
                 g3.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                 g3.translate(w - 10, py + ph / 2);
@@ -429,7 +423,7 @@ public class OutputPanel extends JPanel {
                 g3.setColor(AXIS_FG);
                 g3.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
                 fm = g3.getFontMetrics();
-                g3.drawString("CF", -fm.stringWidth("CF") / 2, fm.getAscent() / 2);
+                g3.drawString("J/mol", -fm.stringWidth("J/mol") / 2, fm.getAscent() / 2);
                 g3.dispose();
             }
 
@@ -460,13 +454,11 @@ public class OutputPanel extends JPanel {
             drawSeries(g, primary,   EQUIL_CLR, px, py, pw, ph, xMin, xMax, yMin, yMax);
             drawSeries(g, secondary, mode == Mode.MCS ? AVG_CLR : CVM_CLR, px, py, pw, ph, xMin, xMax, yMin, yMax);
 
-            // Draw CF series on secondary Y axis
-            if (hasCfs) {
-                int numCfs = cfSrc.isEmpty() ? 0 : cfSrc.get(0).length - 1;
-                for (int cfIdx = 0; cfIdx < numCfs; cfIdx++) {
-                    Color cfColor = CF_COLORS[cfIdx % CF_COLORS.length];
-                    drawCfSeries(g, cfSrc, cfIdx, cfColor, px, py, pw, ph, xMin, xMax, cfMin, cfMax);
-                }
+            // Draw CVM thermodynamic properties on secondary Y axis
+            if (hasThermo) {
+                drawSeriesOnSecondaryAxis(g, cvmGData, CVM_CLR, px, py, pw, ph, xMin, xMax, thermoMin, thermoMax);
+                drawSeriesOnSecondaryAxis(g, cvmHData, EQUIL_CLR, px, py, pw, ph, xMin, xMax, thermoMin, thermoMax);
+                drawSeriesOnSecondaryAxis(g, cvmNegTSData, AVG_CLR, px, py, pw, ph, xMin, xMax, thermoMin, thermoMax);
             }
 
             g.setClip(oldClip);
@@ -500,24 +492,24 @@ public class OutputPanel extends JPanel {
             g.drawPolyline(xs, ys, data.size());
         }
 
-        private void drawCfSeries(Graphics2D g, List<double[]> cfData, int cfIdx, Color color,
-                                  int px, int py, int pw, int ph,
-                                  double xMin, double xMax, double cfMin, double cfMax) {
-            if (cfData.isEmpty()) return;
+        private void drawSeriesOnSecondaryAxis(Graphics2D g, List<double[]> data, Color color,
+                                              int px, int py, int pw, int ph,
+                                              double xMin, double xMax, double yMin, double yMax) {
+            if (data.isEmpty()) return;
             g.setColor(color);
-            g.setStroke(new BasicStroke(1.0f));
-            if (cfData.size() == 1) {
-                int sx = toX(cfData.get(0)[0], xMin, xMax, px, pw);
-                int sy = toYR(cfData.get(0)[cfIdx + 1], cfMin, cfMax, py, ph);
+            g.setStroke(new BasicStroke(1.5f));
+            if (data.size() == 1) {
+                int sx = toX(data.get(0)[0], xMin, xMax, px, pw);
+                int sy = toYR(data.get(0)[1], yMin, yMax, py, ph);
                 g.fillOval(sx - 2, sy - 2, 4, 4);
                 return;
             }
-            int[] xs = new int[cfData.size()], ys = new int[cfData.size()];
-            for (int i = 0; i < cfData.size(); i++) {
-                xs[i] = toX(cfData.get(i)[0], xMin, xMax, px, pw);
-                ys[i] = toYR(cfData.get(i)[cfIdx + 1], cfMin, cfMax, py, ph);
+            int[] xs = new int[data.size()], ys = new int[data.size()];
+            for (int i = 0; i < data.size(); i++) {
+                xs[i] = toX(data.get(i)[0], xMin, xMax, px, pw);
+                ys[i] = toYR(data.get(i)[1], yMin, yMax, py, ph);
             }
-            g.drawPolyline(xs, ys, cfData.size());
+            g.drawPolyline(xs, ys, data.size());
         }
 
         private void drawLegend(Graphics2D g, int rightX, int topY) {
@@ -544,24 +536,21 @@ public class OutputPanel extends JPanel {
                 g.setColor(AXIS_FG);
                 g.drawString("|\u2207G| (log)", rightX - 63, y + 9);
                 y += lineH;
-            }
-
-            // CF legend entries (show up to 3, then "+N more")
-            List<double[]> cfSrc = mode == Mode.CVM ? cvmCfData : mcsCfData;
-            if (!cfSrc.isEmpty()) {
-                int numCfs = cfSrc.get(0).length - 1;
-                int showCfs = Math.min(numCfs, 3);
-                for (int i = 0; i < showCfs; i++) {
-                    g.setColor(CF_COLORS[i % CF_COLORS.length]);
-                    g.drawLine(rightX - 100, y + 6, rightX - 100 + lineW, y + 6);
-                    g.setColor(AXIS_FG);
-                    g.drawString("CF " + (i + 1), rightX - 83, y + 9);
-                    y += lineH;
-                }
-                if (numCfs > 3) {
-                    g.setColor(AXIS_FG);
-                    g.drawString("+" + (numCfs - 3) + " more", rightX - 83, y + 9);
-                }
+                // CVM secondary axis properties
+                g.setColor(CVM_CLR);
+                g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
+                g.setColor(AXIS_FG);
+                g.drawString("G", rightX - 63, y + 9);
+                y += lineH;
+                g.setColor(EQUIL_CLR);
+                g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
+                g.setColor(AXIS_FG);
+                g.drawString("H", rightX - 63, y + 9);
+                y += lineH;
+                g.setColor(AVG_CLR);
+                g.drawLine(rightX - 80, y + 6, rightX - 80 + lineW, y + 6);
+                g.setColor(AXIS_FG);
+                g.drawString("\u2212T\u00b7S", rightX - 63, y + 9);
             }
         }
 
