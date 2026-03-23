@@ -144,7 +144,7 @@ public class CVMEngine implements ThermodynamicEngine {
                         snap.getGradientNorm(),
                         ghs[1],      // enthalpy (H)
                         -T * ghs[2], // −T·S
-                        null));      // cfs unused
+                        snap.getCf())); // CFs for logging
             }
         }
 
