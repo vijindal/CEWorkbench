@@ -135,7 +135,6 @@ public class CVMEngine implements ThermodynamicEngine {
         if (input.eventSink != null) {
             input.eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
             List<CVMSolverResult.IterationSnapshot> trace = model.getLastIterationTrace();
-            double T = input.temperature;
             for (CVMSolverResult.IterationSnapshot snap : trace) {
                 double[] ghs = model.computeGHS(snap.getCf());
                 input.eventSink.accept(new ProgressEvent.CvmIteration(
@@ -143,7 +142,7 @@ public class CVMEngine implements ThermodynamicEngine {
                         snap.getGibbsEnergy(),
                         snap.getGradientNorm(),
                         ghs[1],      // enthalpy (H)
-                        -T * ghs[2], // −T·S
+                        ghs[2],      // entropy (S) in J/(mol·K)
                         snap.getCf())); // CFs for logging
             }
         }

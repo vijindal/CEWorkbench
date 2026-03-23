@@ -63,17 +63,17 @@ public abstract class ProgressEvent {
         public final double   gibbsEnergy;
         public final double   gradientNorm;
         public final double   enthalpy;     // H in J/mol
-        public final double   negTS;        // −T·S in J/mol
+        public final double   entropy;      // S in J/(mol·K)
         /** Non-point correlation functions at this iteration (length = ncf); may be null. */
         public final double[] cfs;
 
         public CvmIteration(int iteration, double gibbsEnergy, double gradientNorm,
-                           double enthalpy, double negTS, double[] cfs) {
+                           double enthalpy, double entropy, double[] cfs) {
             this.iteration    = iteration;
             this.gibbsEnergy  = gibbsEnergy;
             this.gradientNorm = gradientNorm;
             this.enthalpy     = enthalpy;
-            this.negTS        = negTS;
+            this.entropy      = entropy;
             this.cfs          = cfs != null ? cfs.clone() : null;
         }
     }

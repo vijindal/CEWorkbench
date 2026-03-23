@@ -132,13 +132,13 @@ public class OutputPanel extends JPanel {
      * Called on the EDT via SwingWorker.process() — no extra invokeLater needed.
      */
     public void onChartEvent(ProgressEvent event) {
-        // Log per-iteration/sweep details with H, -TS, and CFs
+        // Log per-iteration/sweep details with H, S, and CFs
         if (event instanceof ProgressEvent.CvmIteration) {
             ProgressEvent.CvmIteration ci = (ProgressEvent.CvmIteration) event;
             StringBuilder sb = new StringBuilder();
-            sb.append(String.format("  iter %3d  |∇G| = %.3e  G = %.4f  H = %.4f  −TS = %.4f",
+            sb.append(String.format("  iter %3d  |∇G| = %.3e  G = %.4f  H = %.4f  S = %.6f",
                                    ci.iteration, ci.gradientNorm, ci.gibbsEnergy,
-                                   ci.enthalpy, ci.negTS));
+                                   ci.enthalpy, ci.entropy));
             if (ci.cfs != null && ci.cfs.length > 0) {
                 sb.append("  CFs: [");
                 for (int i = 0; i < ci.cfs.length; i++) {
@@ -262,7 +262,7 @@ public class OutputPanel extends JPanel {
                 cvmData.add(new double[]{ci.iteration, logNorm});
                 cvmGData.add(new double[]{ci.iteration, ci.gibbsEnergy});
                 cvmHData.add(new double[]{ci.iteration, ci.enthalpy});
-                cvmNegTSData.add(new double[]{ci.iteration, ci.negTS});
+                cvmNegTSData.add(new double[]{ci.iteration, ci.entropy});
             }
             repaint();
         }
