@@ -1,5 +1,5 @@
 {
-  "elements" : "Nb-Ti-V",
+  "elements" : "Nb-Zr",
   "structurePhase" : "BCC_A2",
   "model" : "T",
   "cecTerms" : [ {
@@ -14,25 +14,25 @@
     "description" : "CF_1 (3 sites, multiplicity 12)",
     "numSites" : 3,
     "multiplicity" : 12.0,
-    "a" : 0.0,
+    "a" : 88.0,
     "b" : 0.0
   }, {
     "name" : "CF_2",
     "description" : "CF_2 (2 sites, multiplicity 4)",
     "numSites" : 2,
     "multiplicity" : 4.0,
-    "a" : -390.0,
-    "b" : 0.0
+    "a" : -462.6,
+    "b" : -0.4152
   }, {
     "name" : "CF_3",
     "description" : "CF_3 (2 sites, multiplicity 3)",
     "numSites" : 2,
     "multiplicity" : 3.0,
-    "a" : -260.0,
-    "b" : 0.0
+    "a" : -308.4,
+    "b" : -0.2768
   } ],
   "cecUnits" : "J/mol",
-  "reference" : " [transformed from binary]",
-  "notes" : "Ternary basis transformation from Nb-Ti_BCC_A2_T",
+  "reference" : "Kumar & Jindal (2022) via Jindal & Lele, CALPHAD 89 (2025) 102825, Table 5",
+  "notes" : "Orthogonal basis CECs for bcc Nb-Zr. E22NbZr = (2/3)*E21NbZr. E3NbZr = 88.0 J/mol.",
   "ncf" : 4
 }

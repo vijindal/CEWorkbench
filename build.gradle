@@ -55,3 +55,10 @@ task runGui(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'org.ce.CEWorkbench'
 }
+
+task runDemo(type: JavaExec) {
+    group = 'application'
+    description = 'Run CEC basis transformation demo'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.demo.BinaryToTernaryDemo'
+}

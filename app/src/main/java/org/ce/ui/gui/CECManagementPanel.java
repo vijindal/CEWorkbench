@@ -196,12 +196,15 @@ public class CECManagementPanel extends JPanel {
         JButton scaffoldBtn = new JButton("Scaffold");
         JButton loadBtn     = new JButton("Load");
         JButton saveBtn     = new JButton("Save");
+        JButton transformBtn = new JButton("Transform from Binary");
         scaffoldBtn.addActionListener(e -> scaffoldCEC());
         loadBtn.addActionListener(e -> loadCEC());
         saveBtn.addActionListener(e -> saveCEC());
+        transformBtn.addActionListener(e -> transformFromBinary());
         btnPanel.add(scaffoldBtn);
         btnPanel.add(loadBtn);
         btnPanel.add(saveBtn);
+        btnPanel.add(transformBtn);
 
         GridBagConstraints bc = new GridBagConstraints();
         bc.gridx = 0; bc.gridy = row;
@@ -356,5 +359,95 @@ public class CECManagementPanel extends JPanel {
         for (CECTerm term : entry.cecTerms) {
             tableModel.addRow(new Object[]{ term.name, term.a, term.b });
         }
+    }
+
+    // =========================================================================
+    // Basis Transformation: Binary → Ternary
+    // =========================================================================
+
+    private void transformFromBinary() {
+        String ternaryId = hamiltonianIdField.getText().trim();
+        if (ternaryId.isBlank()) {
+            logSink.accept("Please set target Hamiltonian ID first");
+            statusSink.accept("Error: target Hamiltonian ID required");
+            return;
+        }
+
+        String ternaryElements = elementsField.getText().trim();
+        if (ternaryElements.isBlank() || ternaryElements.split("-").length != 3) {
+            logSink.accept("Please set Ternary elements (e.g., Nb-Ti-V)");
+            statusSink.accept("Error: invalid ternary element string");
+            return;
+        }
+
+        // Show input dialog for binary Hamiltonian ID
+        String binaryId = JOptionPane.showInputDialog(
+            this,
+            "Enter source binary Hamiltonian ID\n(e.g., Nb-Ti_BCC_A2_T):",
+            "Nb-Ti_BCC_A2_T"
+        );
+
+        if (binaryId == null || binaryId.isBlank()) return;
+
+        logSink.accept("Transforming " + binaryId + " → " + ternaryId + "...");
+        statusSink.accept("Transforming " + binaryId + " to ternary basis...");
+
+        SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
+            @Override
+            protected CECEntry doInBackground() throws Exception {
+                // Build species mapping from element strings
+                String[] binaryElems = binaryId.split("_")[0].split("-");
+                String[] ternaryElems = ternaryElements.split("-");
+
+                if (binaryElems.length != 2) {
+                    throw new IllegalArgumentException(
+                        "Binary ID must have 2 elements, got: " + binaryId);
+                }
+
+                if (ternaryElems.length != 3) {
+                    throw new IllegalArgumentException(
+                        "Ternary elements must have 3, got: " + ternaryElements);
+                }
+
+                // Create species mapping
+                org.ce.domain.hamiltonian.NumericalCECTransformer.SpeciesMapping mapping =
+                    new org.ce.domain.hamiltonian.NumericalCECTransformer.SpeciesMapping();
+
+                // Map binary species to ternary species by name
+                for (int b = 0; b < binaryElems.length; b++) {
+                    for (int t = 0; t < ternaryElems.length; t++) {
+                        if (binaryElems[b].equalsIgnoreCase(ternaryElems[t])) {
+                            mapping.addMapping(t, b);
+                        }
+                    }
+                }
+
+                // Perform transformation
+                return cecWorkflow.transformBinaryToTernary(
+                    binaryId,
+                    ternaryId,
+                    ternaryElements,
+                    mapping
+                );
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    CECEntry entry = get();
+                    currentEntry = entry;
+                    currentHamiltonianId = ternaryId;
+                    populateTable(entry);
+                    logSink.accept("Transformed " + entry.ncf + " terms to ternary basis");
+                    logSink.accept("Saved to hamiltonians/" + ternaryId + "/hamiltonian.json");
+                    logSink.accept("Review the transformed values and click Save if satisfied.");
+                    statusSink.accept("Transformed " + ternaryId);
+                } catch (Exception ex) {
+                    logSink.accept("Error: " + ex.getMessage());
+                    statusSink.accept("Error: " + ex.getMessage());
+                }
+            }
+        };
+        worker.execute();
     }
 }

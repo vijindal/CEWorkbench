@@ -1,5 +1,5 @@
 {
-  "elements" : "Nb-Ti-V",
+  "elements" : "Ti-V",
   "structurePhase" : "BCC_A2",
   "model" : "T",
   "cecTerms" : [ {
@@ -21,18 +21,18 @@
     "description" : "CF_2 (2 sites, multiplicity 4)",
     "numSites" : 2,
     "multiplicity" : 4.0,
-    "a" : -390.0,
+    "a" : -510.0,
     "b" : 0.0
   }, {
     "name" : "CF_3",
     "description" : "CF_3 (2 sites, multiplicity 3)",
     "numSites" : 2,
     "multiplicity" : 3.0,
-    "a" : -260.0,
+    "a" : -340.0,
     "b" : 0.0
   } ],
   "cecUnits" : "J/mol",
-  "reference" : " [transformed from binary]",
-  "notes" : "Ternary basis transformation from Nb-Ti_BCC_A2_T",
+  "reference" : "Shanker et al. (2022) via Jindal & Lele, CALPHAD 89 (2025) 102825, Table 7",
+  "notes" : "Orthogonal basis CECs for bcc Ti-V. E22TiV = (2/3)*E21TiV. E3TiV = 0.",
   "ncf" : 4
 }
