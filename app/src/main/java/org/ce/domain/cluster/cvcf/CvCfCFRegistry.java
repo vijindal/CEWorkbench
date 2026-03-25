@@ -66,4 +66,9 @@ public final class CvCfCFRegistry {
     public static CvCfCFRegistry forBccA2Ternary() {
         return new CvCfCFRegistry("BCC_A2", 3, BccA2CvCfTransformations.TERNARY_CF_NAMES);
     }
+
+    /** Returns a registry for quaternary BCC_A2. */
+    public static CvCfCFRegistry forBccA2Quaternary() {
+        return new CvCfCFRegistry("BCC_A2", 4, BccA2CvCfTransformations.QUATERNARY_CF_NAMES);
+    }
 }
