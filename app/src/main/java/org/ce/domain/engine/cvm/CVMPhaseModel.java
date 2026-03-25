@@ -4,6 +4,7 @@ import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
+import org.ce.domain.cluster.cvcf.CvCfIntegration;
 import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 
@@ -124,12 +125,14 @@ public class CVMPhaseModel {
     private final int[] lc;               // Cluster count per type: lc[t]
     private final int[][] lcf;            // CF count per (type, group): lcf[t][j]
     private final int[][] cfBasisIndices; // Per-CF basis decoration (Stage 3)
-    private final List<List<double[][]>> cmat;  // C-matrix: cmat[t][j][v][k]
-    private final int[][] lcv;                  // CV counts: lcv[t][j]
-    private final List<List<int[]>> wcv;        // CV weights: wcv.get(t).get(j)[v]
+    private final List<List<double[][]>> cmat_old;  // C-matrix (old orthogonal basis): cmat[t][j][v][k]
+    private final List<List<double[][]>> cmat_new;  // C-matrix (CVCF basis, optional): transformed via CvCfIntegration
+    private final int[][] lcv;                      // CV counts: lcv[t][j]
+    private final List<List<int[]>> wcv;            // CV weights: wcv.get(t).get(j)[v]
     private final String systemId;
     private final String systemName;
     private final int numComponents;
+    private final CvCfIntegration cvcfIntegration;  // Optional CVCF basis adapter (null = use old basis)
 
     // =========================================================================
     // MUTABLE: System Parameters â€" can be changed at any time
@@ -183,16 +186,16 @@ public class CVMPhaseModel {
      * @throws Exception if first minimization fails
      */
     /**
-     * Creates a CVM phase model for any K-component system.
+     * Creates a CVM phase model for any K-component system (old orthogonal basis).
      *
-     * <p>This is the canonical factory method. Pass the full mole-fraction
-     * array {@code x[0..K-1]} — works for binary, ternary, and any K.</p>
+     * <p>This is the canonical factory method for old basis calculations.
+     * Pass the full mole-fraction array {@code x[0..K-1]} — works for binary, ternary, and any K.</p>
      *
      * @param input         CVMInput carrying cluster topology data (Stages 1-3)
      * @param eci           ncf-length effective cluster interactions (J/mol)
      * @param temperature   initial temperature in Kelvin
      * @param moleFractions mole fractions x[0..K-1]; must sum to 1.0
-     * @return CVMPhaseModel with first N-R minimization complete
+     * @return CVMPhaseModel with first N-R minimization complete (old basis)
      * @throws Exception if minimization fails or input is invalid
      */
     public static CVMPhaseModel create(
@@ -201,11 +204,35 @@ public class CVMPhaseModel {
             double temperature,
             double[] moleFractions) throws Exception {
 
+        return create(input, eci, temperature, moleFractions, null);
+    }
+
+    /**
+     * Creates a CVM phase model with optional CVCF basis transformation.
+     *
+     * <p>Pass {@code cvcfIntegration = null} for old orthogonal basis (default).
+     * Pass a {@link CvCfIntegration} instance to use CVCF basis internally.</p>
+     *
+     * @param input         CVMInput carrying cluster topology data (Stages 1-3)
+     * @param eci           ncf-length effective cluster interactions (J/mol)
+     * @param temperature   initial temperature in Kelvin
+     * @param moleFractions mole fractions x[0..K-1]; must sum to 1.0
+     * @param cvcfIntegration optional CVCF adapter (null = old basis)
+     * @return CVMPhaseModel with first N-R minimization complete
+     * @throws Exception if minimization fails or input is invalid
+     */
+    public static CVMPhaseModel create(
+            CVMInput input,
+            double[] eci,
+            double temperature,
+            double[] moleFractions,
+            CvCfIntegration cvcfIntegration) throws Exception {
+
         if (input == null) {
             throw new IllegalArgumentException("CVMInput must not be null");
         }
 
-        CVMPhaseModel model = new CVMPhaseModel(input);
+        CVMPhaseModel model = new CVMPhaseModel(input, cvcfIntegration);
         model.setECI(eci);
         model.setTemperature(temperature);
         model.setMoleFractions(moleFractions);   // validates length and sum-to-1
@@ -239,8 +266,11 @@ public class CVMPhaseModel {
     /**
      * Private constructor. Extracts and caches all stage data from CVMInput.
      * Only called by the factory method.
+     *
+     * @param input CVMInput with cluster topology
+     * @param cvcfIntegration optional CVCF basis adapter (null = use old basis)
      */
-    private CVMPhaseModel(CVMInput input) {
+    private CVMPhaseModel(CVMInput input, CvCfIntegration cvcfIntegration) {
         // Extract Stage 1: Cluster Identification
         ClusterIdentificationResult stage1 = input.getStage1();
         this.tcdis = stage1.getTcdis();
@@ -258,7 +288,8 @@ public class CVMPhaseModel {
         // Extract Stage 3: C-Matrix Structure
         CMatrixResult stage3 = input.getStage3();
         this.cfBasisIndices = stage3.getCfBasisIndices();
-        this.cmat = stage3.getCmat();
+        this.cmat_old = stage3.getCmat();
+        this.cmat_new = (cvcfIntegration != null) ? cvcfIntegration.getTransformedCmat().getCmat() : null;
         this.lcv = stage3.getLcv();
         this.wcv = stage3.getWcv();
 
@@ -266,6 +297,9 @@ public class CVMPhaseModel {
         this.systemId = input.getSystemId();
         this.systemName = input.getSystemName();
         this.numComponents = input.getNumComponents();
+
+        // Optional CVCF integration
+        this.cvcfIntegration = cvcfIntegration;
 
         // Initialize parameter storage (not yet set)
         this.eci = null;
@@ -399,6 +433,18 @@ public class CVMPhaseModel {
     }
 
     // =========================================================================
+    // CMAT SELECTION (Old vs CVCF basis)
+    // =========================================================================
+
+    /**
+     * Returns the active C-matrix (either old orthogonal or CVCF basis).
+     * @return cmat_new if CVCF is active, otherwise cmat_old
+     */
+    private List<List<double[][]>> getActiveCmat() {
+        return (cvcfIntegration != null) ? cmat_new : cmat_old;
+    }
+
+    // =========================================================================
     // AUTOMATIC LAZY MINIMIZATION
     // =========================================================================
 
@@ -436,11 +482,15 @@ public class CVMPhaseModel {
 
     /**
      * Internal minimization routine (private).
+     * Uses either old orthogonal basis (default) or CVCF basis depending on cvcfIntegration.
      */
     private void minimize() {
         long startTime = System.nanoTime();
 
         try {
+            // Select active C-matrix (old or CVCF basis)
+            List<List<double[][]>> activeCmat = getActiveCmat();
+
             // Run Newton-Raphson solver
             // (Solver generates initial guess internally)
             CVMSolverResult result = NewtonRaphsonSolverSimple.solve(
@@ -452,7 +502,7 @@ public class CVMPhaseModel {
                 kb,
                 mh,
                 lc,
-                cmat,
+                activeCmat,
                 lcv,
                 wcv,
                 tcdis,
@@ -480,7 +530,7 @@ public class CVMPhaseModel {
                     kb,
                     mh,
                     lc,
-                    cmat,
+                    activeCmat,
                     lcv,
                     wcv,
                     tcdis,
