@@ -6,6 +6,31 @@
 
 ---
 
+## 🏗️ Architecture Decision: Dual-Pipeline with Option A
+
+**Decision:** Maintain both orthogonal basis and CVCF basis pipelines, with CVCF as CVM-internal only.
+
+| Component | Old Basis | CVCF Basis | Notes |
+|-----------|-----------|-----------|-------|
+| **hamiltonian.json** | Old basis format (CF_N indexing) | ✓ Same format | No changes needed to I/O |
+| **CVMPhaseModel** | Uses cmat_old | Optionally uses cmat_new | CvCfIntegration param controls |
+| **CVMFreeEnergy** | Standard computation | CVCF-aware computation | Routes based on integration param |
+| **MCS Engine** | Uses old-basis ECIs | ✓ Uses old-basis ECIs | Unchanged, no basis knowledge |
+| **Results** | G, H, S (from old basis) | G, H, S (basis-invariant) | Same thermodynamic properties |
+
+**Key Points:**
+1. **ECIs stay in old basis format** — hamiltonian.json unchanged, no format versioning
+2. **MCS unaffected** — continues to use old-basis ECIs for Metropolis sampling
+3. **CVCF is opt-in for CVM** — pass `CvCfIntegration` to CVMPhaseModel to activate
+4. **Basis-invariant results** — both paths produce identical thermodynamic properties (H, S, G)
+5. **Lower risk** — no changes to I/O, storage, or external engines
+
+**When to use each:**
+- **Old basis:** Default, current behavior, maximum stability
+- **CVCF basis:** For systems where cluster variable representation is cleaner (future optimization)
+
+---
+
 ## Complete CVM Calculation Data Flow
 
 This shows a typical CVM thermodynamic calculation from user input to results, with CVCF integration points marked.
@@ -65,39 +90,56 @@ This shows a typical CVM thermodynamic calculation from user input to results, w
 
 ### 🟢 CVCF BASIS (After Full Integration)
 
+**Design Decision (Phase 1, Option A):** CVCF basis is **CVM-internal only**. MCS and all I/O remain on old orthogonal basis.
+
+- ECIs in hamiltonian.json stay in old basis format (no change)
+- MCS engine uses old basis ECIs unchanged (no change)
+- CVCF transformation happens only within CVMPhaseModel when optional
+- Simpler, lower-risk, maintains backward compatibility
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    USER / WORKFLOW LAYER                         │
 │  CalculationService.run(systemId, T, composition, eccFile)      │
-│                         │                                         │
-│         ┌───────────────┴──────────────────┐                     │
-│         ▼                                  ▼                     │
-│  [Detect basis type]                  [Use CVCF?]               │
-│  OLD (default)        ←→              NEW (CVCF)                │
-└──┬──────────────────────────────────────────┬───────────────────┘
-   │ (OLD PATH)                               │ (CVCF PATH)
-   │                                          │
-   ▼                                          ▼
-┌──────────────────────┐        ┌──────────────────────────────────┐
-│  OLD BASIS FLOW      │        │  CVCF BASIS FLOW [NEW]            │
-│  (Unchanged)         │        │                                   │
-│                      │        │  1. Load AllClusterData (old basis)
-│  Load Stage 1-3      │        │     ├─ cmat_old (Stage 3)         │
-│  Load eci (old)      │        │     └─ All cluster/CF data        │
-│  CVMPhaseModel.run   │        │                                   │
-│  ├─ H = Σ eci·u      │        │  2. Create CvCfIntegration ✅     │
-│  └─ S unchanged      │        │     CvCfIntegration.forBccA2Bin(  │
-│                      │        │        oldCmat, "Nb", "Ti")       │
-│                      │        │     ├─ Transform cmat via T       │
-│                      │        │     ├─ Sort components alpha      │
-│                      │        │     └─ Generate pairs/triples     │
-│                      │        │                                   │
-└──────────────────────┘        │  3. Load hamiltonian.json ⏳       │
-                                │     └─ Parse CVCF CF names        │
-                                │        (e21NbTi, e22NbTi, ...)    │
-                                │                                   │
-                                │  4. Convert ECI representation    │
-                                │     integration.flatEciToMap()    │
+└──┬───────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  CLUSTER DATA + ECI LOADING (Unified for both paths)             │
+│  AllClusterData.load() → cmat_old, clusters, CFs                 │
+│  HamiltonianStore.load() → eci[] (indexed by cluster type)       │
+│                           (OLD BASIS FORMAT - unchanged)         │
+└──┬──────────────────────────────────────────────────────────────┘
+   │
+   ├─────────────────────────┬─────────────────────────┐
+   │ (OLD PATH)              │ (CVCF PATH)             │
+   ▼                         ▼                         │
+┌─────────────────────┐  ┌────────────────────────┐   │
+│ CVMPhaseModel.run   │  │ 1. CvCfIntegration ✅  │   │
+│  (no CVCF)          │  │    Transform cmat_old  │   │
+│ ├─ cmat_old         │  │    → cmat_new (CVCF)   │   │
+│ ├─ eci[]            │  │                        │   │
+│ └─ Solve normally   │  │ 2. CVMPhaseModel.run   │   │
+│                     │  │    (with CvCfIntegr.)  │   │
+│                     │  │ ├─ cmat_new (CVCF)     │   │
+│                     │  │ ├─ eci[] (old basis)   │   │
+│                     │  │ │  [NOT transformed]   │   │
+│                     │  │ ├─ Compute CV via cmN  │   │
+│                     │  │ ├─ Entropy: same algo  │   │
+│                     │  │ ├─ Enthalpy: same algo│   │
+│                     │  │ │ (basis-invariant)    │   │
+│                     │  │ └─ Minimize normally   │   │
+└─────────────────────┘  └────────────────────────┘   │
+   │                         │                       │
+   │                         │ (Both produce same    │
+   │                         │  thermodynamic       │
+   │                         │  properties)         │
+   └─────────────────┬───────┘                       │
+                     ▼                               │
+         ┌──────────────────────────┐                │
+         │ EquilibriumState         │◄───────────────┘
+         │ {G, H, S, x, T, phase}   │
+         └──────────────────────────┘
                                 │     └─ Map: "e4NbTi" → 1.5e-3     │
                                 │                                   │
                                 │  5. CVMPhaseModel w/ CVCF ⏳       │
@@ -236,32 +278,34 @@ This shows a typical CVM thermodynamic calculation from user input to results, w
 - **Key insight:** Hessian is unchanged (H is linear in CFs)
 - **Status:** Blocked on Steps 8-9
 
-#### **Step 11 ⏳ — ECI Loading from File (Phase 4)**
-- **Files affected:**
-  - `app/src/main/java/org/ce/storage/HamiltonianStore.java`
-  - `app/src/main/java/org/ce/domain/hamiltonian/CECEntry.java`
+#### **Step 11 ⏳ — ECI Loading from File (Phase 4) [Simplified with Option A]**
+- **Files affected:** None (no changes required!)
 
-- **What needs to change:**
-  1. Update `hamiltonian.json` format to support CVCF CF names
-  2. Add version/basis field to CECEntry
-  3. Load CF names from BccA2CvCfTransformations as reference
-  4. Support legacy conversion: ECI_new = T^T · ECI_old
-  5. Update CEC loading logic
+- **Design Decision (Option A):**
+  - ECIs in hamiltonian.json stay in **old orthogonal basis format** (unchanged)
+  - No format changes to CECEntry or HamiltonianStore
+  - CVCF transformations are internal to CVMPhaseModel only
+  - MCS engine continues to use old-basis ECIs unchanged
 
-- **New format example:**
+- **Rationale:**
+  - Simpler implementation (no format versioning needed)
+  - Backward compatible (existing hamiltonian.json files work as-is)
+  - Lower risk (no changes to I/O layer)
+  - ECIs are physically the same, just represented differently per basis
+
+- **Current hamiltonian.json format (STAYS UNCHANGED):**
   ```json
   {
-    "basis": "CVCF",
     "structurePhase": "BCC_A2",
     "elements": "Nb-Ti",
     "cecTerms": [
-      {"name": "e4NbTi", "a": 0.0, "b": 0.0},
-      {"name": "e21NbTi", "a": -390.0, "b": 0.0}
+      {"name": "CF_0", "a": 0.0, "b": 0.0},
+      {"name": "CF_1", "a": -390.0, "b": 0.0}
     ]
   }
   ```
 
-- **Status:** Blocked on Steps 8-9
+- **Status:** Blocked on Steps 8-9 (but scope is now zero-effort once those complete)
 
 #### **Step 12 ⏳ — Verification Tests (Phase 5)**
 - **What needs to verify:**
