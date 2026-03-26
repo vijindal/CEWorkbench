@@ -82,31 +82,32 @@ public final class CVMFreeEnergy {
 
     /**
      * Evaluates the CVM free-energy functional, gradient, and Hessian at the
-     * given CF values.
+     * given CVCF values.
      *
-     * @param u             non-point CF values (length ncf) â€” the optimisation variables
-     * @param moleFractions mole fractions of all K components (length K, Î£ = 1)
-     * @param numElements   number of chemical components K (â‰¥ 2)
+     * <p>In the CVCF basis ECIs already include cluster multiplicities, so the
+     * enthalpy is simply {@code H = Σ eci[l] · v[l]}. The entropy formula is
+     * unchanged — it runs through the transformed C-matrix exactly as before.</p>
+     *
+     * @param v             non-point CVCF values (length ncf) — the optimisation variables
+     * @param moleFractions mole fractions of all K components (length K, Σ = 1)
      * @param temperature   temperature in Kelvin
-     * @param eci           effective cluster interactions (length ncf)
-     * @param mhdis         HSP cluster multiplicities (size tcdis)
+     * @param eci           effective cluster interactions in CVCF basis (length ncf,
+     *                      multiplicities already absorbed)
+     * @param mhdis         HSP cluster multiplicities (size tcdis) — used in entropy
      * @param kb            Kikuchi-Baker entropy coefficients (length tcdis)
      * @param mh            normalised multiplicities: mh[t][j]
      * @param lc            ordered clusters per HSP type: lc[t]
-     * @param cmat          C-matrix: cmat.get(t).get(j)[v][k], last col = constant
+     * @param cmat          CVCF C-matrix: cmat.get(t).get(j)[v][k], last col = constant
      * @param lcv           CV counts: lcv[t][j]
      * @param wcv           CV weights: wcv.get(t).get(j)[v]
      * @param tcdis         number of HSP cluster types
      * @param tcf           total number of CFs
      * @param ncf           number of non-point CFs
-     * @param lcf           CF count per (type, group): lcf[t][j]
-     * @param cfBasisIndices per-CF basis-index decorations from CMatrixResult
      * @return evaluation result containing G, H, S, gradient, and Hessian
      */
     public static EvalResult evaluate(
-            double[] u,
+            double[] v,
             double[] moleFractions,
-            int numElements,
             double temperature,
             double[] eci,
             List<Double> mhdis,
@@ -118,37 +119,20 @@ public final class CVMFreeEnergy {
             List<List<int[]>> wcv,
             int tcdis,
             int tcf,
-            int ncf,
-            int[][] lcf,
-            int[][] cfBasisIndices) {
+            int ncf) {
 
-        // Build full CF vector and evaluate cluster variables
-        double[] uFull = ClusterVariableEvaluator.buildFullCFVector(
-                u, moleFractions, numElements, cfBasisIndices, ncf, tcf);
-        double[][][] cv = ClusterVariableEvaluator.evaluate(uFull, cmat, lcv, tcdis, lc);
+        // Build full CVCF vector: vFull = [v | moleFractions]
+        double[] vFull = ClusterVariableEvaluator.buildFullCVCFVector(v, moleFractions, ncf, tcf);
+        double[][][] cv = ClusterVariableEvaluator.evaluate(vFull, cmat, lcv, tcdis, lc);
 
         // --- Enthalpy ---
-        // H = Î£_t mhdis[t] Â· Î£_{l âˆˆ type t} eci[l] Â· u[l]
-        // CFs are ordered sequentially by type: type 0's CFs, type 1's, etc.
-        // The number of CFs for type t = Î£_j lcf[t][j].
+        // H = Σ_{l=0}^{ncf-1} eci[l] · v[l]
+        // ECIs in CVCF basis already include cluster multiplicities.
         double Hval = 0.0;
         double[] Hcu = new double[ncf];
-        {
-            int cfOffset = 0;
-            for (int t = 0; t < tcdis; t++) {
-                int nCFsForType = 0;
-                for (int j = 0; j < lcf[t].length; j++) {
-                    nCFsForType += lcf[t][j];
-                }
-                if (t == tcdis - 1) break; // point type â€” not in optimisation
-                double mhd = mhdis.get(t);
-                for (int i = 0; i < nCFsForType; i++) {
-                    int l = cfOffset + i;
-                    Hcu[l] = mhd * eci[l];
-                    Hval += Hcu[l] * u[l];
-                }
-                cfOffset += nCFsForType;
-            }
+        for (int l = 0; l < ncf; l++) {
+            Hcu[l] = eci[l];
+            Hval += eci[l] * v[l];
         }
 
         // --- Entropy ---
@@ -256,15 +240,15 @@ public final class CVMFreeEnergy {
     /**
      * Convenience overload for binary systems.
      *
-     * @param u           non-point CF values (length ncf)
+     * @param v           non-point CVCF values (length ncf)
      * @param composition mole fraction of component B (binary shorthand)
      * @param temperature temperature in Kelvin
-     * @param eci         effective cluster interactions (length ncf)
+     * @param eci         effective cluster interactions in CVCF basis (length ncf)
      * @param mhdis       HSP cluster multiplicities
      * @param kb          Kikuchi-Baker entropy coefficients
      * @param mh          normalised multiplicities: mh[t][j]
      * @param lc          ordered clusters per HSP type: lc[t]
-     * @param cmat        C-matrix
+     * @param cmat        CVCF C-matrix
      * @param lcv         CV counts
      * @param wcv         CV weights
      * @param tcdis       number of HSP cluster types
@@ -273,7 +257,7 @@ public final class CVMFreeEnergy {
      * @return evaluation result
      */
     public static EvalResult evaluate(
-            double[] u,
+            double[] v,
             double composition,
             double temperature,
             double[] eci,
@@ -286,16 +270,11 @@ public final class CVMFreeEnergy {
             List<List<int[]>> wcv,
             int tcdis,
             int tcf,
-            int ncf,
-            int[][] cfBasisIndices) {
+            int ncf) {
 
-        // Binary: each type has exactly 1 group with 1 CF
-        int[][] binaryLcf = new int[tcdis][];
-        for (int t = 0; t < tcdis; t++) binaryLcf[t] = new int[]{1};
-
-        return evaluate(u, new double[]{1.0 - composition, composition}, 2,
+        return evaluate(v, new double[]{1.0 - composition, composition},
                 temperature, eci, mhdis, kb, mh, lc, cmat, lcv, wcv,
-                tcdis, tcf, ncf, binaryLcf, cfBasisIndices);
+                tcdis, tcf, ncf);
     }
 }
 

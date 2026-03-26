@@ -362,12 +362,43 @@ public final class BccA2CvCfTransformations {
     };
 
     // =========================================================================
+    // Binary BCC_A2 — inverse transformation matrix (Tinv = T^{-1})
+    //
+    // v_new = Tinv * u_old
+    // Rows: new CVCF CFs (v4AB, v3AB, v22AB, v21AB, xA, xB)
+    // Cols: old orthogonal CFs (u[1]..u[6])
+    //
+    // Derived analytically from BINARY_T:
+    //   v4AB  = u[1]/16 + u[3]/8 - u[4]/4 + u[6]/16
+    //   v3AB  = -u[2]/4 + u[5]/4
+    //   v22AB = -u[3]/4 + u[6]/4
+    //   v21AB = -u[4]/4 + u[6]/4
+    //   xA    = -u[5]/2 + u[6]/2
+    //   xB    =  u[5]/2 + u[6]/2
+    // =========================================================================
+
+    /**
+     * Inverse transformation matrix for binary BCC_A2.
+     * Dimensions: 6 rows (new CVCF CFs) × 6 columns (old orthogonal CFs).
+     */
+    public static final double[][] BINARY_T_INV = {
+        // u[1]    u[2]    u[3]   u[4]   u[5]   u[6]
+        {1./16.,  0.,    1./8., -1./4., 0.,    1./16.},  // v4AB
+        {0.,    -1./4.,  0.,     0.,    1./4., 0.     },  // v3AB
+        {0.,     0.,    -1./4.,  0.,    0.,    1./4.  },  // v22AB
+        {0.,     0.,     0.,    -1./4., 0.,    1./4.  },  // v21AB
+        {0.,     0.,     0.,     0.,   -1./2., 1./2.  },  // xA
+        {0.,     0.,     0.,     0.,    1./2., 1./2.  }   // xB
+    };
+
+    // =========================================================================
     // Factory methods
     // =========================================================================
 
-    /** Returns the {@link CvCfBasis} for binary BCC_A2. */
+    /** Returns the {@link CvCfBasis} for binary BCC_A2 (includes Tinv). */
     public static CvCfBasis binaryBasis() {
-        return new CvCfBasis("BCC_A2", 2, BINARY_CF_NAMES, BINARY_NUM_NON_POINT_CFS, BINARY_T);
+        return new CvCfBasis("BCC_A2", 2, BINARY_CF_NAMES, BINARY_NUM_NON_POINT_CFS,
+                BINARY_T, BINARY_T_INV);
     }
 
     /** Returns the {@link CvCfBasis} for ternary BCC_A2. */

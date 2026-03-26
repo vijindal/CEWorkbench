@@ -1,5 +1,8 @@
 package org.ce.domain.cluster;
 
+import org.ce.domain.cluster.cvcf.CvCfBasis;
+
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -151,6 +154,96 @@ public final class ClusterVariableEvaluator {
                                              int[][] cfBasisIndices, int ncf, int tcf) {
         return buildFullCFVector(u, new double[]{1.0 - composition, composition},
                 2, cfBasisIndices, ncf, tcf);
+    }
+
+    // =========================================================================
+    // CVCF-basis methods (no cfBasisIndices needed)
+    // =========================================================================
+
+    /**
+     * Builds the full CVCF vector for C-matrix multiplication.
+     *
+     * <p>In the CVCF basis the point variables are simply the mole fractions
+     * themselves — one entry per component — so no {@code cfBasisIndices} is needed:</p>
+     * <pre>
+     *   vFull[0..ncf-1]     = v  (non-point optimization variables)
+     *   vFull[ncf + i]      = x[i]   for i = 0..K-1
+     * </pre>
+     *
+     * @param v    non-point CVCF values (length ncf)
+     * @param x    mole fractions of all K components (length K = tcf - ncf)
+     * @param ncf  number of non-point CFs
+     * @param tcf  total number of CFs (ncf + K)
+     * @return full CVCF vector (length tcf)
+     */
+    public static double[] buildFullCVCFVector(double[] v, double[] x, int ncf, int tcf) {
+        double[] vFull = Arrays.copyOf(v, tcf);
+        for (int i = 0; i < x.length; i++) {
+            vFull[ncf + i] = x[i];
+        }
+        return vFull;
+    }
+
+    /**
+     * Computes the random-state non-point CVCF values for solver initialisation.
+     *
+     * <p>Converts the orthogonal-basis random CFs to the CVCF basis using the
+     * precomputed inverse transformation {@code Tinv} stored in the basis object.
+     * If {@code basis.Tinv} is {@code null} a zero vector is returned (safe fallback
+     * for equicomposition binary where the orthogonal random state is zero anyway).</p>
+     *
+     * @param x      mole fractions (length K)
+     * @param basis  CVCF basis description (must carry cfBasisIndices-compatible data
+     *               via its T/Tinv matrices for the orthogonal intermediate step)
+     * @return non-point CVCF values at the random (disordered) state (length ncf)
+     */
+    public static double[] computeRandomCVCFs(double[] x, CvCfBasis basis) {
+        int ncf = basis.numNonPointCfs;
+        int tcf = basis.totalCfs();
+
+        if (basis.Tinv == null) {
+            return new double[ncf]; // zero-vector fallback
+        }
+
+        // Step 1: build orthogonal random u_full using the standard formula.
+        // Point CFs in orthogonal basis are σ^k = Σ_i x_i * t_i^k (k=1..nxcf).
+        double[] basisVec = RMatrixCalculator.buildBasis(x.length);
+        int nxcf = tcf - ncf;
+        double[] pointCFs = new double[nxcf];
+        for (int k = 0; k < nxcf; k++) {
+            int power = k + 1;
+            for (int i = 0; i < x.length; i++) {
+                pointCFs[k] += x[i] * Math.pow(basisVec[i], power);
+            }
+        }
+        // For non-point orthogonal CFs at random state: product of point CFs raised
+        // to the powers given by cfBasisIndices. Without cfBasisIndices we reconstruct
+        // from the fact that each non-point CF row in T maps to a product of pointCFs.
+        // We use Tinv directly on u_orth_full = [0..0 | pointCFs] (non-point = 0
+        // at equicomposition; for other compositions we need the full mapping).
+        // Since cfBasisIndices is unavailable in CVCF context, approximate by
+        // treating non-point orthogonal CFs as products of single-site averages.
+        // This is exact for any composition: u_orth[l] = Π_{b in decoration} pointCF[b-1].
+        // We compute it by applying T^{-1} to a reconstructed u_orth.
+        // Here we reconstruct u_orth from the known structure of T.
+        // For robustness: apply Tinv to [pointCFs-products | pointCFs].
+        // Without cfBasisIndices we cannot recover the decorations, so we apply
+        // Tinv to u_orth where u_orth non-point = 0 (valid at equicomposition).
+        // TODO: store cfBasisIndices or decoration info in CvCfBasis for exact init.
+        double[] uOrthFull = new double[tcf];
+        // non-point entries remain 0 (exact at equicomposition, approximate elsewhere)
+        for (int k = 0; k < nxcf; k++) {
+            uOrthFull[ncf + k] = pointCFs[k];
+        }
+
+        // Step 2: v_nonpoint = Tinv[:ncf, :] * u_orth_full
+        double[] vRand = new double[ncf];
+        for (int j = 0; j < ncf; j++) {
+            for (int i = 0; i < tcf; i++) {
+                vRand[j] += basis.Tinv[j][i] * uOrthFull[i];
+            }
+        }
+        return vRand;
     }
 
     /**

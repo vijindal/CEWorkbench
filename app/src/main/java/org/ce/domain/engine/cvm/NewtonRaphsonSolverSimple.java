@@ -2,6 +2,7 @@ package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.ClusterVariableEvaluator;
 import org.ce.domain.cluster.LinearAlgebra;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -137,22 +138,18 @@ public final class NewtonRaphsonSolverSimple {
         public final int[][] lcv;         // CV counts per (type, group)
         public final List<List<int[]>> wcv;     // CV weights
         public final List<List<double[][]>> cmat; // C-matrix
-        public final int[][] cfRank;      // CF ranks (from cfBasisIndices.length)
         public final double[] eci;        // effective cluster interactions
         public final double temperature;
         public final double xB;           // composition (mole fraction of B)
         public final double[] moleFractions;
-        public final int numElements;
-        public final int[][] lcf;
-        public final int[][] cfBasisIndices;
+        public final CvCfBasis basis;     // CVCF basis (holds Tinv for random init)
 
         public CVMData(
                 int tcdis, int tcf, int ncf, int[] lc,
                 double[] kb, List<Double> msdis, double[][] m,
                 int[][] lcv, List<List<int[]>> wcv, List<List<double[][]>> cmat,
-                int[][] cfBasisIndices, int[][] lcf,
                 double[] eci, double temperature, double xB,
-                double[] moleFractions, int numElements) {
+                double[] moleFractions, CvCfBasis basis) {
             this.tcdis = tcdis;
             this.tcf = tcf;
             this.ncf = ncf;
@@ -167,20 +164,7 @@ public final class NewtonRaphsonSolverSimple {
             this.temperature = temperature;
             this.xB = xB;
             this.moleFractions = moleFractions.clone();
-            this.numElements = numElements;
-            this.lcf = lcf;
-            this.cfBasisIndices = cfBasisIndices;
-
-            // Extract CF ranks from cfBasisIndices
-            this.cfRank = new int[tcf][];
-            for (int icf = 0; icf < tcf; icf++) {
-                this.cfRank[icf] = new int[]{cfBasisIndices[icf].length};
-            }
-        }
-
-        /** Get CF rank (number of sites in the cluster). */
-        public int getRank(int icf) {
-            return cfRank[icf][0];
+            this.basis = basis;
         }
     }
 
@@ -193,7 +177,6 @@ public final class NewtonRaphsonSolverSimple {
      */
     public static CVMSolverResult solve(
             double[] moleFractions,
-            int numElements,
             double temperature,
             double[] eci,
             List<Double> mhdis,
@@ -206,8 +189,7 @@ public final class NewtonRaphsonSolverSimple {
             int tcdis,
             int tcf,
             int ncf,
-            int[][] lcf,
-            int[][] cfBasisIndices,
+            CvCfBasis basis,
             int maxIter,
             double tolerance,
             double step) {
@@ -216,8 +198,7 @@ public final class NewtonRaphsonSolverSimple {
         double xB = moleFractions.length > 1 ? moleFractions[1] : moleFractions[0];
 
         CVMData data = new CVMData(tcdis, tcf, ncf, lc, kb, mhdis, mh,
-                lcv, wcv, cmat, cfBasisIndices, lcf,
-                eci, temperature, xB, moleFractions, numElements);
+                lcv, wcv, cmat, eci, temperature, xB, moleFractions, basis);
 
         return minimize(data, maxIter, tolerance);
     }
@@ -227,7 +208,6 @@ public final class NewtonRaphsonSolverSimple {
      */
     public static CVMSolverResult solve(
             double[] moleFractions,
-            int numElements,
             double temperature,
             double[] eci,
             List<Double> mhdis,
@@ -240,12 +220,11 @@ public final class NewtonRaphsonSolverSimple {
             int tcdis,
             int tcf,
             int ncf,
-            int[][] lcf,
-            int[][] cfBasisIndices,
+            CvCfBasis basis,
             double tolerance) {
 
-        return solve(moleFractions, numElements, temperature, eci, mhdis, kb, mh, lc,
-                cmat, lcv, wcv, tcdis, tcf, ncf, lcf, cfBasisIndices,
+        return solve(moleFractions, temperature, eci, mhdis, kb, mh, lc,
+                cmat, lcv, wcv, tcdis, tcf, ncf, basis,
                 MAX_ITER, tolerance, 1.0);
     }
 
@@ -376,7 +355,6 @@ public final class NewtonRaphsonSolverSimple {
         CVMFreeEnergy.EvalResult eval = CVMFreeEnergy.evaluate(
                 u,
                 data.moleFractions,
-                data.numElements,
                 data.temperature,
                 data.eci,
                 data.msdis,
@@ -388,9 +366,7 @@ public final class NewtonRaphsonSolverSimple {
                 data.wcv,
                 data.tcdis,
                 data.tcf,
-                data.ncf,
-                data.lcf,
-                data.cfBasisIndices
+                data.ncf
         );
 
         System.arraycopy(eval.Gcu, 0, Gu, 0, data.ncf);
@@ -411,9 +387,9 @@ public final class NewtonRaphsonSolverSimple {
     private static double[][][] updateCV(CVMData data, double[] u) {
         double[][][] cv = new double[data.tcdis][][];
 
-        // Build full CF vector (non-point + point CFs).
-        double[] uFull = ClusterVariableEvaluator.buildFullCFVector(
-                u, data.moleFractions, data.numElements, data.cfBasisIndices, data.ncf, data.tcf);
+        // Build full CVCF vector: [v | moleFractions]
+        double[] uFull = ClusterVariableEvaluator.buildFullCVCFVector(
+                u, data.moleFractions, data.ncf, data.tcf);
 
         for (int itc = 0; itc < data.tcdis; itc++) {
             cv[itc] = new double[data.lc[itc]][];

@@ -60,16 +60,37 @@ public final class CvCfBasis {
      */
     public final double[][] T;
 
+    /**
+     * Inverse of T: {@code Tinv[j_new][i_old]}.
+     *
+     * <p>Used to transform an orthogonal-basis vector back to CVCF basis:
+     * {@code v[j] = Σ_i Tinv[j][i] * u_orth[i]}.</p>
+     *
+     * <p>May be {@code null} if not provided — in that case CVCF random
+     * initialization will fall back to the zero vector.</p>
+     */
+    public final double[][] Tinv;
+
     public CvCfBasis(String structurePhase,
                      int numComponents,
                      List<String> cfNames,
                      int numNonPointCfs,
                      double[][] T) {
+        this(structurePhase, numComponents, cfNames, numNonPointCfs, T, null);
+    }
+
+    public CvCfBasis(String structurePhase,
+                     int numComponents,
+                     List<String> cfNames,
+                     int numNonPointCfs,
+                     double[][] T,
+                     double[][] Tinv) {
         this.structurePhase = structurePhase;
         this.numComponents = numComponents;
         this.cfNames = cfNames;
         this.numNonPointCfs = numNonPointCfs;
         this.T = T;
+        this.Tinv = Tinv;
     }
 
     /** Total number of CFs (non-point + point). */

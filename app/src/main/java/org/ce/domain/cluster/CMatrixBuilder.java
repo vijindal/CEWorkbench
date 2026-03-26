@@ -1,5 +1,8 @@
 package org.ce.domain.cluster;
 
+import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.domain.cluster.cvcf.CvCfBasisTransformer;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,7 +22,8 @@ public final class CMatrixBuilder {
             ClusterIdentificationResult clusterResult,
             CFIdentificationResult cfResult,
             List<Cluster> maxClusters,
-            int numElements) {
+            int numElements,
+            CvCfBasis basis) {
 
         if (clusterResult == null || cfResult == null) {
             throw new IllegalArgumentException("clusterResult and cfResult must not be null");
@@ -103,7 +107,8 @@ public final class CMatrixBuilder {
         for (int[] row : lcv) for (int v : row) totalCVs += v;
         LOG.fine("CMatrixBuilder.build — EXIT: totalCVs=" + totalCVs + ", lcv.length=" + lcv.length);
 
-        return new CMatrixResult(cmat, lcv, wcv, cfBasisIndices);
+        CMatrixResult orthResult = new CMatrixResult(cmat, lcv, wcv, cfBasisIndices);
+        return CvCfBasisTransformer.transform(orthResult, basis);
     }
 
     /**

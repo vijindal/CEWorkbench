@@ -1,6 +1,7 @@
 package org.ce.ui.cli;
 
 import org.ce.domain.cluster.*;
+import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.ClusterDataStore;
@@ -94,7 +95,8 @@ public class Main {
                         clusterData.getDisorderedClusterResult(),
                         clusterData.getDisorderedCFResult(),
                         maxClusters,
-                        config.getNumComponents()
+                        config.getNumComponents(),
+                        BccA2CvCfTransformations.binaryBasis()
                 );
                 System.out.println("C-matrix built: " + cmatrix.getLcv().length + " cluster types");
 
