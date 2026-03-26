@@ -181,17 +181,113 @@ Factory methods:
 
 ## Remaining Integration Steps
 
-### Step 6 — Update `CVMFreeEnergy` Integration
+### Dimensional facts (binary BCC_A2)
 
-Replace the current `H = Σ ECI_l · u_l` enthalpy computation with a call to `CvCfHamiltonianEvaluator.computeH(...)`.
+| Variable | Orthogonal | CVCF |
+|---|---|---|
+| `tcf` | 6 | 6 (same) |
+| `ncf` | 4 | 4 (same) |
+| `nxcf` | 2 | 2 (K components) |
+| Point CFs | σ₀=1, σ₁=-xA+xB | vFull[ncf+0]=xA, vFull[ncf+1]=xB |
+| `cfBasisIndices` | required | null (unused) |
 
-The entropy computation already uses cmat; now it uses `cmat_new` (from Step 3) with new CVCF CFs as optimization variables instead of old orthogonal CFs.
-
-**Gradient/Hessian:** The chain rule through the new cmatrix is unchanged — cmat_new plays the same role as cmat_old did, just with different CF columns. Existing derivative code in `CVMFreeEnergy` works unchanged once cmat is replaced.
+T matrix is **square** (6×6 for binary). After `CvCfBasisTransformer.transform()`, the returned `CMatrixResult` has `cfBasisIndices = null`.
 
 ---
 
-### Step 7 — ECI Naming and Loading
+### Step 6 ✅ — `CMatrixBuilder.java`: Apply CVCF transformation at Stage-3
+
+**File:** `app/src/main/java/org/ce/domain/cluster/CMatrixBuilder.java`
+
+Added `CvCfBasis basis` parameter to `build()`. Builds orthogonal result then returns transformed:
+```java
+CMatrixResult orthResult = new CMatrixResult(cmat, lcv, wcv, cfBasisIndices);
+return CvCfBasisTransformer.transform(orthResult, basis);
+```
+
+Updated callers to pass `BccA2CvCfTransformations.binaryBasis()`:
+- `ClusterIdentificationWorkflow.java`
+- `Main.java`
+- `DataPreparationPanel.java`
+
+**Status:** ✅ done
+
+---
+
+### Step 7 ✅ — `ClusterVariableEvaluator.java`: Add CVCF vector methods
+
+**File:** `app/src/main/java/org/ce/domain/cluster/ClusterVariableEvaluator.java`
+
+Added `buildFullCVCFVector(double[] v, double[] x, int ncf, int tcf)` — point variables = literal mole fractions.
+
+Added `computeRandomCVCFs(double[] x, CvCfBasis basis)` — applies Tinv to orthogonal random state.
+
+Added `Tinv` field to `CvCfBasis.java` (nullable) and `BINARY_T_INV` (6×6) to `BccA2CvCfTransformations.java`. `binaryBasis()` now passes Tinv.
+
+**Status:** ✅ done
+
+---
+
+### Step 8 ✅ — `CVMFreeEnergy.java`: Drop cfBasisIndices, call buildFullCVCFVector
+
+**File:** `app/src/main/java/org/ce/domain/engine/cvm/CVMFreeEnergy.java`
+
+Removed `numElements`, `lcf`, `cfBasisIndices` from `evaluate()`. Renamed `u` → `v`.
+Calls `buildFullCVCFVector(v, moleFractions, ncf, tcf)`. Enthalpy simplified to `H = Σ eci[l]*v[l]`.
+Binary convenience overload also updated.
+
+**Status:** ✅ done
+
+---
+
+### Step 9 — `NewtonRaphsonSolverSimple.java`: Update CVMData
+
+**File:** `app/src/main/java/org/ce/domain/engine/cvm/NewtonRaphsonSolverSimple.java`
+
+In `CVMData`:
+- Remove `int[][] cfBasisIndices`; add `CvCfBasis basis`
+
+Updates:
+- `getURand()` → call `ClusterVariableEvaluator.computeRandomCVCFs(data.moleFractions, data.basis)`
+- `updateCV()` → call `ClusterVariableEvaluator.buildFullCVCFVector(u, data.moleFractions, data.ncf, data.tcf)`
+- `usrfun()` → pass updated `CVMFreeEnergy.evaluate()` signature
+
+**Do NOT change:** minimization loop, step computation, convergence criteria, line search.
+
+**Status:** ⏳ pending
+
+---
+
+### Step 10 — `CVMPhaseModel.java`: Add CvCfBasis to CVMInput
+
+**File:** `app/src/main/java/org/ce/domain/engine/cvm/CVMPhaseModel.java`
+
+- Add `CvCfBasis basis` to `CVMInput` inner class
+- Remove `cfBasisIndices` field (no longer needed)
+- Pass `basis` when constructing `CVMData`
+- Update `buildFullCFVector()` helper → delegate to `buildFullCVCFVector()`
+
+**Status:** ⏳ pending
+
+---
+
+### Step 11 — `CVMEngine.java`: Inject CvCfBasis
+
+**File:** `app/src/main/java/org/ce/domain/engine/cvm/CVMEngine.java`
+
+Resolve and inject basis into `CVMInput`:
+```java
+CvCfBasis basis = BccA2CvCfTransformations.forBinary();  // hardcoded for now
+CVMInput cvmInput = new CVMInput(..., basis);
+```
+
+TODO (future): determine from `systemId` + `numComponents` via a registry.
+
+**Status:** ⏳ pending
+
+---
+
+### Step 12 — ECI Naming and Loading
 
 New `hamiltonian.json` format for binary BCC_A2 Nb-Ti:
 ```json
@@ -205,9 +301,11 @@ New `hamiltonian.json` format for binary BCC_A2 Nb-Ti:
 }
 ```
 
-`CvCfCFRegistry.indexOf(cfName)` maps each CF name to its column index in the CVCF basis. Missing terms → ECI = 0 (CEC inheritance).
+`CvCfCFRegistry.indexOf(cfName)` maps each ECI name to its CF column index. Missing terms → ECI = 0.
 
-**Legacy support:** Existing `"CF_N"` style entries for BCC_A2 are flagged as legacy orthogonal basis and can be converted using `ECI_new = T^T · ECI_old`.
+**Legacy support:** Existing `"CF_N"` style entries can be converted using `ECI_new = T^T · ECI_old`.
+
+**Status:** ⏳ pending
 
 ---
 
@@ -233,11 +331,17 @@ New `hamiltonian.json` format for binary BCC_A2 Nb-Ti:
 - ✅ CvCfCFRegistry implementation
 - ✅ CF name and ECI name lists for all system orders
 
-**Pending:**
-- ⏳ CVMFreeEnergy integration (use CvCfBasisTransformer and CvCfHamiltonianEvaluator)
-- ⏳ ECI loading from hamiltonian.json with CVCF names
+**Completed integration:**
+- ✅ Step 6 — CMatrixBuilder + 3 callers
+- ✅ Step 7 — ClusterVariableEvaluator CVCF methods + CvCfBasis Tinv + BccA2 Tinv
+- ✅ Step 8 — CVMFreeEnergy
+
+**Pending integration:**
+- ⏳ Step 9 — NewtonRaphsonSolverSimple: CVMData, getURand, updateCV, usrfun
+- ⏳ Step 10 — CVMPhaseModel: CVMInput, cfBasisIndices → basis
+- ⏳ Step 11 — CVMEngine: inject binaryBasis()
+- ⏳ Step 12 — ECI loading from hamiltonian.json with CVCF names
 - ⏳ Verification tests (matrix consistency, CV values, phase behavior)
-- ⏳ Legacy basis support (optional, for backward compatibility)
 
 ---
 

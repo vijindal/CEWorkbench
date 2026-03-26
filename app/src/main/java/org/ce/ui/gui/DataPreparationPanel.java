@@ -5,6 +5,7 @@ import org.ce.domain.cluster.CMatrixBuilder;
 import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.Vector3D;
+import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.InputLoader;
 import org.ce.storage.Workspace;
@@ -329,7 +330,8 @@ public class DataPreparationPanel extends JPanel {
                         partial.getDisorderedClusterResult(),
                         partial.getDisorderedCFResult(),
                         maxClusters,
-                        numComp
+                        numComp,
+                        BccA2CvCfTransformations.binaryBasis()
                 );
 
                 publish("Saving AllClusterData...");

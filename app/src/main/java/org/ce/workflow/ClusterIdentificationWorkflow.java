@@ -1,6 +1,7 @@
 package org.ce.workflow;
 
 import org.ce.domain.cluster.*;
+import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
 import org.ce.storage.InputLoader;
 
 import java.util.List;
@@ -118,7 +119,8 @@ public class ClusterIdentificationWorkflow {
                 clusterResult,
                 cfResult,
                 orderedClusters,              // ✅ correct choice
-                config.getNumComponents()
+                config.getNumComponents(),
+                BccA2CvCfTransformations.binaryBasis()  // TODO: select basis by numComponents
         );
 
         LOG.fine("C-Matrix built successfully");
