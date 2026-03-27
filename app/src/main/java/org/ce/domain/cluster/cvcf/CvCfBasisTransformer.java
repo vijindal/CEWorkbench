@@ -53,22 +53,28 @@ public final class CvCfBasisTransformer {
             List<double[][]> newGroup = new ArrayList<>(lc);
 
             for (int j = 0; j < lc; j++) {
-                double[][] cmOld = oldGroup.get(j);  // [nv][tcfOld + 1]
+                double[][] cmOld = oldGroup.get(j);  // [nv][numOldCols]
                 int nv = cmOld.length;
-                // New cmat has tcfNew CF columns + 1 constant column
+                int numOldCols = (nv > 0) ? cmOld[0].length : 0;
+
+                // The last column of old C-matrix is the constant term
+                // Structure: [CF0, CF1, ..., CFn, constant]
+                // where constant column contains the fixed term (usually same value across rows)
+
+                // New cmat: tcfNew CF columns + 1 constant column
                 double[][] cmNew = new double[nv][tcfNew + 1];
 
                 for (int v = 0; v < nv; v++) {
                     // Multiply: cmat_new[v][k_new] = Σ_{k_old} cmat_old[v][k_old] · T[k_old][k_new]
                     for (int kNew = 0; kNew < tcfNew; kNew++) {
                         double sum = 0.0;
-                        for (int kOld = 0; kOld < tcfOld; kOld++) {
+                        for (int kOld = 0; kOld < tcfOld && kOld < numOldCols - 1; kOld++) {
                             sum += cmOld[v][kOld] * T[kOld][kNew];
                         }
                         cmNew[v][kNew] = sum;
                     }
-                    // Constant term (last column) is unchanged
-                    cmNew[v][tcfNew] = cmOld[v][tcfOld];
+                    // Preserve constant term from last column of old matrix
+                    cmNew[v][tcfNew] = cmOld[v][numOldCols - 1];
                 }
                 newGroup.add(cmNew);
             }

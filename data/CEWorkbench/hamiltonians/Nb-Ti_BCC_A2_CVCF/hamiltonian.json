@@ -1,0 +1,38 @@
+{
+  "elements" : "Nb-Ti",
+  "structurePhase" : "BCC_A2",
+  "model" : "CVCF",
+  "cecTerms" : [ {
+    "name" : "e4AB",
+    "description" : "4-site tetrahedron CF",
+    "numSites" : 4,
+    "multiplicity" : 6.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "e3AB",
+    "description" : "3-site triangle CF",
+    "numSites" : 3,
+    "multiplicity" : 12.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "e22AB",
+    "description" : "2-site pair CF (4 bonds)",
+    "numSites" : 2,
+    "multiplicity" : 4.0,
+    "a" : 0.0,
+    "b" : 0.0
+  }, {
+    "name" : "e21AB",
+    "description" : "2-site pair CF (3 bonds)",
+    "numSites" : 2,
+    "multiplicity" : 3.0,
+    "a" : 0.0,
+    "b" : 0.0
+  } ],
+  "cecUnits" : "J/mol",
+  "reference" : "Jindal & Lele 2025",
+  "notes" : "CVCF basis for binary BCC_A2. Zero ECIs for solver verification.",
+  "ncf" : 4
+}

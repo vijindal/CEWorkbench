@@ -418,8 +418,7 @@ public final class NewtonRaphsonSolverSimple {
      * Returns random-state (disordered) CF values for all non-point CFs.
      */
     private static double[] getURand(CVMData data) {
-        return ClusterVariableEvaluator.computeRandomCFs(
-                data.moleFractions, data.numElements, data.cfBasisIndices, data.ncf, data.tcf);
+        return ClusterVariableEvaluator.computeRandomCVCFs(data.moleFractions, data.basis);
     }
 
     // =========================================================================

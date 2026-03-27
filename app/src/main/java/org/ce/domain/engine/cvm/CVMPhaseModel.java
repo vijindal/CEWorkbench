@@ -4,7 +4,7 @@ import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
-import org.ce.domain.cluster.cvcf.CvCfIntegration;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 
@@ -74,6 +74,7 @@ public class CVMPhaseModel {
         private final String systemId;
         private final String systemName;
         private final int numComponents;
+        private final CvCfBasis basis;
 
         public CVMInput(
                 ClusterIdentificationResult stage1,
@@ -81,7 +82,8 @@ public class CVMPhaseModel {
                 CMatrixResult stage3,
                 String systemId,
                 String systemName,
-                int numComponents) {
+                int numComponents,
+                CvCfBasis basis) {
 
             if (systemId == null || systemId.isBlank())
                 throw new IllegalArgumentException("systemId must not be blank");
@@ -91,6 +93,8 @@ public class CVMPhaseModel {
                 throw new IllegalArgumentException("numComponents must be >= 2");
             if (stage1 == null || stage2 == null || stage3 == null)
                 throw new IllegalArgumentException("Stage 1/2/3 data must be non-null");
+            if (basis == null)
+                throw new IllegalArgumentException("CvCfBasis must not be null");
 
             this.stage1 = stage1;
             this.stage2 = stage2;
@@ -98,6 +102,7 @@ public class CVMPhaseModel {
             this.systemId = systemId;
             this.systemName = systemName;
             this.numComponents = numComponents;
+            this.basis = basis;
         }
 
         public ClusterIdentificationResult getStage1()  { return stage1; }
@@ -106,6 +111,7 @@ public class CVMPhaseModel {
         public String                      getSystemId()      { return systemId; }
         public String                      getSystemName()    { return systemName; }
         public int                         getNumComponents() { return numComponents; }
+        public CvCfBasis                   getBasis()         { return basis; }
     }
 
     // =========================================================================
@@ -123,16 +129,13 @@ public class CVMPhaseModel {
     private final double[] kb;            // Kikuchi-Baker entropy coefficients
     private final double[][] mh;          // Normalized multiplicities: mh[t][j]
     private final int[] lc;               // Cluster count per type: lc[t]
-    private final int[][] lcf;            // CF count per (type, group): lcf[t][j]
-    private final int[][] cfBasisIndices; // Per-CF basis decoration (Stage 3)
-    private final List<List<double[][]>> cmat_old;  // C-matrix (old orthogonal basis): cmat[t][j][v][k]
-    private final List<List<double[][]>> cmat_new;  // C-matrix (CVCF basis, optional): transformed via CvCfIntegration
-    private final int[][] lcv;                      // CV counts: lcv[t][j]
-    private final List<List<int[]>> wcv;            // CV weights: wcv.get(t).get(j)[v]
+    private final List<List<double[][]>> cmat;  // C-matrix (CVCF basis): cmat[t][j][v][k]
+    private final int[][] lcv;                  // CV counts: lcv[t][j]
+    private final List<List<int[]>> wcv;        // CV weights: wcv.get(t).get(j)[v]
     private final String systemId;
     private final String systemName;
     private final int numComponents;
-    private final CvCfIntegration cvcfIntegration;  // Optional CVCF basis adapter (null = use old basis)
+    private final CvCfBasis basis;              // CVCF basis (holds Tinv for random init)
 
     // =========================================================================
     // MUTABLE: System Parameters â€" can be changed at any time
@@ -204,38 +207,14 @@ public class CVMPhaseModel {
             double temperature,
             double[] moleFractions) throws Exception {
 
-        return create(input, eci, temperature, moleFractions, null);
-    }
-
-    /**
-     * Creates a CVM phase model with optional CVCF basis transformation.
-     *
-     * <p>Pass {@code cvcfIntegration = null} for old orthogonal basis (default).
-     * Pass a {@link CvCfIntegration} instance to use CVCF basis internally.</p>
-     *
-     * @param input         CVMInput carrying cluster topology data (Stages 1-3)
-     * @param eci           ncf-length effective cluster interactions (J/mol)
-     * @param temperature   initial temperature in Kelvin
-     * @param moleFractions mole fractions x[0..K-1]; must sum to 1.0
-     * @param cvcfIntegration optional CVCF adapter (null = old basis)
-     * @return CVMPhaseModel with first N-R minimization complete
-     * @throws Exception if minimization fails or input is invalid
-     */
-    public static CVMPhaseModel create(
-            CVMInput input,
-            double[] eci,
-            double temperature,
-            double[] moleFractions,
-            CvCfIntegration cvcfIntegration) throws Exception {
-
         if (input == null) {
             throw new IllegalArgumentException("CVMInput must not be null");
         }
 
-        CVMPhaseModel model = new CVMPhaseModel(input, cvcfIntegration);
+        CVMPhaseModel model = new CVMPhaseModel(input);
         model.setECI(eci);
         model.setTemperature(temperature);
-        model.setMoleFractions(moleFractions);   // validates length and sum-to-1
+        model.setMoleFractions(moleFractions);
         model.ensureMinimized();
         return model;
     }
@@ -267,10 +246,9 @@ public class CVMPhaseModel {
      * Private constructor. Extracts and caches all stage data from CVMInput.
      * Only called by the factory method.
      *
-     * @param input CVMInput with cluster topology
-     * @param cvcfIntegration optional CVCF basis adapter (null = use old basis)
+     * @param input CVMInput with cluster topology and CVCF basis
      */
-    private CVMPhaseModel(CVMInput input, CvCfIntegration cvcfIntegration) {
+    private CVMPhaseModel(CVMInput input) {
         // Extract Stage 1: Cluster Identification
         ClusterIdentificationResult stage1 = input.getStage1();
         this.tcdis = stage1.getTcdis();
@@ -279,17 +257,9 @@ public class CVMPhaseModel {
         this.mh = stage1.getMh();
         this.lc = stage1.getLc();
 
-        // Extract Stage 2: CF Identification
-        CFIdentificationResult stage2 = input.getStage2();
-        this.tcf = stage2.getTcf();
-        this.ncf = stage2.getNcf();
-        this.lcf = stage2.getLcf();
-
-        // Extract Stage 3: C-Matrix Structure
+        // Extract Stage 3: C-Matrix (CVCF basis — already transformed by CMatrixBuilder)
         CMatrixResult stage3 = input.getStage3();
-        this.cfBasisIndices = stage3.getCfBasisIndices();
-        this.cmat_old = stage3.getCmat();
-        this.cmat_new = (cvcfIntegration != null) ? cvcfIntegration.getTransformedCmat().getCmat() : null;
+        this.cmat = stage3.getCmat();
         this.lcv = stage3.getLcv();
         this.wcv = stage3.getWcv();
 
@@ -297,9 +267,11 @@ public class CVMPhaseModel {
         this.systemId = input.getSystemId();
         this.systemName = input.getSystemName();
         this.numComponents = input.getNumComponents();
+        this.basis = input.getBasis();
 
-        // Optional CVCF integration
-        this.cvcfIntegration = cvcfIntegration;
+        // Use basis-derived ncf/tcf (cluster data values may be inconsistent with CVCF)
+        this.ncf = basis.numNonPointCfs;
+        this.tcf = basis.totalCfs();
 
         // Initialize parameter storage (not yet set)
         this.eci = null;
@@ -321,14 +293,13 @@ public class CVMPhaseModel {
      * @throws IllegalArgumentException if length mismatch
      */
     public void setECI(double[] newECI) throws IllegalArgumentException {
-        if (newECI == null || newECI.length < this.ncf) {
+        int expectedLength = basis.numNonPointCfs;  // ECI length = non-point CFs only
+        if (newECI == null || newECI.length < expectedLength) {
             throw new IllegalArgumentException(
                 "ECI too short: got " + (newECI == null ? 0 : newECI.length) +
-                ", expected >= " + this.ncf);
+                ", expected >= " + expectedLength);
         }
-        // Accept ncf+1 or ncf+2 arrays (raw CEC with trailing point/empty cluster terms)
-        // by trimming to ncf. This avoids an infrastructure dependency in the job layer.
-        this.eci = Arrays.copyOf(newECI, this.ncf);
+        this.eci = Arrays.copyOf(newECI, expectedLength);
         invalidateMinimization();
     }
 
@@ -433,18 +404,6 @@ public class CVMPhaseModel {
     }
 
     // =========================================================================
-    // CMAT SELECTION (Old vs CVCF basis)
-    // =========================================================================
-
-    /**
-     * Returns the active C-matrix (either old orthogonal or CVCF basis).
-     * @return cmat_new if CVCF is active, otherwise cmat_old
-     */
-    private List<List<double[][]>> getActiveCmat() {
-        return (cvcfIntegration != null) ? cmat_new : cmat_old;
-    }
-
-    // =========================================================================
     // AUTOMATIC LAZY MINIMIZATION
     // =========================================================================
 
@@ -482,34 +441,28 @@ public class CVMPhaseModel {
 
     /**
      * Internal minimization routine (private).
-     * Uses either old orthogonal basis (default) or CVCF basis depending on cvcfIntegration.
      */
     private void minimize() {
         long startTime = System.nanoTime();
 
         try {
-            // Select active C-matrix (old or CVCF basis)
-            List<List<double[][]>> activeCmat = getActiveCmat();
-
             // Run Newton-Raphson solver
             // (Solver generates initial guess internally)
             CVMSolverResult result = NewtonRaphsonSolverSimple.solve(
                 moleFractions,
-                numComponents,
                 temperature,
                 eci,
                 mhdis,
                 kb,
                 mh,
                 lc,
-                activeCmat,
+                cmat,
                 lcv,
                 wcv,
                 tcdis,
                 tcf,
                 ncf,
-                lcf,
-                cfBasisIndices,
+                basis,
                 tolerance
             );
 
@@ -523,21 +476,18 @@ public class CVMPhaseModel {
                 this.equilibrium = CVMFreeEnergy.evaluate(
                     equilibriumCFs,
                     moleFractions,
-                    numComponents,
                     temperature,
                     eci,
                     mhdis,
                     kb,
                     mh,
                     lc,
-                    activeCmat,
+                    cmat,
                     lcv,
                     wcv,
                     tcdis,
                     tcf,
-                    ncf,
-                    lcf,
-                    cfBasisIndices
+                    ncf
                 );
 
                 this.isMinimized = true;
@@ -568,8 +518,7 @@ public class CVMPhaseModel {
      * Adds point CFs based on composition.
      */
     private double[] buildFullCFVector(double[] u_nonpoint) {
-        return ClusterVariableEvaluator.buildFullCFVector(
-            u_nonpoint, moleFractions, numComponents, cfBasisIndices, ncf, tcf);
+        return ClusterVariableEvaluator.buildFullCVCFVector(u_nonpoint, moleFractions, ncf, tcf);
     }
 
     private void logMinimizationSuccess() {
@@ -827,8 +776,8 @@ public class CVMPhaseModel {
      */
     double[] computeGHS(double[] nonPointCFs) {
         CVMFreeEnergy.EvalResult r = CVMFreeEnergy.evaluate(
-            nonPointCFs, moleFractions, numComponents, temperature, eci,
-            mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf, lcf, cfBasisIndices);
+            nonPointCFs, moleFractions, temperature, eci,
+            mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf);
         return new double[]{r.G, r.H, r.S};
     }
 

@@ -142,8 +142,8 @@ public class Main {
                 CalculationService service = new CalculationService(thermoWorkflow);
 
                 double[] composition = {0.5, 0.5};
-                double tStart = 300.0;
-                double tEnd   = 2000.0;
+                double tStart = 1000.0;
+                double tEnd   = 1000.0;
                 double tStep  = 100.0;
 
                 System.out.println("System      : " + CLUSTER_ID + " / " + HAMILTONIAN_ID);

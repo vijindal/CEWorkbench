@@ -21,13 +21,13 @@ import java.util.List;
  *
  * <h2>Entropy (CVM Kikuchiâ€“Barker formula)</h2>
  * <pre>
- *   S = âˆ’R Â· Î£_t kb[t] Â· ms[t] Â· Î£_j mh[t][j] Â· Î£_v wcv[t][j][v] Â· CV Â· ln(CV)
+ *   S = âˆ’R Â· Î£_t kb[t] Â· ms[t] Â· Î£_j mh[t][j] Â· Î£_v wcv[t][j][incv] Â· CV Â· ln(CV)
  *
  *   Scu[l] = âˆ’R Â· Î£_t kb[t] Â· ms[t] Â· Î£_j mh[t][j]
- *            Â· Î£_v wcv[t][j][v] Â· cmat[t][j][v][l] Â· ln(CV[t][j][v])
+ *            Â· Î£_v wcv[t][j][incv] Â· cmat[t][j][v][l] Â· ln(CV[t][j][v])
  *
  *   Scuu[l1][l2] = âˆ’R Â· Î£_t kb[t] Â· ms[t] Â· Î£_j mh[t][j]
- *                  Â· Î£_v wcv[t][j][v] Â· cmat[t][j][v][l1] Â· cmat[t][j][v][l2] / CV[t][j][v]
+ *                  Â· Î£_v wcv[t][j][incv] Â· cmat[t][j][v][l1] Â· cmat[t][j][v][l2] / CV[t][j][v]
  * </pre>
  *
  * <p>Note: in the Mathematica code, {@code ms[t] = mhdis[t]} (HSP multiplicities
@@ -155,9 +155,9 @@ public final class CVMFreeEnergy {
                 int[] w = wcv.get(t).get(j);
                 int nv = lcv[t][j];
 
-                for (int v = 0; v < nv; v++) {
-                    double cvVal = cv[t][j][v];
-                    int wv = w[v];
+                for (int incv = 0; incv < nv; incv++) {
+                    double cvVal = cv[t][j][incv];
+                    int wv = w[incv];
 
                     // Smooth entropy extension for CV â‰¤ EPS.
                     // For CV > EPS: use exact cvÂ·ln(cv), ln(cv), 1/cv.
@@ -191,7 +191,7 @@ public final class CVMFreeEnergy {
                     // Gradient: only first ncf columns of cmat contribute
                     // (point-CF columns and constant column are not optimisation variables)
                     for (int l = 0; l < ncf; l++) {
-                        double cml = cm[v][l];
+                        double cml = cm[incv][l];
                         if (cml == 0.0) continue;
                         // d(cvÂ·ln(cv))/du_l = cmat[v][l] Â· (1 + ln(cv))
                         // But the "+1" term vanishes due to normalization constraint:
@@ -202,10 +202,10 @@ public final class CVMFreeEnergy {
 
                     // Hessian
                     for (int l1 = 0; l1 < ncf; l1++) {
-                        double cml1 = cm[v][l1];
+                        double cml1 = cm[incv][l1];
                         if (cml1 == 0.0) continue;
                         for (int l2 = l1; l2 < ncf; l2++) {
-                            double cml2 = cm[v][l2];
+                            double cml2 = cm[incv][l2];
                             if (cml2 == 0.0) continue;
                             double val = -R * prefix * cml1 * cml2 * invEff;
                             Scuu[l1][l2] += val;

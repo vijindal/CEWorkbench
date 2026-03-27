@@ -1,6 +1,9 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.AllClusterData;
+import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.domain.cluster.cvcf.CvCfCFRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
@@ -8,6 +11,7 @@ import org.ce.domain.engine.cvm.CVMPhaseModel.CVMInput;
 import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.hamiltonian.CECEntry;
+import org.ce.domain.hamiltonian.CECTerm;
 
 import java.util.List;
 
@@ -82,40 +86,24 @@ public class CVMEngine implements ThermodynamicEngine {
         /*
          * 5. Create CVMInput with complete topology (Stages 1-3)
          */
+        // TODO: resolve basis from systemId + numComponents via registry (future)
         CVMInput cvmInput = new CVMInput(
                 clusterData.getDisorderedClusterResult(),
                 clusterData.getDisorderedCFResult(),
                 clusterCMatrix,
                 systemId,
                 systemName,
-                composition.length
+                composition.length,
+                BccA2CvCfTransformations.binaryBasis()
         );
 
         /*
-         * 3. Evaluate ECI at temperature: eci[l] = a[l] + b[l] * T
+         * 3. Evaluate ECI at temperature using CVCF names.
+         *    ECIs are indexed by CF name (e4AB → v4AB at col 0, etc.).
+         *    Missing terms default to 0 (direct inheritance property of CVCF basis).
          */
-        double[] eci = evaluateECI(cec, temperature);
-
-        /*
-         * 5. Validate ECI length matches expected ncf exactly
-         */
-        int expectedNcf = clusterData.getDisorderedCFResult().getNcf();
-
-        if (eci.length != expectedNcf) {
-            throw new IllegalStateException(
-                    "ECI length (" + eci.length + ") does not match ncf (" + expectedNcf + ")"
-            );
-        }
-
-        /*
-         * 6. Validate CEC ncf field matches expected ncf
-         * (enforces: G = Σ (ECI_l * CF_l) → length(ECI) == ncf == number of CFs)
-         */
-        if (cec.ncf != expectedNcf) {
-            throw new IllegalArgumentException(
-                    "CEC ncf field (" + cec.ncf + ") does not match cluster data ncf (" + expectedNcf + ")"
-            );
-        }
+        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        double[] eci = evaluateECI(cec, temperature, basis);
 
         /*
          * 7. Create CVMPhaseModel and return equilibrium
@@ -151,20 +139,39 @@ public class CVMEngine implements ThermodynamicEngine {
     }
 
     /**
-     * Evaluates ECI at given temperature using the formula: eci[l] = a[l] + b[l] * T
+     * Evaluates ECI at given temperature using CVCF CF names.
+     *
+     * <p>Each term in the CEC entry has a name like {@code e4AB}, {@code e22AB}.
+     * The leading {@code e} is replaced by {@code v} to get the CF name ({@code v4AB},
+     * {@code v22AB}), which is looked up in the registry to find the column index.
+     * Missing terms default to 0 — this is the direct-inheritance property of the
+     * CVCF basis.</p>
+     *
+     * @param cec         CEC entry with named CVCF terms
+     * @param temperature temperature in Kelvin
+     * @param basis       CVCF basis defining ncf and CF name order
+     * @return eci[ncf] array; entry l corresponds to CF basis.cfNames.get(l)
      */
-    private double[] evaluateECI(CECEntry cec, double temperature) {
+    private double[] evaluateECI(CECEntry cec, double temperature, CvCfBasis basis) {
+
+        int ncf = basis.numNonPointCfs;
+        double[] eci = new double[ncf];  // defaults to 0 (missing ECIs = no interaction)
 
         if (cec.cecTerms == null || cec.cecTerms.length == 0) {
-            throw new IllegalArgumentException("CECEntry has no terms");
+            return eci;
         }
 
-        double[] eci = new double[cec.cecTerms.length];
+        // TODO: resolve registry from basis (future — when ternary/quaternary supported)
+        CvCfCFRegistry registry = CvCfCFRegistry.forBccA2Binary();
 
-        for (int i = 0; i < cec.cecTerms.length; i++) {
-            double a = cec.cecTerms[i].a;
-            double b = cec.cecTerms[i].b;
-            eci[i] = a + b * temperature;
+        for (CECTerm term : cec.cecTerms) {
+            if (term.name == null || !term.name.startsWith("e")) continue;
+            String cfName = "v" + term.name.substring(1);  // e4AB → v4AB
+            if (!registry.contains(cfName)) continue;
+            int idx = registry.indexOf(cfName);
+            if (idx < ncf) {
+                eci[idx] = term.a + term.b * temperature;
+            }
         }
 
         return eci;
