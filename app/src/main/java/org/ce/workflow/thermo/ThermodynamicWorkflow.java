@@ -10,6 +10,9 @@ import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.workflow.cec.CECManagementWorkflow;
 import org.ce.workflow.thermo.ThermodynamicRequest;
 
+import java.util.Arrays;
+import java.util.logging.Logger;
+
 /**
  * Workflow responsible for thermodynamic calculations.
  *
@@ -17,6 +20,8 @@ import org.ce.workflow.thermo.ThermodynamicRequest;
  * the computation to thermodynamic engines.
  */
 public class ThermodynamicWorkflow {
+
+    private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
 
     private final ClusterDataStore clusterStore;
 
@@ -47,11 +52,36 @@ public class ThermodynamicWorkflow {
     public ThermodynamicData loadThermodynamicData(
             String clusterId, String hamiltonianId) throws Exception {
 
+        LOG.fine("STAGE 3a: Load cluster data (Stages 1-3 topology)...");
         AllClusterData clusterData = clusterStore.load(clusterId);
+        LOG.fine("  ✓ Loaded " + clusterId);
 
+        LOG.fine("STAGE 3b: Load Hamiltonian (ECI coefficients)...");
         CECEntry cec = cecWorkflow.loadAndValidateCEC(clusterId, hamiltonianId);
+        LOG.fine("  ✓ Loaded " + hamiltonianId);
+
+        // Extract and log CEC data
+        if (cec != null) {
+            LOG.fine("    elements: " + cec.elements);
+            LOG.fine("    structurePhase: " + cec.structurePhase);
+            if (cec.cecTerms != null && cec.cecTerms.length > 0) {
+                LOG.fine("    ECI terms: " + cec.cecTerms.length + " (format: a + b*T)");
+                // Show first few terms as example
+                for (int i = 0; i < Math.min(3, cec.cecTerms.length); i++) {
+                    LOG.finer("      [" + i + "] " + cec.cecTerms[i].name
+                            + ": a=" + cec.cecTerms[i].a + ", b=" + cec.cecTerms[i].b);
+                }
+                if (cec.cecTerms.length > 3) {
+                    LOG.finer("      ... (" + (cec.cecTerms.length - 3) + " more terms)");
+                }
+            } else {
+                LOG.fine("    ECI terms: none");
+            }
+        }
 
         String systemName = cec.elements + "_" + cec.structurePhase;
+        LOG.fine("STAGE 3c: Create ThermodynamicData bundle");
+        LOG.fine("  systemName: " + systemName);
 
         return new ThermodynamicData(clusterData, cec, clusterId, systemName);
     }
@@ -68,6 +98,13 @@ public class ThermodynamicWorkflow {
      * Runs a thermodynamic calculation.
      */
     public ThermodynamicResult runCalculation(ThermodynamicRequest request) throws Exception {
+
+        LOG.info("ThermodynamicWorkflow.runCalculation — ENTER");
+        LOG.info("  clusterId: " + request.clusterId);
+        LOG.info("  hamiltonianId: " + request.hamiltonianId);
+        LOG.info("  temperature: " + request.temperature + " K");
+        LOG.info("  composition: " + Arrays.toString(request.composition));
+        LOG.info("  engineType: " + request.engineType);
 
         ThermodynamicData data = loadThermodynamicData(request.clusterId, request.hamiltonianId);
 
@@ -99,7 +136,11 @@ public class ThermodynamicWorkflow {
         }
 
         EquilibriumState state = engine.compute(input);
-        return ThermodynamicResult.from(state);
+        ThermodynamicResult result = ThermodynamicResult.from(state);
+
+        LOG.info("ThermodynamicWorkflow.runCalculation — EXIT: G=" + String.format("%.4e", state.getFreeEnergy())
+                + " J/mol");
+        return result;
     }
 
 }

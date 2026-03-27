@@ -3,6 +3,7 @@ package org.ce.domain.engine.cvm;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
 
 import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * Computes the CVM free-energy functional and its derivatives.
@@ -42,6 +43,8 @@ import java.util.List;
  * @see ClusterVariableEvaluator
  */
 public final class CVMFreeEnergy {
+
+    private static final Logger LOG = Logger.getLogger(CVMFreeEnergy.class.getName());
 
     /** Gas constant in J/(molÂ·K). */
     public static final double R_GAS = 8.3144598;
@@ -120,6 +123,8 @@ public final class CVMFreeEnergy {
             int tcdis,
             int tcf,
             int ncf) {
+
+        LOG.finer("CVMFreeEnergy.evaluate — ENTER: T=" + temperature + ", ncf=" + ncf + ", tcf=" + tcf);
 
         // Build full CVCF vector: vFull = [v | moleFractions]
         double[] vFull = ClusterVariableEvaluator.buildFullCVCFVector(v, moleFractions, ncf, tcf);
@@ -234,6 +239,8 @@ public final class CVMFreeEnergy {
             }
         }
 
+        LOG.finer("CVMFreeEnergy.evaluate — EXIT: G=" + String.format("%.8e", Gval)
+                + ", H=" + String.format("%.8e", Hval) + ", S=" + String.format("%.8e", Sval));
         return new EvalResult(Gval, Hval, Sval, Gcu, Gcuu);
     }
 

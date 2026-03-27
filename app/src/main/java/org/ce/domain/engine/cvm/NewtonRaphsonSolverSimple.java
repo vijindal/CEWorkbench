@@ -5,6 +5,7 @@ import org.ce.domain.cluster.LinearAlgebra;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -194,13 +195,22 @@ public final class NewtonRaphsonSolverSimple {
             double tolerance,
             double step) {
 
+        LOG.info("NewtonRaphsonSolverSimple.solve — ENTER");
+        LOG.fine("  ncf=" + ncf + ", tcf=" + tcf + ", tcdis=" + tcdis + ", T=" + temperature);
+        LOG.fine("  moleFractions=" + Arrays.toString(moleFractions));
+        LOG.fine("  maxIter=" + maxIter + ", tolerance=" + tolerance);
+
         // For binary: xB = moleFractions[1]
         double xB = moleFractions.length > 1 ? moleFractions[1] : moleFractions[0];
 
         CVMData data = new CVMData(tcdis, tcf, ncf, lc, kb, mhdis, mh,
                 lcv, wcv, cmat, eci, temperature, xB, moleFractions, basis);
 
-        return minimize(data, maxIter, tolerance);
+        CVMSolverResult result = minimize(data, maxIter, tolerance);
+
+        LOG.info("NewtonRaphsonSolverSimple.solve — EXIT: converged=" + result.isConverged()
+                + ", iterations=" + result.getIterations() + ", ||Gu||=" + String.format("%.4e", result.getGradientNorm()));
+        return result;
     }
 
     /**
@@ -223,6 +233,7 @@ public final class NewtonRaphsonSolverSimple {
             CvCfBasis basis,
             double tolerance) {
 
+        LOG.fine("NewtonRaphsonSolverSimple.solve (default params) — ENTER: tolerance=" + tolerance);
         return solve(moleFractions, temperature, eci, mhdis, kb, mh, lc,
                 cmat, lcv, wcv, tcdis, tcf, ncf, basis,
                 MAX_ITER, tolerance, 1.0);
@@ -247,6 +258,7 @@ public final class NewtonRaphsonSolverSimple {
         LOG.fine("NewtonRaphsonSolverSimple.minimize — ENTER: ncf=" + ncf
                 + ", tcf=" + data.tcf + ", T=" + data.temperature
                 + ", xB=" + data.xB + ", tolerance=" + tolerance);
+        LOG.fine("  Initial CF (random state): " + Arrays.toString(u));
 
         double[] Gu = new double[ncf];
         double[][] Guu = new double[ncf][ncf];
@@ -336,8 +348,10 @@ public final class NewtonRaphsonSolverSimple {
             }
         }
 
-        LOG.warning(String.format("NewtonRaphsonSolverSimple — NOT CONVERGED after %d iterations (||Gu||=%.4e)",
-                maxIter, gradNorm));
+        LOG.warning(String.format("NewtonRaphsonSolverSimple — NOT CONVERGED after %d iterations (||Gu||=%.4e > tolerance=%.4e)",
+                maxIter, gradNorm, tolerance));
+        LOG.warning("  Final state: G=" + String.format("%.8e", G) + ", H=" + String.format("%.8e", H)
+                + ", S=" + String.format("%.8e", S));
         return new CVMSolverResult(u, G, H, S, maxIter, gradNorm, false, trace);
     }
 

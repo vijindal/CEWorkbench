@@ -1,6 +1,8 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.AllClusterData;
+import org.ce.domain.cluster.CFIdentificationResult;
+import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.cvcf.CvCfCFRegistry;
@@ -14,6 +16,7 @@ import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 
 import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * CVM thermodynamic engine.
@@ -32,9 +35,12 @@ import java.util.List;
  */
 public class CVMEngine implements ThermodynamicEngine {
 
+    private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
+
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
 
+        LOG.info("=== CVMEngine.compute() START ===");
         AllClusterData clusterData = input.clusterData;
         CECEntry cec = input.cec;
         double temperature = input.temperature;
@@ -42,50 +48,83 @@ public class CVMEngine implements ThermodynamicEngine {
         String systemId = input.systemId;
         String systemName = input.systemName;
 
+        LOG.info("Input parameters:");
+        LOG.info("  systemId: " + systemId);
+        LOG.info("  systemName: " + systemName);
+        LOG.info("  temperature: " + temperature + " K");
+        LOG.info("  composition: [" + formatArray(composition) + "]");
+        LOG.info("  numComponents: " + composition.length);
+
         /*
          * 1. Validate CMatrix exists
          */
+        LOG.fine("Validating C-Matrix...");
         if (clusterData.getCMatrixResult() == null) {
+            LOG.severe("C-Matrix not found in AllClusterData!");
             throw new IllegalStateException(
                 "CMatrix not found in AllClusterData. " +
                 "Ensure ClusterIdentificationWorkflow generated Stage 3."
             );
         }
+        LOG.fine("✓ C-Matrix found");
 
         /*
          * 2. Validate composition
          */
+        LOG.fine("Validating composition...");
         if (composition == null || composition.length < 2) {
+            LOG.severe("Invalid composition array: " + (composition == null ? "null" : "length=" + composition.length));
             throw new IllegalArgumentException("Invalid composition array");
         }
 
         double sum = 0.0;
         for (double x : composition) {
             if (x < 0 || x > 1) {
+                LOG.severe("Composition value out of range [0,1]: " + x);
                 throw new IllegalArgumentException("Composition values must be in [0,1]");
             }
             sum += x;
         }
 
         if (Math.abs(sum - 1.0) > 1e-9) {
+            LOG.severe("Composition sum != 1.0: " + sum);
             throw new IllegalArgumentException("Composition must sum to 1.0, got: " + sum);
         }
+        LOG.fine("✓ Composition valid (sum=" + String.format("%.9f", sum) + ")");
 
         /*
          * 3. Validate temperature
          */
+        LOG.fine("Validating temperature...");
         if (temperature <= 0) {
+            LOG.severe("Invalid temperature: " + temperature);
             throw new IllegalArgumentException("Temperature must be positive: " + temperature);
         }
+        LOG.fine("✓ Temperature valid");
 
         /*
-         * 4. Use precomputed C-Matrix (from Type-1)
+         * 4. Extract Stage 1-3 data from AllClusterData
          */
+        LOG.fine("STAGE 4a: Extract Stage 1 (Cluster Identification)...");
+        ClusterIdentificationResult stage1 = clusterData.getDisorderedClusterResult();
+        LOG.fine("  ✓ tcdis=" + stage1.getTcdis() + " (cluster types)");
+        LOG.fine("  ✓ kb coefficients, mh multiplicities, lc counts loaded");
+
+        LOG.fine("STAGE 4b: Extract Stage 2 (CF Identification)...");
+        CFIdentificationResult stage2 = clusterData.getDisorderedCFResult();
+        LOG.fine("  ✓ tcf=" + stage2.getTcf() + ", ncf=" + stage2.getNcf() + " (CF counts)");
+        LOG.fine("  ✓ lcf array, CF basis indices loaded");
+
+        LOG.fine("STAGE 4c: Extract Stage 3 (C-Matrix - CVCF basis)...");
         org.ce.domain.cluster.CMatrixResult clusterCMatrix = clusterData.getCMatrixResult();
+        LOG.fine("  ✓ cmat[t][j][v][k] transformation matrix loaded");
+        LOG.fine("  ✓ lcv (CV counts), wcv (CV weights) loaded");
+        LOG.fine("  ✓ cfBasisIndices: " + (clusterCMatrix.getCfBasisIndices() == null ? "null (CVCF)" : "present"));
 
         /*
          * 5. Create CVMInput with complete topology (Stages 1-3)
          */
+        LOG.fine("STAGE 4d: Create CVMInput bundle...");
         // TODO: resolve basis from systemId + numComponents via registry (future)
         CVMInput cvmInput = new CVMInput(
                 clusterData.getDisorderedClusterResult(),
@@ -96,24 +135,33 @@ public class CVMEngine implements ThermodynamicEngine {
                 composition.length,
                 BccA2CvCfTransformations.binaryBasis()
         );
+        LOG.fine("  ✓ CVMInput created with numComponents=" + composition.length);
 
         /*
-         * 3. Evaluate ECI at temperature using CVCF names.
+         * 6. Evaluate ECI at temperature using CVCF names.
          *    ECIs are indexed by CF name (e4AB → v4AB at col 0, etc.).
          *    Missing terms default to 0 (direct inheritance property of CVCF basis).
          */
+        LOG.fine("Evaluating ECI at T=" + temperature + " K...");
         CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
         double[] eci = evaluateECI(cec, temperature, basis);
+        LOG.fine("✓ ECI evaluated (" + eci.length + " non-point terms)");
 
         /*
-         * 7. Create CVMPhaseModel and return equilibrium
+         * 7. Create CVMPhaseModel and run N-R minimization
          */
+        LOG.info("Running CVM N-R minimization...");
         CVMPhaseModel model = CVMPhaseModel.create(
                 cvmInput,
                 eci,
                 temperature,
                 composition
         );
+        LOG.info("✓ CVM minimization converged in " + model.getLastIterations()
+                + " iterations (||Gu||=" + String.format("%.4e", model.getLastGradientNorm()) + ")");
+        LOG.info("  G(eq) = " + String.format("%.8e", model.getEquilibriumG()) + " J/mol");
+        LOG.info("  H(eq) = " + String.format("%.8e", model.getEquilibriumH()) + " J/mol");
+        LOG.info("  S(eq) = " + String.format("%.8e", model.getEquilibriumS()) + " J/(mol·K)");
 
         /*
          * 8. Emit post-hoc N-R iteration trace as structured chart events.
@@ -121,6 +169,7 @@ public class CVMEngine implements ThermodynamicEngine {
          *    only runs when the solver succeeded — the chart always shows a converged trace.
          */
         if (input.eventSink != null) {
+            LOG.fine("Emitting N-R iteration trace to eventSink...");
             input.eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
             List<CVMSolverResult.IterationSnapshot> trace = model.getLastIterationTrace();
             for (CVMSolverResult.IterationSnapshot snap : trace) {
@@ -133,9 +182,12 @@ public class CVMEngine implements ThermodynamicEngine {
                         ghs[2],      // entropy (S) in J/(mol·K)
                         snap.getCf())); // CFs for logging
             }
+            LOG.fine("✓ Emitted " + trace.size() + " iteration snapshots");
         }
 
-        return model.getEquilibriumState();
+        EquilibriumState result = model.getEquilibriumState();
+        LOG.info("=== CVMEngine.compute() SUCCESS ===");
+        return result;
     }
 
     /**
@@ -157,23 +209,70 @@ public class CVMEngine implements ThermodynamicEngine {
         int ncf = basis.numNonPointCfs;
         double[] eci = new double[ncf];  // defaults to 0 (missing ECIs = no interaction)
 
+        LOG.fine("  Basis: " + basis.structurePhase + ", numComponents=" + basis.numComponents
+                + ", ncf=" + ncf + ", totalCfs=" + basis.totalCfs());
+        LOG.fine("  CF names: " + basis.cfNames);
+
         if (cec.cecTerms == null || cec.cecTerms.length == 0) {
+            LOG.fine("  No CEC terms provided — all ECIs = 0");
             return eci;
         }
+
+        LOG.fine("  Processing " + cec.cecTerms.length + " CEC terms...");
 
         // TODO: resolve registry from basis (future — when ternary/quaternary supported)
         CvCfCFRegistry registry = CvCfCFRegistry.forBccA2Binary();
 
         for (CECTerm term : cec.cecTerms) {
-            if (term.name == null || !term.name.startsWith("e")) continue;
+            if (term.name == null || !term.name.startsWith("e")) {
+                LOG.finer("  Skipping term: " + term.name + " (not an e-term)");
+                continue;
+            }
             String cfName = "v" + term.name.substring(1);  // e4AB → v4AB
-            if (!registry.contains(cfName)) continue;
+            if (!registry.contains(cfName)) {
+                LOG.finer("  Skipping term: " + term.name + " (CF " + cfName + " not in registry)");
+                continue;
+            }
             int idx = registry.indexOf(cfName);
             if (idx < ncf) {
-                eci[idx] = term.a + term.b * temperature;
+                double value = term.a + term.b * temperature;
+                eci[idx] = value;
+                LOG.finer("    eci[" + idx + "] (" + cfName + ") = " + term.a + " + " + term.b
+                        + "*" + temperature + " = " + String.format("%.8e", value));
             }
         }
 
+        LOG.fine("  ECI array: [" + formatEciArray(eci) + "]");
         return eci;
+    }
+
+    /**
+     * Formats ECI array for logging (only non-zero values).
+     */
+    private static String formatEciArray(double[] eci) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (int i = 0; i < eci.length; i++) {
+            if (eci[i] != 0.0) {
+                if (!first) sb.append(", ");
+                sb.append("eci[").append(i).append("]=").append(String.format("%.4e", eci[i]));
+                first = false;
+            }
+        }
+        if (first) sb.append("(all zero)");
+        return sb.toString();
+    }
+
+    /**
+     * Formats a double array for logging.
+     */
+    private static String formatArray(double[] arr) {
+        if (arr == null || arr.length == 0) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arr.length; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(String.format("%.6f", arr[i]));
+        }
+        return sb.toString();
     }
 }

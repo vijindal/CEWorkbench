@@ -38,7 +38,7 @@ public class CalculationPanel extends JPanel {
     private final Consumer<ProgressEvent>       chartSink;
 
     // User-editable inputs
-    private final JTextField elementsField  = new JTextField("A-B", 12);
+    private final JTextField elementsField  = new JTextField("Nb-Ti", 12);
     private final JTextField structureField = new JTextField("BCC_A2", 10);
     private final JTextField modelField     = new JTextField("T", 8);
 
@@ -46,7 +46,7 @@ public class CalculationPanel extends JPanel {
     private final JTextField clusterIdField    = new JTextField(20);
     private final JTextField hamiltonianIdField = new JTextField(20);
 
-    private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(7.0, 1.0, 10000.0, 100.0));
+    private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
     private final JSpinner          xBField          = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
     private final JComboBox<String> engineBox        = new JComboBox<>(new String[]{"CVM", "MCS"});
     private final JButton           calcButton       = new JButton("Calculate");

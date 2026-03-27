@@ -240,21 +240,23 @@ Binary convenience overload also updated.
 
 ---
 
-### Step 9 — `NewtonRaphsonSolverSimple.java`: Update CVMData
+### Step 9 ✅ — `NewtonRaphsonSolverSimple.java`: Update CVMData and solver integration
 
 **File:** `app/src/main/java/org/ce/domain/engine/cvm/NewtonRaphsonSolverSimple.java`
 
 In `CVMData`:
-- Remove `int[][] cfBasisIndices`; add `CvCfBasis basis`
+- Removed `numElements`, `lcf`, `cfBasisIndices`, `cfRank`; added `CvCfBasis basis`
+- Simplified constructor signature
 
-Updates:
-- `getURand()` → call `ClusterVariableEvaluator.computeRandomCVCFs(data.moleFractions, data.basis)`
-- `updateCV()` → call `ClusterVariableEvaluator.buildFullCVCFVector(u, data.moleFractions, data.ncf, data.tcf)`
-- `usrfun()` → pass updated `CVMFreeEnergy.evaluate()` signature
+Updates completed:
+- `getURand()` → calls `ClusterVariableEvaluator.computeRandomCVCFs(data.moleFractions, data.basis)` ✅
+- `updateCV()` → calls `ClusterVariableEvaluator.buildFullCVCFVector(u, data.moleFractions, data.ncf, data.tcf)` ✅
+- `usrfun()` → updated `CVMFreeEnergy.evaluate()` call signature (removed `numElements`, `lcf`, `cfBasisIndices`) ✅
+- `solve()` overloads → replaced params with `CvCfBasis basis` ✅
 
-**Do NOT change:** minimization loop, step computation, convergence criteria, line search.
+Minimization loop, step computation, convergence criteria, line search: **unchanged** ✅
 
-**Status:** ⏳ pending
+**Status:** ✅ done
 
 ---
 

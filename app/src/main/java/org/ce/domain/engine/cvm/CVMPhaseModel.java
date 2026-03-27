@@ -417,11 +417,13 @@ public class CVMPhaseModel {
      */
     public synchronized void ensureMinimized() throws Exception {
         if (isMinimized && equilibriumCFs != null && equilibrium != null) {
+            LOG.finer("Minimization already complete — using cached results");
             return;  // Already minimized, all results cached
         }
 
         // Validate parameters are set
         if (eci == null || Double.isNaN(temperature) || moleFractions == null) {
+            LOG.severe("Cannot minimize: missing required parameters");
             throw new IllegalStateException(
                 "Cannot minimize: missing parameters\n" +
                 "  ECI set: " + (eci != null) + "\n" +
@@ -430,13 +432,20 @@ public class CVMPhaseModel {
         }
 
         // Perform minimization
-        LOG.fine("CVMPhaseModel.ensureMinimized — starting minimization: T=" + temperature
-                + " K, x=" + Arrays.toString(moleFractions));
+        LOG.info("CVMPhaseModel.ensureMinimized — STARTING minimization");
+        LOG.info("  systemId: " + systemId);
+        LOG.info("  temperature: " + temperature + " K");
+        LOG.info("  composition: " + Arrays.toString(moleFractions));
+        LOG.info("  ncf: " + ncf + ", tcf: " + tcf);
+        LOG.fine("  tolerance: " + tolerance);
+        LOG.fine("  ECI: [" + formatEciForLog(eci) + "]");
         minimize();
 
         if (!isMinimized) {
+            LOG.severe("Minimization FAILED: " + lastConvergenceStatus);
             throw new Exception("Minimization failed: " + lastConvergenceStatus);
         }
+        LOG.info("CVMPhaseModel.ensureMinimized — COMPLETE");
     }
 
     /**
@@ -446,8 +455,9 @@ public class CVMPhaseModel {
         long startTime = System.nanoTime();
 
         try {
+            LOG.fine("  Calling NewtonRaphsonSolverSimple.solve()...");
             // Run Newton-Raphson solver
-            // (Solver generates initial guess internally)
+            // (Solver generates initial guess internally using computeRandomCVCFs)
             CVMSolverResult result = NewtonRaphsonSolverSimple.solve(
                 moleFractions,
                 temperature,
@@ -465,14 +475,19 @@ public class CVMPhaseModel {
                 basis,
                 tolerance
             );
+            LOG.fine("  Newton-Raphson solver returned");
 
-            // 3. Cache results
+            // Cache iteration trace
             this.lastIterationTrace = result.getIterationTrace();
+            LOG.fine("  Cached " + lastIterationTrace.size() + " iteration snapshots");
 
             if (result.isConverged()) {
+                LOG.fine("  Solver converged!");
                 this.equilibriumCFs = result.getEquilibriumCFs();
+                LOG.fine("  Equilibrium CFs (non-point): " + Arrays.toString(equilibriumCFs));
 
                 // Evaluate thermodynamics at equilibrium non-point CFs
+                LOG.fine("  Evaluating CVMFreeEnergy at equilibrium CFs...");
                 this.equilibrium = CVMFreeEnergy.evaluate(
                     equilibriumCFs,
                     moleFractions,
@@ -489,6 +504,9 @@ public class CVMPhaseModel {
                     tcf,
                     ncf
                 );
+                LOG.fine("  Thermodynamic values: G=" + String.format("%.6e", equilibrium.G)
+                        + ", H=" + String.format("%.6e", equilibrium.H)
+                        + ", S=" + String.format("%.6e", equilibrium.S));
 
                 this.isMinimized = true;
                 this.lastIterations = result.getIterations();
@@ -832,6 +850,24 @@ public class CVMPhaseModel {
             copy[i] = mat[i].clone();
         }
         return copy;
+    }
+
+    /**
+     * Formats ECI array for logging (only non-zero values).
+     */
+    private static String formatEciForLog(double[] eci) {
+        if (eci == null || eci.length == 0) return "(empty)";
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (int i = 0; i < eci.length; i++) {
+            if (eci[i] != 0.0) {
+                if (!first) sb.append(", ");
+                sb.append("[").append(i).append("]=").append(String.format("%.4e", eci[i]));
+                first = false;
+            }
+        }
+        if (first) sb.append("(all zero)");
+        return sb.toString();
     }
 
 }

@@ -54,6 +54,8 @@ task runGui(type: JavaExec) {
     description = 'Launch the CE Workbench GUI'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'org.ce.CEWorkbench'
+    // Enable FINE-level logging via logging.properties at project root
+    jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
 }
 
 task runDemo(type: JavaExec) {
