@@ -410,4 +410,21 @@ public final class BccA2CvCfTransformations {
     public static CvCfBasis quaternaryBasis() {
         return new CvCfBasis("BCC_A2", 4, QUATERNARY_CF_NAMES, QUATERNARY_NUM_NON_POINT_CFS, QUATERNARY_T);
     }
+
+    /**
+     * Returns the BCC_A2 CVCF basis for the requested component count.
+     *
+     * @param numComponents number of components (2, 3, or 4)
+     * @return matching BCC_A2 basis
+     * @throws IllegalArgumentException if numComponents is unsupported
+     */
+    public static CvCfBasis basisForNumComponents(int numComponents) {
+        return switch (numComponents) {
+            case 2 -> binaryBasis();
+            case 3 -> ternaryBasis();
+            case 4 -> quaternaryBasis();
+            default -> throw new IllegalArgumentException(
+                    "Unsupported BCC_A2 component count: " + numComponents + " (supported: 2, 3, 4)");
+        };
+    }
 }

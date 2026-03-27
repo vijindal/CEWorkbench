@@ -144,13 +144,14 @@ public final class NewtonRaphsonSolverSimple {
         public final double xB;           // composition (mole fraction of B)
         public final double[] moleFractions;
         public final CvCfBasis basis;     // CVCF basis (holds Tinv for random init)
+        public final int[][] orthCfBasisIndices; // orthogonal decoration metadata for random init
 
         public CVMData(
                 int tcdis, int tcf, int ncf, int[] lc,
                 double[] kb, List<Double> msdis, double[][] m,
                 int[][] lcv, List<List<int[]>> wcv, List<List<double[][]>> cmat,
                 double[] eci, double temperature, double xB,
-                double[] moleFractions, CvCfBasis basis) {
+                double[] moleFractions, CvCfBasis basis, int[][] orthCfBasisIndices) {
             this.tcdis = tcdis;
             this.tcf = tcf;
             this.ncf = ncf;
@@ -166,6 +167,7 @@ public final class NewtonRaphsonSolverSimple {
             this.xB = xB;
             this.moleFractions = moleFractions.clone();
             this.basis = basis;
+            this.orthCfBasisIndices = orthCfBasisIndices;
         }
     }
 
@@ -191,6 +193,7 @@ public final class NewtonRaphsonSolverSimple {
             int tcf,
             int ncf,
             CvCfBasis basis,
+            int[][] orthCfBasisIndices,
             int maxIter,
             double tolerance,
             double step) {
@@ -204,7 +207,7 @@ public final class NewtonRaphsonSolverSimple {
         double xB = moleFractions.length > 1 ? moleFractions[1] : moleFractions[0];
 
         CVMData data = new CVMData(tcdis, tcf, ncf, lc, kb, mhdis, mh,
-                lcv, wcv, cmat, eci, temperature, xB, moleFractions, basis);
+                lcv, wcv, cmat, eci, temperature, xB, moleFractions, basis, orthCfBasisIndices);
 
         CVMSolverResult result = minimize(data, maxIter, tolerance);
 
@@ -231,11 +234,12 @@ public final class NewtonRaphsonSolverSimple {
             int tcf,
             int ncf,
             CvCfBasis basis,
+            int[][] orthCfBasisIndices,
             double tolerance) {
 
         LOG.fine("NewtonRaphsonSolverSimple.solve (default params) — ENTER: tolerance=" + tolerance);
         return solve(moleFractions, temperature, eci, mhdis, kb, mh, lc,
-                cmat, lcv, wcv, tcdis, tcf, ncf, basis,
+                cmat, lcv, wcv, tcdis, tcf, ncf, basis, orthCfBasisIndices,
                 MAX_ITER, tolerance, 1.0);
     }
 
@@ -411,9 +415,20 @@ public final class NewtonRaphsonSolverSimple {
                 int nv = data.lcv[itc][inc];
                 cv[itc][inc] = new double[nv];
                 double[][] cm = data.cmat.get(itc).get(inc);
+                if (nv == 0) {
+                    continue;
+                }
+                int cols = cm[0].length;
+                boolean hasConstant = cols == (data.tcf + 1);
+                if (!(hasConstant || cols == data.tcf)) {
+                    throw new IllegalArgumentException(
+                            "Invalid cmat width at (t=" + itc + ", j=" + inc + "): got " + cols
+                                    + ", expected " + data.tcf + " (no constant) or "
+                                    + (data.tcf + 1) + " (with constant)");
+                }
 
                 for (int incv = 0; incv < nv; incv++) {
-                    double sum = cm[incv][data.tcf]; // constant term
+                    double sum = hasConstant ? cm[incv][data.tcf] : 0.0;
                     for (int icf = 0; icf < data.tcf; icf++) {
                         sum += cm[incv][icf] * uFull[icf];
                     }
@@ -432,7 +447,8 @@ public final class NewtonRaphsonSolverSimple {
      * Returns random-state (disordered) CF values for all non-point CFs.
      */
     private static double[] getURand(CVMData data) {
-        return ClusterVariableEvaluator.computeRandomCVCFs(data.moleFractions, data.basis);
+        return ClusterVariableEvaluator.computeRandomCVCFs(
+                data.moleFractions, data.basis, data.orthCfBasisIndices);
     }
 
     // =========================================================================

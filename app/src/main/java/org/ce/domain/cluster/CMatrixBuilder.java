@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
@@ -24,6 +25,16 @@ public final class CMatrixBuilder {
             List<Cluster> maxClusters,
             int numElements,
             CvCfBasis basis) {
+        return build(clusterResult, cfResult, maxClusters, numElements, basis, null);
+    }
+
+    public static CMatrixResult build(
+            ClusterIdentificationResult clusterResult,
+            CFIdentificationResult cfResult,
+            List<Cluster> maxClusters,
+            int numElements,
+            CvCfBasis basis,
+            Consumer<String> progressSink) {
 
         if (clusterResult == null || cfResult == null) {
             throw new IllegalArgumentException("clusterResult and cfResult must not be null");
@@ -108,7 +119,41 @@ public final class CMatrixBuilder {
         LOG.fine("CMatrixBuilder.build — EXIT: totalCVs=" + totalCVs + ", lcv.length=" + lcv.length);
 
         CMatrixResult orthResult = new CMatrixResult(cmat, lcv, wcv, cfBasisIndices);
-        return CvCfBasisTransformer.transform(orthResult, basis);
+        CMatrixResult cvcfResult = CvCfBasisTransformer.transform(orthResult, basis);
+
+        if (progressSink != null) {
+            emit(progressSink, "  FULL orthogonal c-matrix blocks:");
+            dumpCmat("ORTHO", orthResult, progressSink);
+            emit(progressSink, "  FULL CVCF c-matrix blocks:");
+            dumpCmat("CVCF", cvcfResult, progressSink);
+        }
+
+        return cvcfResult;
+    }
+
+    private static void dumpCmat(String label, CMatrixResult result, Consumer<String> sink) {
+        List<List<double[][]>> cmat = result.getCmat();
+        for (int t = 0; t < cmat.size(); t++) {
+            List<double[][]> groups = cmat.get(t);
+            for (int j = 0; j < groups.size(); j++) {
+                double[][] block = groups.get(j);
+                int rows = block.length;
+                int cols = rows > 0 ? block[0].length : 0;
+                emit(sink, String.format("    %s cmat[t=%d][j=%d] dims=%dx%d", label, t, j, rows, cols));
+                for (int r = 0; r < rows; r++) {
+                    StringBuilder sb = new StringBuilder("      r=");
+                    sb.append(r).append(" |");
+                    for (int c = 0; c < cols; c++) {
+                        sb.append(String.format(" % .8e", block[r][c]));
+                    }
+                    emit(sink, sb.toString());
+                }
+            }
+        }
+    }
+
+    private static void emit(Consumer<String> sink, String line) {
+        sink.accept(line);
     }
 
     /**

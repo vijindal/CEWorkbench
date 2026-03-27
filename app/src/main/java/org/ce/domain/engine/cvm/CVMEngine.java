@@ -5,7 +5,6 @@ import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfCFRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
@@ -47,13 +46,17 @@ public class CVMEngine implements ThermodynamicEngine {
         double[] composition = input.composition;
         String systemId = input.systemId;
         String systemName = input.systemName;
+        String structurePhase = cec.structurePhase;
 
         LOG.info("Input parameters:");
         LOG.info("  systemId: " + systemId);
         LOG.info("  systemName: " + systemName);
+        LOG.info("  structurePhase: " + structurePhase);
         LOG.info("  temperature: " + temperature + " K");
         LOG.info("  composition: [" + formatArray(composition) + "]");
         LOG.info("  numComponents: " + composition.length);
+
+        CvCfBasis basis = resolveBasis(structurePhase, composition.length);
 
         /*
          * 1. Validate CMatrix exists
@@ -133,7 +136,7 @@ public class CVMEngine implements ThermodynamicEngine {
                 systemId,
                 systemName,
                 composition.length,
-                BccA2CvCfTransformations.binaryBasis()
+                basis
         );
         LOG.fine("  ✓ CVMInput created with numComponents=" + composition.length);
 
@@ -141,9 +144,8 @@ public class CVMEngine implements ThermodynamicEngine {
          * 6. Evaluate ECI at temperature using CVCF names.
          *    ECIs are indexed by CF name (e4AB → v4AB at col 0, etc.).
          *    Missing terms default to 0 (direct inheritance property of CVCF basis).
-         */
+        */
         LOG.fine("Evaluating ECI at T=" + temperature + " K...");
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
         double[] eci = evaluateECI(cec, temperature, basis);
         LOG.fine("✓ ECI evaluated (" + eci.length + " non-point terms)");
 
@@ -220,20 +222,17 @@ public class CVMEngine implements ThermodynamicEngine {
 
         LOG.fine("  Processing " + cec.cecTerms.length + " CEC terms...");
 
-        // TODO: resolve registry from basis (future — when ternary/quaternary supported)
-        CvCfCFRegistry registry = CvCfCFRegistry.forBccA2Binary();
-
         for (CECTerm term : cec.cecTerms) {
             if (term.name == null || !term.name.startsWith("e")) {
                 LOG.finer("  Skipping term: " + term.name + " (not an e-term)");
                 continue;
             }
             String cfName = "v" + term.name.substring(1);  // e4AB → v4AB
-            if (!registry.contains(cfName)) {
+            int idx = basis.cfNames.indexOf(cfName);
+            if (idx < 0) {
                 LOG.finer("  Skipping term: " + term.name + " (CF " + cfName + " not in registry)");
                 continue;
             }
-            int idx = registry.indexOf(cfName);
             if (idx < ncf) {
                 double value = term.a + term.b * temperature;
                 eci[idx] = value;
@@ -244,6 +243,22 @@ public class CVMEngine implements ThermodynamicEngine {
 
         LOG.fine("  ECI array: [" + formatEciArray(eci) + "]");
         return eci;
+    }
+
+    /**
+     * Resolves the currently supported CVCF basis.
+     * Hardcoded for BCC_A2 with binary/ternary/quaternary component counts.
+     */
+    private static CvCfBasis resolveBasis(String structurePhase, int numComponents) {
+        if (structurePhase == null || structurePhase.isBlank()) {
+            throw new IllegalArgumentException("Missing structurePhase in Hamiltonian entry");
+        }
+        if (!"BCC_A2".equals(structurePhase)) {
+            throw new IllegalArgumentException(
+                    "Unsupported structure for CVCF runtime: " + structurePhase
+                            + " (currently supported: BCC_A2)");
+        }
+        return BccA2CvCfTransformations.basisForNumComponents(numComponents);
     }
 
     /**

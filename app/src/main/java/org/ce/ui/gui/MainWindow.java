@@ -1,6 +1,7 @@
 package org.ce.ui.gui;
 
 import org.ce.domain.engine.ProgressEvent;
+import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.storage.ClusterDataStore;
 import org.ce.workflow.CalculationService;
 import org.ce.workflow.cec.CECManagementWorkflow;
@@ -64,6 +65,8 @@ public class MainWindow extends JFrame {
         // ── sinks wired to the output panel ───────────────────────────────────
         java.util.function.Consumer<String> logSink    = outputPanel::appendLog;
         java.util.function.Consumer<String> statusSink = this::postStatus;
+        java.util.function.BiConsumer<CECEntry, CECEntry> cecResultSink = outputPanel::showCECResult;
+        java.util.function.Function<CECEntry, Boolean> cecEditApplySink = outputPanel::applyCECEdits;
         java.util.function.Consumer<org.ce.domain.result.ThermodynamicResult> resultSink =
                 outputPanel::showResult;
         java.util.function.Consumer<ProgressEvent> chartSink = outputPanel::onChartEvent;
@@ -73,7 +76,7 @@ public class MainWindow extends JFrame {
                 clusterStore, context, statusSink, logSink);
 
         CECManagementPanel cecPanel = new CECManagementPanel(
-                cecWorkflow, context, statusSink, logSink);
+                cecWorkflow, context, statusSink, logSink, cecResultSink, cecEditApplySink);
 
         CalculationPanel calcPanel = new CalculationPanel(
                 calculationService, context, statusSink, logSink, resultSink, chartSink);

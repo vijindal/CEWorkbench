@@ -132,6 +132,7 @@ public class CVMPhaseModel {
     private final List<List<double[][]>> cmat;  // C-matrix (CVCF basis): cmat[t][j][v][k]
     private final int[][] lcv;                  // CV counts: lcv[t][j]
     private final List<List<int[]>> wcv;        // CV weights: wcv.get(t).get(j)[v]
+    private final int[][] orthCfBasisIndices;   // orthogonal decoration metadata for exact random init
     private final String systemId;
     private final String systemName;
     private final int numComponents;
@@ -262,6 +263,7 @@ public class CVMPhaseModel {
         this.cmat = stage3.getCmat();
         this.lcv = stage3.getLcv();
         this.wcv = stage3.getWcv();
+        this.orthCfBasisIndices = stage3.getCfBasisIndices();
 
         // System info
         this.systemId = input.getSystemId();
@@ -473,6 +475,7 @@ public class CVMPhaseModel {
                 tcf,
                 ncf,
                 basis,
+                orthCfBasisIndices,
                 tolerance
             );
             LOG.fine("  Newton-Raphson solver returned");

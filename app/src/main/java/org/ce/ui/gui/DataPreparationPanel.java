@@ -322,7 +322,7 @@ public class DataPreparationPanel extends JPanel {
                         .numComponents(numComp)
                         .build();
 
-                AllClusterData partial = ClusterIdentificationWorkflow.identify(config);
+                AllClusterData partial = ClusterIdentificationWorkflow.identify(config, this::publish);
 
                 publish("Stage 3: Building C-matrix...");
                 List<Cluster> maxClusters = InputLoader.parseClusterFile(ordClus);
@@ -331,7 +331,7 @@ public class DataPreparationPanel extends JPanel {
                         partial.getDisorderedCFResult(),
                         maxClusters,
                         numComp,
-                        BccA2CvCfTransformations.binaryBasis()
+                        BccA2CvCfTransformations.basisForNumComponents(numComp)
                 );
 
                 publish("Saving AllClusterData...");

@@ -1,7 +1,6 @@
 package org.ce.ui.gui;
 
 import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.workflow.cec.CECManagementWorkflow;
 
 import javax.swing.*;
@@ -10,6 +9,8 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 /**
  * Parameter panel for scaffolding, inspecting, and editing the Hamiltonian (ECI) database.
@@ -29,6 +30,8 @@ public class CECManagementPanel extends JPanel {
     private final WorkbenchContext      context;
     private final Consumer<String>      statusSink;
     private final Consumer<String>      logSink;
+    private final BiConsumer<CECEntry, CECEntry> resultSink;
+    private final Function<CECEntry, Boolean> applyEditsSink;
 
     // User-editable inputs
     private final JTextField elementsField  = new JTextField("Nb-Ti", 12);
@@ -54,11 +57,15 @@ public class CECManagementPanel extends JPanel {
     public CECManagementPanel(CECManagementWorkflow cecWorkflow,
                               WorkbenchContext context,
                               Consumer<String> statusSink,
-                              Consumer<String> logSink) {
+                              Consumer<String> logSink,
+                              BiConsumer<CECEntry, CECEntry> resultSink,
+                              Function<CECEntry, Boolean> applyEditsSink) {
         this.cecWorkflow = cecWorkflow;
         this.context     = context;
         this.statusSink  = statusSink;
         this.logSink     = logSink;
+        this.resultSink  = resultSink;
+        this.applyEditsSink = applyEditsSink;
 
         setBackground(BG);
 
@@ -109,7 +116,6 @@ public class CECManagementPanel extends JPanel {
         setLayout(new BorderLayout(6, 6));
         setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
         add(buildForm(),         BorderLayout.NORTH);
-        add(buildTableSection(), BorderLayout.CENTER);
     }
 
     // =========================================================================
@@ -236,6 +242,7 @@ public class CECManagementPanel extends JPanel {
     // =========================================================================
 
     private void scaffoldCEC() {
+        String clusterId = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
         String elements      = elementsField.getText().trim();
         String structure     = structureField.getText().trim();
@@ -257,7 +264,7 @@ public class CECManagementPanel extends JPanel {
                     CECEntry entry = get();
                     currentEntry = entry;
                     currentHamiltonianId = hamiltonianId;
-                    populateTable(entry);
+                    resultSink.accept(entry, tryLoadCvcfSibling(clusterId, hamiltonianId));
                     logSink.accept("Scaffolded " + entry.ncf + " terms. Saved to hamiltonians/" + hamiltonianId + "/hamiltonian.json");
                     logSink.accept("Edit a and b values in the table, then click Save.");
                     statusSink.accept("Scaffolded " + hamiltonianId + "  (" + entry.ncf + " terms)");
@@ -288,9 +295,20 @@ public class CECManagementPanel extends JPanel {
             protected void done() {
                 try {
                     CECEntry entry = get();
-                    currentEntry = entry;
-                    currentHamiltonianId = hamiltonianId;
-                    populateTable(entry);
+                    CECEntry orthEntry;
+                    CECEntry cvcfEntry;
+                    if (isCvcfId(hamiltonianId)) {
+                        cvcfEntry = entry;
+                        orthEntry = tryLoadOrthSibling(clusterId, hamiltonianId);
+                        currentEntry = cvcfEntry;
+                        currentHamiltonianId = hamiltonianId;
+                    } else {
+                        orthEntry = entry;
+                        cvcfEntry = tryLoadCvcfSibling(clusterId, hamiltonianId);
+                        currentEntry = orthEntry;
+                        currentHamiltonianId = hamiltonianId;
+                    }
+                    resultSink.accept(orthEntry, cvcfEntry);
                     logSink.accept("Loaded " + entry.ncf + " terms.");
                     logSink.accept("Elements: " + entry.elements
                             + "  Structure: " + entry.structurePhase
@@ -312,18 +330,9 @@ public class CECManagementPanel extends JPanel {
             return;
         }
 
-        if (cecTable.isEditing()) {
-            cecTable.getCellEditor().stopCellEditing();
-        }
-
-        for (int row = 0; row < tableModel.getRowCount(); row++) {
-            try {
-                currentEntry.cecTerms[row].a = Double.parseDouble(tableModel.getValueAt(row, 1).toString());
-                currentEntry.cecTerms[row].b = Double.parseDouble(tableModel.getValueAt(row, 2).toString());
-            } catch (NumberFormatException ex) {
-                logSink.accept("Invalid number at row " + (row + 1) + ": " + ex.getMessage());
-                return;
-            }
+        if (applyEditsSink == null || !applyEditsSink.apply(currentEntry)) {
+            logSink.accept("Unable to apply CEC edits from Results panel.");
+            return;
         }
 
         String id    = currentHamiltonianId;
@@ -353,12 +362,44 @@ public class CECManagementPanel extends JPanel {
         worker.execute();
     }
 
-    private void populateTable(CECEntry entry) {
-        tableModel.setRowCount(0);
-        if (entry.cecTerms == null) return;
-        for (CECTerm term : entry.cecTerms) {
-            tableModel.addRow(new Object[]{ term.name, term.a, term.b });
+    private static boolean isCvcfId(String id) {
+        return id != null && id.toLowerCase().endsWith("_cvcf");
+    }
+
+    private CECEntry tryLoadOrthSibling(String clusterId, String cvcfId) {
+        if (cvcfId == null || !isCvcfId(cvcfId)) return null;
+        String base = cvcfId.substring(0, cvcfId.length() - "_cvcf".length());
+        try {
+            if (cecWorkflow.store.exists(base)) {
+                return cecWorkflow.loadAndValidateCEC(clusterId, base);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private CECEntry tryLoadCvcfSibling(String clusterId, String baseId) {
+        if (baseId == null || baseId.isBlank()) return null;
+        String replaceLastWithCvcf = null;
+        int last = baseId.lastIndexOf('_');
+        if (last > 0) {
+            replaceLastWithCvcf = baseId.substring(0, last) + "_CVCF";
         }
+        String[] candidates = new String[]{
+                baseId.toLowerCase().endsWith("_cvcf") ? baseId : baseId + "_cvcf",
+                baseId.toLowerCase().endsWith("_cvcf") ? null : baseId + "_CVCF",
+                replaceLastWithCvcf
+        };
+        for (String id : candidates) {
+            if (id == null) continue;
+            try {
+                if (cecWorkflow.store.exists(id)) {
+                    return cecWorkflow.loadAndValidateCEC(clusterId, id);
+                }
+            } catch (Exception ignored) {
+                // Keep trying fallback IDs.
+            }
+        }
+        return null;
     }
 
     // =========================================================================
@@ -437,7 +478,7 @@ public class CECManagementPanel extends JPanel {
                     CECEntry entry = get();
                     currentEntry = entry;
                     currentHamiltonianId = ternaryId;
-                    populateTable(entry);
+                    resultSink.accept(entry, tryLoadCvcfSibling(clusterIdField.getText().trim(), ternaryId));
                     logSink.accept("Transformed " + entry.ncf + " terms to ternary basis");
                     logSink.accept("Saved to hamiltonians/" + ternaryId + "/hamiltonian.json");
                     logSink.accept("Review the transformed values and click Save if satisfied.");

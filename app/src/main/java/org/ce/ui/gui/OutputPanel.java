@@ -1,10 +1,13 @@
 package org.ce.ui.gui;
 
+import org.ce.domain.hamiltonian.CECEntry;
+import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.SystemId;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +34,11 @@ public class OutputPanel extends JPanel {
     private static final Color LOG_FG     = new Color(0xCCCCCC);
 
     private final ResultChartPanel chartPanel;
+    private final CECEditorPanel cecEditorPanel;
+    private final JPanel resultsBody;
+    private final CardLayout resultsBodyLayout;
+    private static final String CARD_CHART = "chart";
+    private static final String CARD_CEC = "cec";
     private final JTextArea        logArea = new JTextArea();
 
     public OutputPanel(WorkbenchContext context) {
@@ -38,6 +46,12 @@ public class OutputPanel extends JPanel {
         setBackground(BG);
 
         chartPanel = new ResultChartPanel(context);
+        cecEditorPanel = new CECEditorPanel();
+        resultsBodyLayout = new CardLayout();
+        resultsBody = new JPanel(resultsBodyLayout);
+        resultsBody.setBackground(BG);
+        resultsBody.add(chartPanel, CARD_CHART);
+        resultsBody.add(cecEditorPanel, CARD_CEC);
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 buildResultsSection(),
@@ -59,7 +73,7 @@ public class OutputPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(BG);
         panel.add(makeSectionHeader("RESULTS"), BorderLayout.NORTH);
-        panel.add(chartPanel, BorderLayout.CENTER);
+        panel.add(resultsBody, BorderLayout.CENTER);
         return panel;
     }
 
@@ -132,6 +146,7 @@ public class OutputPanel extends JPanel {
      * Called on the EDT via SwingWorker.process() — no extra invokeLater needed.
      */
     public void onChartEvent(ProgressEvent event) {
+        resultsBodyLayout.show(resultsBody, CARD_CHART);
         // Log per-iteration/sweep details with H, S, and CFs
         if (event instanceof ProgressEvent.CvmIteration) {
             ProgressEvent.CvmIteration ci = (ProgressEvent.CvmIteration) event;
@@ -172,12 +187,137 @@ public class OutputPanel extends JPanel {
      * Thread-safe — can be called from any thread.
      */
     public void showResult(ThermodynamicResult result) {
-        SwingUtilities.invokeLater(() -> chartPanel.showResult(result));
+        SwingUtilities.invokeLater(() -> {
+            resultsBodyLayout.show(resultsBody, CARD_CHART);
+            chartPanel.showResult(result);
+        });
     }
 
     /** Resets the chart. Thread-safe. */
     public void clearResult() {
-        SwingUtilities.invokeLater(() -> chartPanel.clear());
+        SwingUtilities.invokeLater(() -> {
+            chartPanel.clear();
+            resultsBodyLayout.show(resultsBody, CARD_CHART);
+        });
+    }
+
+    /** Shows orthogonal and CVCF CECs loaded directly from JSON files. */
+    public void showCECResult(CECEntry orthEntry, CECEntry cvcfEntry) {
+        SwingUtilities.invokeLater(() -> {
+            cecEditorPanel.showEntries(orthEntry, cvcfEntry);
+            resultsBodyLayout.show(resultsBody, CARD_CEC);
+        });
+    }
+
+    /** Applies current edits from the CEC results editor back into the entry. */
+    public boolean applyCECEdits(CECEntry entry) {
+        if (entry == null) return false;
+        try {
+            cecEditorPanel.applyEdits(entry);
+            return true;
+        } catch (Exception ex) {
+            appendLog("Error: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private static final class CECEditorPanel extends JPanel {
+        private final DefaultTableModel cvcfModel = new DefaultTableModel(
+                new Object[]{"Name", "a (J/mol)", "b (J/mol/K)"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column > 0;
+            }
+        };
+        private final DefaultTableModel orthoModel = new DefaultTableModel(
+                new Object[]{"Name", "a (J/mol)", "b (J/mol/K)"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column > 0;
+            }
+        };
+        private final JTable cvcfTable = new JTable(cvcfModel);
+        private final JTable orthoTable = new JTable(orthoModel);
+        private final JLabel title = new JLabel("CEC Editor");
+        private CECEntry currentOrthEntry = null;
+        private CECEntry currentCvcfEntry = null;
+
+        CECEditorPanel() {
+            setLayout(new BorderLayout(6, 6));
+            setBackground(new Color(0x1E1E1E));
+
+            title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+            title.setForeground(new Color(0xBBBBBB));
+            title.setBorder(BorderFactory.createEmptyBorder(6, 8, 0, 0));
+            add(title, BorderLayout.NORTH);
+
+            configureTable(cvcfTable);
+            configureTable(orthoTable);
+
+            JTabbedPane tabs = new JTabbedPane();
+            tabs.addTab("CVCF Basis (Editable)", new JScrollPane(cvcfTable));
+            tabs.addTab("Orthogonal Basis (Derived)", new JScrollPane(orthoTable));
+            add(tabs, BorderLayout.CENTER);
+        }
+
+        private void configureTable(JTable table) {
+            table.setFillsViewportHeight(true);
+            table.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            table.setBackground(new Color(0x252526));
+            table.setForeground(new Color(0xD4D4D4));
+            table.setGridColor(new Color(0x3C3C3C));
+            table.setSelectionBackground(new Color(0x094771));
+            table.setSelectionForeground(Color.WHITE);
+            table.getTableHeader().setBackground(new Color(0x2D2D2D));
+            table.getTableHeader().setForeground(new Color(0xBBBBBB));
+        }
+
+        void showEntries(CECEntry orthEntry, CECEntry cvcfEntry) {
+            this.currentOrthEntry = orthEntry;
+            this.currentCvcfEntry = cvcfEntry;
+            cvcfModel.setRowCount(0);
+            orthoModel.setRowCount(0);
+            if (orthEntry == null && cvcfEntry == null) {
+                title.setText("CEC Editor");
+                return;
+            }
+            CECEntry ref = cvcfEntry != null ? cvcfEntry : orthEntry;
+            title.setText("CEC Editor  |  " + ref.elements + " / " + ref.structurePhase + " / " + ref.model);
+
+            if (orthEntry != null && orthEntry.cecTerms != null) {
+                for (CECTerm term : orthEntry.cecTerms) {
+                    orthoModel.addRow(new Object[]{term.name, term.a, term.b});
+                }
+            }
+            if (cvcfEntry != null && cvcfEntry.cecTerms != null) {
+                for (CECTerm term : cvcfEntry.cecTerms) {
+                    cvcfModel.addRow(new Object[]{term.name, term.a, term.b});
+                }
+            }
+        }
+
+        void applyEdits(CECEntry entry) {
+            if (entry == null || entry.cecTerms == null) {
+                return;
+            }
+            boolean useCvcf = (entry == currentCvcfEntry) || (currentCvcfEntry != null && currentOrthEntry == null);
+            JTable table = useCvcf ? cvcfTable : orthoTable;
+            DefaultTableModel model = useCvcf ? cvcfModel : orthoModel;
+            if (table.isEditing()) {
+                table.getCellEditor().stopCellEditing();
+            }
+            int n = Math.min(entry.cecTerms.length, model.getRowCount());
+            for (int i = 0; i < n; i++) {
+                Object aVal = model.getValueAt(i, 1);
+                Object bVal = model.getValueAt(i, 2);
+                try {
+                    entry.cecTerms[i].a = Double.parseDouble(aVal.toString());
+                    entry.cecTerms[i].b = Double.parseDouble(bVal.toString());
+                } catch (Exception ex) {
+                    throw new IllegalArgumentException("Invalid number at row " + (i + 1));
+                }
+            }
+        }
     }
 
     // =========================================================================
@@ -219,6 +359,7 @@ public class OutputPanel extends JPanel {
 
         private ThermodynamicResult lastResult = null;
         private String systemText = "no system selected";
+        private String textResult = null;
 
         ResultChartPanel(WorkbenchContext context) {
             setBackground(BG);
@@ -244,6 +385,7 @@ public class OutputPanel extends JPanel {
             cvmHData.clear();
             cvmNegTSData.clear();
             lastResult = null;
+            textResult = null;
             repaint();
         }
 
@@ -268,7 +410,21 @@ public class OutputPanel extends JPanel {
         }
 
         void showResult(ThermodynamicResult result) {
+            textResult = null;
             lastResult = result;
+            repaint();
+        }
+
+        void showTextResult(String text) {
+            mode = Mode.IDLE;
+            equilData.clear();
+            avgData.clear();
+            cvmData.clear();
+            cvmGData.clear();
+            cvmHData.clear();
+            cvmNegTSData.clear();
+            lastResult = null;
+            textResult = text;
             repaint();
         }
 
@@ -306,9 +462,20 @@ public class OutputPanel extends JPanel {
             if (mode == Mode.IDLE) {
                 g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
                 g.setColor(LABEL_DIM);
-                FontMetrics fm = g.getFontMetrics();
-                String msg = "Run a calculation to see the convergence chart";
-                g.drawString(msg, px + (pw - fm.stringWidth(msg)) / 2, py + ph / 2 + 4);
+                if (textResult == null || textResult.isBlank()) {
+                    FontMetrics fm = g.getFontMetrics();
+                    String msg = "Run a calculation to see the convergence chart";
+                    g.drawString(msg, px + (pw - fm.stringWidth(msg)) / 2, py + ph / 2 + 4);
+                } else {
+                    g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+                    FontMetrics fm = g.getFontMetrics();
+                    int y = py + 16;
+                    for (String line : textResult.split("\\R")) {
+                        if (y > py + ph - 6) break;
+                        g.drawString(line, px + 10, y);
+                        y += fm.getHeight();
+                    }
+                }
                 g.setColor(BORDER);
                 g.drawRect(px, py, pw, ph);
                 return;
@@ -546,7 +713,10 @@ public class OutputPanel extends JPanel {
             if (lastResult == null) {
                 g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
                 g.setColor(LABEL_DIM);
-                g.drawString("— awaiting result —", x + 16, y + h / 2 + 4);
+                String msg = (textResult == null || textResult.isBlank())
+                        ? "— awaiting result —"
+                        : "— showing loaded Type-1b result —";
+                g.drawString(msg, x + 16, y + h / 2 + 4);
                 return;
             }
 

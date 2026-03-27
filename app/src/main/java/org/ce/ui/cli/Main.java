@@ -55,6 +55,7 @@ public class Main {
         SystemId system       = new SystemId(elements, structure, model);
         String   CLUSTER_ID   = system.clusterId();
         String   HAMILTONIAN_ID = system.hamiltonianId();
+        int numComponents = elements.split("-").length;
 
         System.out.println("================================================================================");
         System.out.println("                    CE THERMODYNAMICS WORKBENCH");
@@ -78,16 +79,28 @@ public class Main {
 
                 System.out.println("\n=== TYPE-1a: Cluster Identification ===\n");
 
-                // Transformation matrix and translation vector are automatically extracted from symmetry group files
+                // Structure-aware Type-1a topology wiring.
+                // BCC_A2: disordered=ordered=A2
+                // BCC_B2: disordered=A2, ordered=B2
+                String disClusFile = "clus/BCC_A2-T.txt";
+                String disSymGroup = "BCC_A2-SG";
+                String ordClusFile = "clus/BCC_B2-T.txt";
+                String ordSymGroup = "BCC_B2-SG";
+                if ("BCC_A2".equalsIgnoreCase(structure)) {
+                    ordClusFile = "clus/BCC_A2-T.txt";
+                    ordSymGroup = "BCC_A2-SG";
+                }
+
+                // Transformation matrix and translation vector are automatically extracted from symmetry group files.
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
-                        .disorderedClusterFile("clus/BCC_A2-T.txt")   // A2: disordered (HSP)
-                        .orderedClusterFile("clus/BCC_B2-T.txt")       // B2: ordered phase
-                        .disorderedSymmetryGroup("BCC_A2-SG")
-                        .orderedSymmetryGroup("BCC_B2-SG")
-                        .numComponents(2)
+                        .disorderedClusterFile(disClusFile)
+                        .orderedClusterFile(ordClusFile)
+                        .disorderedSymmetryGroup(disSymGroup)
+                        .orderedSymmetryGroup(ordSymGroup)
+                        .numComponents(numComponents)
                         .build();
 
-                AllClusterData clusterData = ClusterIdentificationWorkflow.identify(config);
+                AllClusterData clusterData = ClusterIdentificationWorkflow.identify(config, System.out::println);
                 System.out.println("Identification complete: " + clusterData.getSummary());
 
                 List<Cluster> maxClusters = InputLoader.parseClusterFile("clus/BCC_A2-T.txt");
@@ -96,7 +109,7 @@ public class Main {
                         clusterData.getDisorderedCFResult(),
                         maxClusters,
                         config.getNumComponents(),
-                        BccA2CvCfTransformations.binaryBasis()
+                        BccA2CvCfTransformations.basisForNumComponents(config.getNumComponents())
                 );
                 System.out.println("C-matrix built: " + cmatrix.getLcv().length + " cluster types");
 
@@ -142,12 +155,19 @@ public class Main {
                 CalculationService service = new CalculationService(thermoWorkflow);
 
                 double[] composition = {0.5, 0.5};
+                if (numComponents > 2) {
+                    composition = new double[numComponents];
+                    double x = 1.0 / numComponents;
+                    for (int i = 0; i < numComponents; i++) {
+                        composition[i] = x;
+                    }
+                }
                 double tStart = 1000.0;
                 double tEnd   = 1000.0;
                 double tStep  = 100.0;
 
                 System.out.println("System      : " + CLUSTER_ID + " / " + HAMILTONIAN_ID);
-                System.out.println("Composition : x_B = " + composition[1]);
+                System.out.println("Composition : " + java.util.Arrays.toString(composition));
                 System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
 
                 List<ThermodynamicResult> results = service.runLineScanTemperature(

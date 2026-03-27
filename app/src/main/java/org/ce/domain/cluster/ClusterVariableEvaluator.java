@@ -185,30 +185,76 @@ public final class ClusterVariableEvaluator {
     }
 
     /**
-     * Computes the random-state non-point CVCF values for solver initialisation.
+     * Computes exact random-state non-point CVCF values for solver initialization.
      *
-     * <p>Converts the orthogonal-basis random CFs to the CVCF basis using the
-     * precomputed inverse transformation {@code Tinv} stored in the basis object.
-     * If {@code basis.Tinv} is {@code null} a zero vector is returned (safe fallback
-     * for equicomposition binary where the orthogonal random state is zero anyway).</p>
+     * <p>Algorithm:
+     * <ol>
+     *   <li>Compute exact orthogonal random CFs from composition and orthogonal
+     *       {@code cfBasisIndices} (Mathematica uRandRules equivalent).</li>
+     *   <li>Transform orthogonal full CF vector to CVCF full vector using
+     *       {@code v = T^{-1} u}.</li>
+     *   <li>Return the first {@code ncf} non-point CVCF values.</li>
+     * </ol></p>
      *
-     * @param x      mole fractions (length K)
-     * @param basis  CVCF basis description (must carry cfBasisIndices-compatible data
-     *               via its T/Tinv matrices for the orthogonal intermediate step)
-     * @return non-point CVCF values at the random (disordered) state (length ncf)
+     * <p>Handles both transformation-table conventions:
+     * {@code T.rows == oldTcf} and {@code T.rows == oldTcf + 1} (extra empty-cluster row).</p>
+     *
+     * @param x mole fractions (length K)
+     * @param basis CVCF basis description
+     * @param orthCfBasisIndices orthogonal-basis decoration metadata from Stage-3
+     * @return non-point CVCF random-state values (length ncf)
      */
-    public static double[] computeRandomCVCFs(double[] x, CvCfBasis basis) {
+    public static double[] computeRandomCVCFs(double[] x, CvCfBasis basis, int[][] orthCfBasisIndices) {
         int ncf = basis.numNonPointCfs;
         int tcf = basis.totalCfs();
-
-        if (basis.Tinv == null) {
-            return new double[ncf]; // zero-vector fallback
+        if (orthCfBasisIndices == null || orthCfBasisIndices.length == 0) {
+            // Legacy cluster_data files may not carry orthogonal decoration metadata.
+            // Fallback: use composition-only orthogonal vector (non-point = 0, point from composition),
+            // then transform via T^{-1}. This keeps the solver runnable, though less accurate
+            // than the exact uRandRules path.
+            return computeRandomCVCFsFallback(x, basis, ncf, tcf);
         }
 
-        // Step 1: build orthogonal random u_full using the standard formula.
-        // Point CFs in orthogonal basis are σ^k = Σ_i x_i * t_i^k (k=1..nxcf).
+        int oldTcf = orthCfBasisIndices.length;
+        int oldNxcf = x.length - 1;
+        int oldNcf = oldTcf - oldNxcf;
+        if (oldNcf < 0) {
+            throw new IllegalArgumentException("Invalid orthogonal CF dimensions: oldTcf=" + oldTcf
+                    + ", numComponents=" + x.length);
+        }
+
+        // Step 1: exact orthogonal random full CF vector (non-point + point).
+        double[] uOldNonPoint = computeRandomCFs(x, x.length, orthCfBasisIndices, oldNcf, oldTcf);
+        double[] uOldFull = buildFullCFVector(uOldNonPoint, x, x.length, orthCfBasisIndices, oldNcf, oldTcf);
+
+        // Align with T row convention: either exact rows or extra empty-cluster row.
+        int tRows = basis.T.length;
+        double[] uForTransform;
+        if (tRows == oldTcf) {
+            uForTransform = uOldFull;
+        } else if (tRows == oldTcf + 1) {
+            uForTransform = Arrays.copyOf(uOldFull, tRows);
+            uForTransform[tRows - 1] = 1.0; // empty-cluster / composition-sum row
+        } else {
+            throw new IllegalArgumentException("Basis/orthogonal size mismatch for random init: T rows="
+                    + tRows + ", orthogonal tcf=" + oldTcf);
+        }
+
+        // Step 2: v_nonpoint = Tinv[:ncf, :] * u_for_transform
+        double[][] tInv = basis.Tinv != null ? basis.Tinv : invertSquareMatrix(basis.T);
+        double[] vRand = new double[ncf];
+        for (int j = 0; j < ncf; j++) {
+            for (int i = 0; i < tInv[0].length; i++) {
+                vRand[j] += tInv[j][i] * uForTransform[i];
+            }
+        }
+        return vRand;
+    }
+
+    private static double[] computeRandomCVCFsFallback(double[] x, CvCfBasis basis, int ncf, int tcf) {
+        int tRows = basis.T.length;
+        int nxcf = x.length - 1;
         double[] basisVec = RMatrixCalculator.buildBasis(x.length);
-        int nxcf = tcf - ncf;
         double[] pointCFs = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
             int power = k + 1;
@@ -216,34 +262,55 @@ public final class ClusterVariableEvaluator {
                 pointCFs[k] += x[i] * Math.pow(basisVec[i], power);
             }
         }
-        // For non-point orthogonal CFs at random state: product of point CFs raised
-        // to the powers given by cfBasisIndices. Without cfBasisIndices we reconstruct
-        // from the fact that each non-point CF row in T maps to a product of pointCFs.
-        // We use Tinv directly on u_orth_full = [0..0 | pointCFs] (non-point = 0
-        // at equicomposition; for other compositions we need the full mapping).
-        // Since cfBasisIndices is unavailable in CVCF context, approximate by
-        // treating non-point orthogonal CFs as products of single-site averages.
-        // This is exact for any composition: u_orth[l] = Π_{b in decoration} pointCF[b-1].
-        // We compute it by applying T^{-1} to a reconstructed u_orth.
-        // Here we reconstruct u_orth from the known structure of T.
-        // For robustness: apply Tinv to [pointCFs-products | pointCFs].
-        // Without cfBasisIndices we cannot recover the decorations, so we apply
-        // Tinv to u_orth where u_orth non-point = 0 (valid at equicomposition).
-        // TODO: store cfBasisIndices or decoration info in CvCfBasis for exact init.
-        double[] uOrthFull = new double[tcf];
-        // non-point entries remain 0 (exact at equicomposition, approximate elsewhere)
-        for (int k = 0; k < nxcf; k++) {
-            uOrthFull[ncf + k] = pointCFs[k];
+
+        double[] uApprox;
+        if (tRows == tcf || tRows == tcf + 1) {
+            uApprox = new double[tRows];
+            int start = Math.max(0, tcf - nxcf);
+            for (int k = 0; k < nxcf && (start + k) < uApprox.length; k++) {
+                uApprox[start + k] = pointCFs[k];
+            }
+            if (tRows == tcf + 1) {
+                uApprox[tRows - 1] = 1.0;
+            }
+        } else {
+            throw new IllegalArgumentException("Cannot build fallback random init: T rows="
+                    + tRows + ", expected " + tcf + " or " + (tcf + 1));
         }
 
-        // Step 2: v_nonpoint = Tinv[:ncf, :] * u_orth_full
+        double[][] tInv = basis.Tinv != null ? basis.Tinv : invertSquareMatrix(basis.T);
         double[] vRand = new double[ncf];
         for (int j = 0; j < ncf; j++) {
-            for (int i = 0; i < tcf; i++) {
-                vRand[j] += basis.Tinv[j][i] * uOrthFull[i];
+            for (int i = 0; i < tInv[0].length; i++) {
+                vRand[j] += tInv[j][i] * uApprox[i];
             }
         }
         return vRand;
+    }
+
+    /**
+     * Inverts a square matrix using Gaussian elimination by solving A*x=e_i.
+     */
+    private static double[][] invertSquareMatrix(double[][] a) {
+        int n = a.length;
+        if (n == 0) {
+            throw new IllegalArgumentException("Cannot invert empty matrix");
+        }
+        for (int i = 0; i < n; i++) {
+            if (a[i] == null || a[i].length != n) {
+                throw new IllegalArgumentException("Matrix must be square for inversion");
+            }
+        }
+        double[][] inv = new double[n][n];
+        for (int col = 0; col < n; col++) {
+            double[] e = new double[n];
+            e[col] = 1.0;
+            double[] x = LinearAlgebra.solve(a, e);
+            for (int row = 0; row < n; row++) {
+                inv[row][col] = x[row];
+            }
+        }
+        return inv;
     }
 
     /**
@@ -270,11 +337,22 @@ public final class ClusterVariableEvaluator {
         for (int t = 0; t < tcdis; t++) {
             cv[t] = new double[lc[t]][];
             for (int j = 0; j < lc[t]; j++) {
-                double[][] cm = cmat.get(t).get(j);  // [lcv[t][j]] x [tcf+1]
+                double[][] cm = cmat.get(t).get(j);  // [lcv[t][j]] x [tcf] or [tcf+1]
                 int nv = lcv[t][j];
                 cv[t][j] = new double[nv];
+                if (nv == 0) {
+                    continue;
+                }
+                int cols = cm[0].length;
+                boolean hasConstant = cols == (tcf + 1);
+                if (!(hasConstant || cols == tcf)) {
+                    throw new IllegalArgumentException(
+                            "Invalid cmat width at (t=" + t + ", j=" + j + "): got " + cols
+                                    + ", expected " + tcf + " (no constant) or " + (tcf + 1)
+                                    + " (with constant)");
+                }
                 for (int v = 0; v < nv; v++) {
-                    double val = cm[v][tcf]; // constant term (last column)
+                    double val = hasConstant ? cm[v][tcf] : 0.0;
                     for (int k = 0; k < tcf; k++) {
                         val += cm[v][k] * uFull[k];
                     }
