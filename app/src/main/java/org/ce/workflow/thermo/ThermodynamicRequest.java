@@ -21,6 +21,8 @@ public class ThermodynamicRequest {
     public final double temperature;
     public final double[] composition;
     public final String engineType;
+    /** CVM basis mode: "CVCF" (default) or "ORTHO". Ignored for non-CVM engines. */
+    public final String cvmBasisMode;
     /** Optional sink for real-time text progress messages. May be null. */
     public final Consumer<String> progressSink;
     /** Optional sink for structured engine events (chart data). May be null. */
@@ -38,6 +40,7 @@ public class ThermodynamicRequest {
             double temperature,
             double[] composition,
             String engineType,
+            String cvmBasisMode,
             Consumer<String> progressSink,
             Consumer<ProgressEvent> eventSink,
             int mcsL,
@@ -49,6 +52,7 @@ public class ThermodynamicRequest {
         this.temperature   = temperature;
         this.composition   = composition;
         this.engineType    = engineType;
+        this.cvmBasisMode  = normalizeCvmBasisMode(cvmBasisMode);
         this.progressSink  = progressSink;
         this.eventSink     = eventSink;
         this.mcsL          = mcsL;
@@ -63,8 +67,49 @@ public class ThermodynamicRequest {
             double[] composition,
             String engineType,
             Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink,
+            int mcsL,
+            int mcsNEquil,
+            int mcsNAvg) {
+        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF",
+                progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg);
+    }
+
+    public ThermodynamicRequest(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            String cvmBasisMode,
+            Consumer<String> progressSink,
             Consumer<ProgressEvent> eventSink) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, progressSink, eventSink, 4, 1000, 2000);
+        this(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
+                progressSink, eventSink, 4, 1000, 2000);
+    }
+
+    public ThermodynamicRequest(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink) {
+        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF",
+                progressSink, eventSink, 4, 1000, 2000);
+    }
+
+    public ThermodynamicRequest(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            String cvmBasisMode,
+            Consumer<String> progressSink) {
+        this(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
+                progressSink, null);
     }
 
     public ThermodynamicRequest(
@@ -74,7 +119,17 @@ public class ThermodynamicRequest {
             double[] composition,
             String engineType,
             Consumer<String> progressSink) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, progressSink, null);
+        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF", progressSink, null);
+    }
+
+    public ThermodynamicRequest(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            String cvmBasisMode) {
+        this(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode, null, null);
     }
 
     public ThermodynamicRequest(
@@ -83,6 +138,13 @@ public class ThermodynamicRequest {
             double temperature,
             double[] composition,
             String engineType) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, null, null);
+        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF", null, null);
+    }
+
+    private static String normalizeCvmBasisMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return "CVCF";
+        }
+        return "ORTHO".equalsIgnoreCase(mode) ? "ORTHO" : "CVCF";
     }
 }

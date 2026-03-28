@@ -1,6 +1,9 @@
-package org.ce.domain.engine;
+package org.ce.domain.engine.mcs;
 
 import org.ce.domain.cluster.ClusCoordListResult;
+import org.ce.domain.engine.ProgressEvent;
+import org.ce.domain.engine.ThermodynamicEngine;
+import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.engine.mcs.MCResult;
 import org.ce.domain.engine.mcs.MCSRunner;
 import org.ce.domain.engine.mcs.MCSUpdate;

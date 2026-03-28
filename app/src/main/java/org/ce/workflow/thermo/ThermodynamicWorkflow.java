@@ -123,9 +123,10 @@ public class ThermodynamicWorkflow {
         LOG.info("  temperature: " + request.temperature + " K");
         LOG.info("  composition: " + Arrays.toString(request.composition));
         LOG.info("  engineType: " + request.engineType);
+        LOG.info("  cvmBasisMode: " + request.cvmBasisMode);
 
         String resolvedHamiltonianId = resolveHamiltonianIdForEngine(
-                request.hamiltonianId, request.engineType, request.progressSink);
+                request.hamiltonianId, request.engineType, request.cvmBasisMode, request.progressSink);
         ThermodynamicData data = loadThermodynamicData(request.clusterId, resolvedHamiltonianId, request.progressSink);
 
         ThermodynamicInput input = new ThermodynamicInput(
@@ -172,11 +173,17 @@ public class ThermodynamicWorkflow {
     private String resolveHamiltonianIdForEngine(
             String requestedHamiltonianId,
             String engineType,
+            String cvmBasisMode,
             Consumer<String> progressSink) {
         if (!"CVM".equalsIgnoreCase(engineType)) {
             return requestedHamiltonianId;
         }
         if (requestedHamiltonianId == null || requestedHamiltonianId.isBlank()) {
+            return requestedHamiltonianId;
+        }
+        if ("ORTHO".equalsIgnoreCase(cvmBasisMode)) {
+            emit(progressSink, "CVM mode: using ORTHO Hamiltonian '" + requestedHamiltonianId + "'");
+            LOG.info("CVM mode: using ORTHO Hamiltonian '" + requestedHamiltonianId + "'");
             return requestedHamiltonianId;
         }
         if (requestedHamiltonianId.endsWith("_CVCF")) {

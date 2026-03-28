@@ -49,6 +49,7 @@ public class CalculationPanel extends JPanel {
     private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
     private final JSpinner          xBField          = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
     private final JComboBox<String> engineBox        = new JComboBox<>(new String[]{"CVM", "MCS"});
+    private final JComboBox<String> cvmBasisBox      = new JComboBox<>(new String[]{"CVCF (Default)", "ORTHO (Legacy)"});
     private final JButton           calcButton       = new JButton("Calculate");
     private final JButton           abortButton      = new JButton("Abort");
     private final JButton           prodButton       = new JButton("Production Run");
@@ -59,6 +60,7 @@ public class CalculationPanel extends JPanel {
     private final JSpinner nEquilField = new JSpinner(new SpinnerNumberModel(1000, 100, 100000, 100));
     private final JSpinner nAvgField   = new JSpinner(new SpinnerNumberModel(2000, 100, 100000, 100));
     private JLabel lLabel, nEquilLabel, nAvgLabel;
+    private JLabel cvmBasisLabel;
 
     private boolean updatingFromContext = false;
 
@@ -161,6 +163,11 @@ public class CalculationPanel extends JPanel {
 
     private void updateMcsFieldVisibility() {
         boolean mcs = "MCS".equals(engineBox.getSelectedItem());
+        boolean cvm = !mcs;
+        if (cvmBasisLabel != null) {
+            cvmBasisLabel.setVisible(cvm);
+            cvmBasisBox.setVisible(cvm);
+        }
         if (lLabel != null) {
             lLabel.setVisible(mcs);
             lField.setVisible(mcs);
@@ -224,6 +231,11 @@ public class CalculationPanel extends JPanel {
         // Engine
         lc.gridy = row++;  form.add(makeLabel("Engine:", LABEL_FG), lc);
         fc.gridy = row++;  form.add(engineBox, fc);
+
+        // CVM basis mode
+        cvmBasisLabel = makeLabel("CVM Basis:", LABEL_FG);
+        lc.gridy = row++;  form.add(cvmBasisLabel, lc);
+        fc.gridy = row++;  form.add(cvmBasisBox, fc);
 
         // MCS parameters (initially hidden, shown when MCS is selected)
         lLabel = makeLabel("Lattice size L:", LABEL_FG);
@@ -347,6 +359,7 @@ public class CalculationPanel extends JPanel {
         double temperature   = ((Number) temperatureField.getValue()).doubleValue();
         double xB            = ((Number) xBField.getValue()).doubleValue();
         String engineType    = (String) engineBox.getSelectedItem();
+        String cvmBasisMode  = cvmBasisBox.getSelectedIndex() == 1 ? "ORTHO" : "CVCF";
         double[] composition = {1.0 - xB, xB};
 
         int mcsL      = ((Number) lField.getValue()).intValue();
@@ -359,6 +372,9 @@ public class CalculationPanel extends JPanel {
         logSink.accept("  Cluster     : " + clusterId);
         logSink.accept("  Hamiltonian : " + hamiltonianId);
         logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
+        if ("CVM".equals(engineType)) {
+            logSink.accept("  CVM Basis   : " + cvmBasisMode);
+        }
         statusSink.accept("Running " + engineType + " at T=" + temperature + " K...");
 
         // SwingWorker publishes heterogeneous chunks: String (log) and ProgressEvent (chart)
@@ -366,7 +382,7 @@ public class CalculationPanel extends JPanel {
             @Override
             protected ThermodynamicResult doInBackground() throws Exception {
                 return service.runSinglePoint(clusterId, hamiltonianId, temperature, composition,
-                        engineType,
+                        engineType, cvmBasisMode,
                         msg -> publish((Object) msg),
                         evt -> publish((Object) evt),
                         mcsL, mcsNEquil, mcsNAvg);

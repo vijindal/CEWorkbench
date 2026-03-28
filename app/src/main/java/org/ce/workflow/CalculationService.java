@@ -78,6 +78,7 @@ public class CalculationService {
             double temperature,
             double[] composition,
             String engineType,
+            String cvmBasisMode,
             Consumer<String> progressSink,
             Consumer<ProgressEvent> eventSink,
             int mcsL,
@@ -85,9 +86,24 @@ public class CalculationService {
             int mcsNAvg) throws Exception {
 
         return thermoWorkflow.runCalculation(
-                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType,
+                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
                         progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg)
         );
+    }
+
+    public ThermodynamicResult runSinglePoint(
+            String clusterId,
+            String hamiltonianId,
+            double temperature,
+            double[] composition,
+            String engineType,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink,
+            int mcsL,
+            int mcsNEquil,
+            int mcsNAvg) throws Exception {
+        return runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF",
+                progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg);
     }
 
     // =========================================================================

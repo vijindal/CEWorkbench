@@ -13,11 +13,11 @@ import java.util.logging.Logger;
  *   G = H âˆ’ T Â· S
  * </pre>
  *
- * <h2>Enthalpy (linear in CFs)</h2>
+ * <h2>Enthalpy (linear in non-point CVCF variables)</h2>
  * <pre>
- *   H    = Î£_{l=0}^{ncf-1} mhdis[l] Â· ECI[l] Â· u[l]
- *   Hcu[l]      = mhdis[l] Â· ECI[l]           (gradient)
- *   Hcuu[l1][l2] = 0                           (Hessian â€” enthalpy is linear)
+ *   H            = sum_{l=0}^{ncf-1} ECI[l] * v[l]
+ *   dH/dv[l]     = ECI[l]
+ *   d2H/dv2      = 0
  * </pre>
  *
  * <h2>Entropy (CVM Kikuchiâ€“Barker formula)</h2>
@@ -59,21 +59,36 @@ public final class CVMFreeEnergy {
      * Holds the evaluated free-energy functional and its first/second derivatives.
      */
     public static final class EvalResult {
-        /** Gibbs energy of mixing G = H âˆ’ TÂ·S. */
+        /** Gibbs energy of mixing G = H - T*S. */
         public final double G;
         /** Enthalpy of mixing. */
         public final double H;
         /** Entropy of mixing. */
         public final double S;
-        /** Gradient dG/du (length ncf). */
+        /** Enthalpy gradient dH/du (length ncf). */
+        public final double[] Hcu;
+        /** Enthalpy Hessian d²H/du² (always 0, since H is linear in u). */
+        public final double[][] Hcuu;
+        /** Entropy gradient dS/du (length ncf). */
+        public final double[] Scu;
+        /** Entropy Hessian d²S/du² (ncf x ncf). */
+        public final double[][] Scuu;
+        /** Gibbs gradient dG/du (length ncf). */
         public final double[] Gcu;
-        /** Hessian dÂ²G/duÂ² (ncf Ã— ncf). */
+        /** Gibbs Hessian d²G/du² (ncf x ncf). */
         public final double[][] Gcuu;
 
-        public EvalResult(double G, double H, double S, double[] Gcu, double[][] Gcuu) {
+        public EvalResult(double G, double H, double S,
+                         double[] Hcu, double[][] Hcuu,
+                         double[] Scu, double[][] Scuu,
+                         double[] Gcu, double[][] Gcuu) {
             this.G = G;
             this.H = H;
             this.S = S;
+            this.Hcu = Hcu;
+            this.Hcuu = Hcuu;
+            this.Scu = Scu;
+            this.Scuu = Scuu;
             this.Gcu = Gcu;
             this.Gcuu = Gcuu;
         }
@@ -241,7 +256,7 @@ public final class CVMFreeEnergy {
 
         LOG.finer("CVMFreeEnergy.evaluate — EXIT: G=" + String.format("%.8e", Gval)
                 + ", H=" + String.format("%.8e", Hval) + ", S=" + String.format("%.8e", Sval));
-        return new EvalResult(Gval, Hval, Sval, Gcu, Gcuu);
+        return new EvalResult(Gval, Hval, Sval, Hcu, new double[ncf][ncf], Scu, Scuu, Gcu, Gcuu);
     }
 
     /**

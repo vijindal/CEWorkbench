@@ -1,7 +1,7 @@
 package org.ce;
 
 import org.ce.domain.engine.cvm.CVMEngine;
-import org.ce.domain.engine.MCSEngine;
+import org.ce.domain.engine.mcs.MCSEngine;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.Workspace;
 import org.ce.storage.HamiltonianStore;
