@@ -15,6 +15,8 @@ import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.IntFunction;
 import java.util.logging.Logger;
 
 /**
@@ -35,6 +37,14 @@ import java.util.logging.Logger;
 public class CVMEngine implements ThermodynamicEngine {
 
     private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
+
+    /**
+     * Registry mapping structure phase → basis factory (numComponents → CvCfBasis).
+     * Add a new entry here when a new structure is supported.
+     */
+    private static final Map<String, IntFunction<CvCfBasis>> STRUCTURE_BASIS_REGISTRY = Map.of(
+            "BCC_A2", BccA2TModelCvCfTransformations::basisForNumComponents
+    );
 
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
@@ -253,12 +263,13 @@ public class CVMEngine implements ThermodynamicEngine {
         if (structurePhase == null || structurePhase.isBlank()) {
             throw new IllegalArgumentException("Missing structurePhase in Hamiltonian entry");
         }
-        if (!"BCC_A2".equals(structurePhase)) {
+        IntFunction<CvCfBasis> factory = STRUCTURE_BASIS_REGISTRY.get(structurePhase);
+        if (factory == null) {
             throw new IllegalArgumentException(
                     "Unsupported structure for CVCF runtime: " + structurePhase
-                            + " (currently supported: BCC_A2)");
+                            + " (supported: " + STRUCTURE_BASIS_REGISTRY.keySet() + ")");
         }
-        return BccA2TModelCvCfTransformations.basisForNumComponents(numComponents);
+        return factory.apply(numComponents);
     }
 
     /**

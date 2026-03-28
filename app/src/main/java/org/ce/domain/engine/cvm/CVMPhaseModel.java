@@ -119,6 +119,12 @@ public class CVMPhaseModel {
 
     private static final Logger LOG = Logger.getLogger(CVMPhaseModel.class.getName());
 
+    /** Default convergence tolerance for the Newton-Raphson minimizer. */
+    private static final double DEFAULT_TOLERANCE = 1.0e-5;
+
+    /** Maximum allowed convergence tolerance (upper bound for setTolerance). */
+    private static final double MAX_TOLERANCE = 1.0e-3;
+
     // =========================================================================
     // IMMUTABLE: Cluster Data (from AllClusterData) — never changes
     // =========================================================================
@@ -294,7 +300,7 @@ public class CVMPhaseModel {
         this.eci = null;
         this.temperature = Double.NaN;
         this.moleFractions = null;
-        this.tolerance = 1.0e-6;
+        this.tolerance = DEFAULT_TOLERANCE;
         this.isMinimized = false;
     }
 
@@ -402,7 +408,7 @@ public class CVMPhaseModel {
      * @throws IllegalArgumentException if tolerance out of reasonable range
      */
     public void setTolerance(double tol) throws IllegalArgumentException {
-        if (tol <= 0 || tol > 1.0e-3) {
+        if (tol <= 0 || tol > MAX_TOLERANCE) {
             throw new IllegalArgumentException("Tolerance out of range: " + tol);
         }
         this.tolerance = tol;

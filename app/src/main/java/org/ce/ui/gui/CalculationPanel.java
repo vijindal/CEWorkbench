@@ -46,10 +46,10 @@ public class CalculationPanel extends JPanel {
     private final JTextField clusterIdField    = new JTextField(20);
     private final JTextField hamiltonianIdField = new JTextField(20);
 
-    private final JSpinner          temperatureField = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
-    private final JSpinner          xBField          = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
-    private final JComboBox<String> engineBox        = new JComboBox<>(new String[]{"CVM", "MCS"});
-    private final JComboBox<String> cvmBasisBox      = new JComboBox<>(new String[]{"CVCF (Default)", "ORTHO (Legacy)"});
+    private final JSpinner          temperatureField   = new JSpinner(new SpinnerNumberModel(1000.0, 1.0, 10000.0, 100.0));
+    private final JTextField        compositionField   = new JTextField("0.5, 0.5", 12);
+    private final JComboBox<String> engineBox         = new JComboBox<>(new String[]{"CVM", "MCS"});
+    private final JComboBox<String> cvmBasisBox       = new JComboBox<>(new String[]{"CVCF (Default)", "ORTHO (Legacy)"});
     private final JButton           calcButton       = new JButton("Calculate");
     private final JButton           abortButton      = new JButton("Abort");
     private final JButton           prodButton       = new JButton("Production Run");
@@ -224,9 +224,9 @@ public class CalculationPanel extends JPanel {
         lc.gridy = row++;  form.add(makeLabel("Temperature (K):", LABEL_FG), lc);
         fc.gridy = row++;  form.add(temperatureField, fc);
 
-        // Composition
-        lc.gridy = row++;  form.add(makeLabel("Composition x_B:", LABEL_FG), lc);
-        fc.gridy = row++;  form.add(xBField, fc);
+        // Composition (comma-separated array, e.g. 0.49, 0.49, 0.02)
+        lc.gridy = row++;  form.add(makeLabel("Composition:", LABEL_FG), lc);
+        fc.gridy = row++;  form.add(compositionField, fc);
 
         // Engine
         lc.gridy = row++;  form.add(makeLabel("Engine:", LABEL_FG), lc);
@@ -285,8 +285,14 @@ public class CalculationPanel extends JPanel {
         }
 
         double temperature   = ((Number) temperatureField.getValue()).doubleValue();
-        double xB            = ((Number) xBField.getValue()).doubleValue();
-        double[] composition = {1.0 - xB, xB};
+        final double[] composition;
+        try {
+            composition = parseComposition(compositionField.getText().trim(), elementsField.getText().trim());
+        } catch (IllegalArgumentException ex) {
+            logSink.accept("Invalid composition: " + ex.getMessage());
+            statusSink.accept("Error: Invalid composition");
+            return;
+        }
         int mcsNEquil        = ((Number) nEquilField.getValue()).intValue();
         int mcsNAvg          = ((Number) nAvgField.getValue()).intValue();
 
@@ -296,7 +302,7 @@ public class CalculationPanel extends JPanel {
         logSink.accept("Production Run (FSS): L=12, 16, 24 — MCS with 1/N extrapolation");
         logSink.accept("  Cluster     : " + clusterId);
         logSink.accept("  Hamiltonian : " + hamiltonianId);
-        logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
+        logSink.accept("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
         logSink.accept("  nEquil=" + mcsNEquil + "  nAvg=" + mcsNAvg + " per L-value");
         statusSink.accept("Production Run at T=" + temperature + " K…");
 
@@ -357,10 +363,9 @@ public class CalculationPanel extends JPanel {
         }
 
         double temperature   = ((Number) temperatureField.getValue()).doubleValue();
-        double xB            = ((Number) xBField.getValue()).doubleValue();
+        double[] composition = parseComposition(compositionField.getText().trim(), elementsField.getText().trim());
         String engineType    = (String) engineBox.getSelectedItem();
         String cvmBasisMode  = cvmBasisBox.getSelectedIndex() == 1 ? "ORTHO" : "CVCF";
-        double[] composition = {1.0 - xB, xB};
 
         int mcsL      = ((Number) lField.getValue()).intValue();
         int mcsNEquil = ((Number) nEquilField.getValue()).intValue();
@@ -371,7 +376,7 @@ public class CalculationPanel extends JPanel {
         logSink.accept("Running " + engineType + " calculation...");
         logSink.accept("  Cluster     : " + clusterId);
         logSink.accept("  Hamiltonian : " + hamiltonianId);
-        logSink.accept("  T = " + temperature + " K,  x_B = " + xB);
+        logSink.accept("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
         if ("CVM".equals(engineType)) {
             logSink.accept("  CVM Basis   : " + cvmBasisMode);
         }
@@ -425,5 +430,45 @@ public class CalculationPanel extends JPanel {
         };
         activeWorker = worker;
         worker.execute();
+    }
+
+    private static double[] parseComposition(String text, String elements) {
+        if (text.isBlank()) {
+            throw new IllegalArgumentException("Composition cannot be empty. Use comma-separated values (e.g. 0.49,0.49,0.02)");
+        }
+
+        String[] tokens = text.split(",");
+        double[] comp = new double[tokens.length];
+        for (int i = 0; i < tokens.length; i++) {
+            try {
+                comp[i] = Double.parseDouble(tokens[i].trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid composition value: '" + tokens[i] + "'");
+            }
+            if (comp[i] < 0.0 || comp[i] > 1.0) {
+                throw new IllegalArgumentException("Composition values must be between 0 and 1: " + comp[i]);
+            }
+        }
+
+        int expectedComponents = elements.split("-").length;
+        if (comp.length == 1) {
+            if (expectedComponents != 2) {
+                throw new IllegalArgumentException("Single-value composition is only valid for binary systems.");
+            }
+            double xB = comp[0];
+            return new double[]{1.0 - xB, xB};
+        }
+
+        if (comp.length != expectedComponents) {
+            throw new IllegalArgumentException("Composition length (" + comp.length + ") does not match number of elements (" + expectedComponents + ").");
+        }
+
+        double sum = 0.0;
+        for (double x : comp) sum += x;
+        if (Math.abs(sum - 1.0) > 1e-8) {
+            throw new IllegalArgumentException("Composition values must sum to 1.0; got " + sum);
+        }
+
+        return comp;
     }
 }

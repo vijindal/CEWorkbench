@@ -44,6 +44,12 @@ public final class NewtonRaphsonSolverSimple {
     /** Maximum iterations. */
     private static final int MAX_ITER = 400;
 
+    /** Safety margin applied when limiting step size to keep CVs positive. */
+    private static final double STEP_MARGIN = 0.99;
+
+    /** Minimum step size returned by the step limiter. */
+    private static final double MIN_STEP = 1.0e-6;
+
     private NewtonRaphsonSolverSimple() { /* utility class */ }
 
     // =========================================================================
@@ -141,7 +147,6 @@ public final class NewtonRaphsonSolverSimple {
         public final List<List<double[][]>> cmat; // C-matrix
         public final double[] eci;        // effective cluster interactions
         public final double temperature;
-        public final double xB;           // composition (mole fraction of B)
         public final double[] moleFractions;
         public final CvCfBasis basis;     // CVCF basis (holds Tinv for random init)
         public final int[][] orthCfBasisIndices; // orthogonal decoration metadata for random init
@@ -150,7 +155,7 @@ public final class NewtonRaphsonSolverSimple {
                 int tcdis, int tcf, int ncf, int[] lc,
                 double[] kb, List<Double> msdis, double[][] m,
                 int[][] lcv, List<List<int[]>> wcv, List<List<double[][]>> cmat,
-                double[] eci, double temperature, double xB,
+                double[] eci, double temperature,
                 double[] moleFractions, CvCfBasis basis, int[][] orthCfBasisIndices) {
             this.tcdis = tcdis;
             this.tcf = tcf;
@@ -164,7 +169,6 @@ public final class NewtonRaphsonSolverSimple {
             this.cmat = cmat;
             this.eci = eci;
             this.temperature = temperature;
-            this.xB = xB;
             this.moleFractions = moleFractions.clone();
             this.basis = basis;
             this.orthCfBasisIndices = orthCfBasisIndices;
@@ -203,11 +207,8 @@ public final class NewtonRaphsonSolverSimple {
         LOG.fine("  moleFractions=" + Arrays.toString(moleFractions));
         LOG.fine("  maxIter=" + maxIter + ", tolerance=" + tolerance);
 
-        // For binary: xB = moleFractions[1]
-        double xB = moleFractions.length > 1 ? moleFractions[1] : moleFractions[0];
-
         CVMData data = new CVMData(tcdis, tcf, ncf, lc, kb, mhdis, mh,
-                lcv, wcv, cmat, eci, temperature, xB, moleFractions, basis, orthCfBasisIndices);
+                lcv, wcv, cmat, eci, temperature, moleFractions, basis, orthCfBasisIndices);
 
         CVMSolverResult result = minimize(data, maxIter, tolerance);
 
@@ -261,7 +262,7 @@ public final class NewtonRaphsonSolverSimple {
 
         LOG.fine("NewtonRaphsonSolverSimple.minimize — ENTER: ncf=" + ncf
                 + ", tcf=" + data.tcf + ", T=" + data.temperature
-                + ", xB=" + data.xB + ", tolerance=" + tolerance);
+                + ", x=" + Arrays.toString(data.moleFractions) + ", tolerance=" + tolerance);
         LOG.fine("  Initial CF (random state): " + Arrays.toString(u));
 
         double[] Gu = new double[ncf];
@@ -465,7 +466,7 @@ public final class NewtonRaphsonSolverSimple {
      */
     private static double stpmx(CVMData data, double[] u, double[] du, double[][][] cv) {
         double stpmax = 1.0;
-        final double MARGIN = 0.99; // safety margin
+        final double MARGIN = STEP_MARGIN;
 
         for (int itc = 0; itc < data.tcdis; itc++) {
             for (int inc = 0; inc < data.lc[itc]; inc++) {
@@ -494,7 +495,7 @@ public final class NewtonRaphsonSolverSimple {
         }
 
         // Minimum step floor
-        return Math.max(stpmax, 1.0e-6);
+        return Math.max(stpmax, MIN_STEP);
     }
 
     // =========================================================================

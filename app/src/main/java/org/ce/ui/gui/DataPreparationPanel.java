@@ -138,12 +138,12 @@ public class DataPreparationPanel extends JPanel {
         if (base.toLowerCase().endsWith(".txt")) base = base.substring(0, base.length() - 4);
         base = base.replace('-', '_');
 
-        String suffix = switch (numComp) {
-            case 2  -> "bin";
-            case 3  -> "tern";
-            case 4  -> "quat";
-            default -> numComp + "comp";
-        };
+        String suffix;
+        try {
+            suffix = org.ce.storage.SystemId.ncompSuffix(numComp);
+        } catch (IllegalArgumentException e) {
+            suffix = numComp + "comp";
+        }
         return base + "_" + suffix;
     }
 

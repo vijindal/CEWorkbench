@@ -8,6 +8,7 @@ import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.hamiltonian.NumericalCECTransformer;
 import org.ce.storage.HamiltonianStore;
+import org.ce.storage.SystemId;
 
 import java.io.IOException;
 import java.util.List;
@@ -193,14 +194,7 @@ public class CECManagementWorkflow {
         }
 
         int ncomp = elements.split("-").length;
-        String suffix = switch (ncomp) {
-            case 2 -> "bin";
-            case 3 -> "tern";
-            case 4 -> "quat";
-            default -> throw new IllegalArgumentException(
-                    "No ncomp suffix for " + ncomp + " components (hamiltonianId=" + hamiltonianId + ")");
-        };
-        return clusterModel + "_" + suffix;
+        return clusterModel + "_" + SystemId.ncompSuffix(ncomp);
     }
 
     /**

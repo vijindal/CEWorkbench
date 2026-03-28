@@ -363,7 +363,7 @@ public class ThermodynamicWorkflow {
         if (!"BCC_A2".equalsIgnoreCase(cec.structurePhase)) {
             return;
         }
-        if (!isBinaryClusterId(clusterData)) {
+        if (cec.elements == null || cec.elements.split("-").length != 2) {
             return;
         }
 
@@ -381,22 +381,15 @@ public class ThermodynamicWorkflow {
             emit(progressSink, "  STAGE 3b.4: Orthogonal c-matrix reconstruction skipped (missing Tinv)");
             return;
         }
-        List<List<double[][]>> orth = reconstructOrthCmat(cvcf, basis.Tinv);
+        List<List<double[][]>> orth;
+        try {
+            orth = reconstructOrthCmat(cvcf, basis.Tinv);
+        } catch (IllegalArgumentException e) {
+            emit(progressSink, "  STAGE 3b.4: Orthogonal c-matrix reconstruction skipped (" + e.getMessage() + ")");
+            return;
+        }
         emit(progressSink, "  STAGE 3b.4: Full orthogonal c-matrix (reconstructed from CVCF via Tinv)");
         dumpFullCmat("ORTHO", orth, progressSink);
-    }
-
-    private boolean isBinaryClusterId(AllClusterData clusterData) {
-        // Current IDs use suffix "_bin" for binary systems.
-        // ThermodynamicWorkflow has access to clusterId in caller path only, so infer from shape:
-        // binary BCC_A2 CVCF has 6 CF columns + 1 constant column.
-        CMatrixResult cm = clusterData.getCMatrixResult();
-        List<List<double[][]>> cmat = cm != null ? cm.getCmat() : null;
-        if (cmat == null || cmat.isEmpty() || cmat.get(0) == null || cmat.get(0).isEmpty()) {
-            return false;
-        }
-        double[][] block = cmat.get(0).get(0);
-        return block != null && block.length > 0 && block[0] != null && block[0].length == 7;
     }
 
     private void dumpFullCmat(String label, List<List<double[][]>> cmat, Consumer<String> progressSink) {

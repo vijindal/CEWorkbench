@@ -49,6 +49,9 @@ public final class CVMFreeEnergy {
     /** Gas constant in J/(molÂ·K). */
     public static final double R_GAS = 8.3144598;
 
+    /** Threshold below which CV·ln(CV) is replaced by a smooth quadratic extension. Critical for K≥3. */
+    private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
+
     private CVMFreeEnergy() { /* utility class */ }
 
     // =========================================================================
@@ -185,7 +188,7 @@ public final class CVMFreeEnergy {
                     // a soft barrier pushing the solver toward positive CVs.
                     // This is critical for Kâ‰¥3 where the all-zero initial
                     // guess produces negative CVs.
-                    final double EPS = 1.0e-6;
+                    final double EPS = ENTROPY_SMOOTH_EPS;
                     double sContrib; // cvÂ·ln(cv) or smooth extension
                     double logEff;   // effective ln(cv) for gradient
                     double invEff;   // effective 1/cv for Hessian

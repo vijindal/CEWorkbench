@@ -51,7 +51,14 @@ public class SystemId {
     }
 
     private String ncompSuffix() {
-        int ncomp = elements.split("-").length;
+        return ncompSuffix(elements.split("-").length);
+    }
+
+    /**
+     * Returns the canonical cluster-ID suffix for the given component count.
+     * This is the single source of truth used by all layers.
+     */
+    public static String ncompSuffix(int ncomp) {
         return switch (ncomp) {
             case 2 -> "bin";
             case 3 -> "tern";
