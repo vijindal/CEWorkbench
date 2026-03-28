@@ -3,7 +3,7 @@ package org.ce.domain.engine.cvm;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
@@ -258,7 +258,7 @@ public class CVMEngine implements ThermodynamicEngine {
                     "Unsupported structure for CVCF runtime: " + structurePhase
                             + " (currently supported: BCC_A2)");
         }
-        return BccA2CvCfTransformations.basisForNumComponents(numComponents);
+        return BccA2TModelCvCfTransformations.basisForNumComponents(numComponents);
     }
 
     /**

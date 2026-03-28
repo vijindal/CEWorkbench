@@ -3,9 +3,10 @@ package org.ce.domain.cluster.cvcf;
 import java.util.List;
 
 /**
- * Hardcoded CVCF basis transformation matrices for BCC_A2.
+ * Hardcoded CVCF basis transformation matrices for BCC_A2 (T model of CVM).
  *
- * <p>Each matrix T satisfies: {@code u_old[i] = Σ_j T[i][j] · v_new[j]}</p>
+ * <p>This class encodes the orthogonal-to-CVCF basis transformation matrices
+ * for the T model of CVM. Each matrix T satisfies: {@code u_old[i] = Σ_j T[i][j] · v_new[j]}</p>
  *
  * <p>Row order = old orthogonal CF order (u[type][group][1] in Mathematica notation).
  * Column order = new CVCF CF order as listed in {@code *_CF_NAMES}.</p>
@@ -14,11 +15,18 @@ import java.util.List;
  * so that expressions like {@code xA + xC} and {@code -xA + xC} are captured
  * by T with no need for a separate constant vector.</p>
  *
+ * <p>Supported systems:
+ * <ul>
+ *   <li>Binary BCC_A2 (2-component)</li>
+ *   <li>Ternary BCC_A2 (3-component)</li>
+ *   <li>Quaternary BCC_A2 (4-component)</li>
+ * </ul>
+ *
  * <p>Transcribed verbatim from user-provided Mathematica transformation rules.</p>
  */
-public final class BccA2CvCfTransformations {
+public final class BccA2TModelCvCfTransformations {
 
-    private BccA2CvCfTransformations() {}
+    private BccA2TModelCvCfTransformations() {}
 
     // =========================================================================
     // Binary BCC_A2  (2 components: A, B)

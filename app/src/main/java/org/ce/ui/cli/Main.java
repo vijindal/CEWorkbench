@@ -1,7 +1,7 @@
 package org.ce.ui.cli;
 
 import org.ce.domain.cluster.*;
-import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.engine.cvm.CVMFreeEnergy;
@@ -58,7 +58,7 @@ public class Main {
      *
      * <p>Maps (structure, numComponents) pairs to their corresponding CVCF basis transformations
      * as defined in the T model of CVM. All transformation matrices are sourced from the
-     * {@link BccA2CvCfTransformations} class, which encodes the orthogonal-to-CVCF basis
+     * {@link BccA2TModelCvCfTransformations} class, which encodes the orthogonal-to-CVCF basis
      * transformations derived from first-principles theory for the T model.
      *
      * <p>Supported systems (BCC_A2 structure, T model only):
@@ -69,7 +69,7 @@ public class Main {
      * </ul>
      *
      * <p>Format: key = "{STRUCTURE}|{NCOMP}" e.g. "BCC_A2|2"
-     * <p>Source matrices: BccA2CvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}
+     * <p>Source matrices: BccA2TModelCvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}
      */
     private static final Map<String, CvCfBasis> CVCF_BASIS_REGISTRY = new HashMap<>();
 
@@ -83,15 +83,15 @@ public class Main {
         // ===================================================================
         // BCC_A2 structure, T model of CVM
         // All transformation matrices derived from theory for T model
-        // Source: BccA2CvCfTransformations class
+        // Source: BccA2TModelCvCfTransformations class
         // ===================================================================
 
         // Binary BCC_A2_T (A-B): 6 orthogonal CFs → 6 CVCF CFs (4 non-point + 2 point)
-        CVCF_BASIS_REGISTRY.put("BCC_A2|2", BccA2CvCfTransformations.basisForNumComponents(2));
+        CVCF_BASIS_REGISTRY.put("BCC_A2|2", BccA2TModelCvCfTransformations.basisForNumComponents(2));
         // Ternary BCC_A2_T (A-B-C): 21 orthogonal CFs → 21 CVCF CFs (18 non-point + 3 point)
-        CVCF_BASIS_REGISTRY.put("BCC_A2|3", BccA2CvCfTransformations.basisForNumComponents(3));
+        CVCF_BASIS_REGISTRY.put("BCC_A2|3", BccA2TModelCvCfTransformations.basisForNumComponents(3));
         // Quaternary BCC_A2_T (A-B-C-D): 55 orthogonal CFs → 55 CVCF CFs (51 non-point + 4 point)
-        CVCF_BASIS_REGISTRY.put("BCC_A2|4", BccA2CvCfTransformations.basisForNumComponents(4));
+        CVCF_BASIS_REGISTRY.put("BCC_A2|4", BccA2TModelCvCfTransformations.basisForNumComponents(4));
 
         // Support metadata for user discovery
         CVCF_STRUCTURE_SUPPORT.put(
@@ -99,7 +99,7 @@ public class Main {
             "T model of CVM. Binary (2-comp): 6 CFs (4 non-point). " +
             "Ternary (3-comp): 21 CFs (18 non-point). " +
             "Quaternary (4-comp): 55 CFs (51 non-point). " +
-            "Source: BccA2CvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}"
+            "Source: BccA2TModelCvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}"
         );
     }
 
@@ -220,7 +220,7 @@ public class Main {
                         clusterData.getDisorderedCFResult(),
                         maxClusters,
                         config.getNumComponents(),
-                        BccA2CvCfTransformations.basisForNumComponents(config.getNumComponents())
+                        BccA2TModelCvCfTransformations.basisForNumComponents(config.getNumComponents())
                 );
                 System.out.println("C-matrix built: " + cmatrix.getLcv().length + " cluster types");
 
@@ -567,7 +567,7 @@ public class Main {
                 HAMILTONIAN_ID,
                 elements + " " + structure + " " + model,
                 2,
-                BccA2CvCfTransformations.binaryBasis()
+                BccA2TModelCvCfTransformations.binaryBasis()
             );
             CVMPhaseModel cvmModel = CVMPhaseModel.create(input, eci, temp, composition, null);
             double G = cvmModel.getEquilibriumG();

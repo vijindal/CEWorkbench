@@ -1,7 +1,7 @@
 package org.ce.workflow;
 
 import org.ce.domain.cluster.*;
-import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
 import org.ce.storage.InputLoader;
 
 import java.util.Arrays;
@@ -154,7 +154,7 @@ public class ClusterIdentificationWorkflow {
                 cfResult,
                 orderedClusters,              // ✅ correct choice
                 config.getNumComponents(),
-                BccA2CvCfTransformations.basisForNumComponents(config.getNumComponents()),
+                BccA2TModelCvCfTransformations.basisForNumComponents(config.getNumComponents()),
                 progressSink
         );
 

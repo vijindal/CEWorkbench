@@ -1,7 +1,7 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.storage.ClusterDataStore;
@@ -57,7 +57,7 @@ public class CvmCalculator {
             "Nb-Ti_BCC_A2",
             "Nb-Ti Binary BCC_A2",
             2,  // numComponents
-            BccA2CvCfTransformations.binaryBasis()
+            BccA2TModelCvCfTransformations.binaryBasis()
         );
 
         double[] composition = {nbAtomicFraction, tiAtomicFraction};

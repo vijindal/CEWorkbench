@@ -59,16 +59,16 @@ public final class CvCfCFRegistry {
 
     /** Returns a registry for binary BCC_A2. */
     public static CvCfCFRegistry forBccA2Binary() {
-        return new CvCfCFRegistry("BCC_A2", 2, BccA2CvCfTransformations.BINARY_CF_NAMES);
+        return new CvCfCFRegistry("BCC_A2", 2, BccA2TModelCvCfTransformations.BINARY_CF_NAMES);
     }
 
     /** Returns a registry for ternary BCC_A2. */
     public static CvCfCFRegistry forBccA2Ternary() {
-        return new CvCfCFRegistry("BCC_A2", 3, BccA2CvCfTransformations.TERNARY_CF_NAMES);
+        return new CvCfCFRegistry("BCC_A2", 3, BccA2TModelCvCfTransformations.TERNARY_CF_NAMES);
     }
 
     /** Returns a registry for quaternary BCC_A2. */
     public static CvCfCFRegistry forBccA2Quaternary() {
-        return new CvCfCFRegistry("BCC_A2", 4, BccA2CvCfTransformations.QUATERNARY_CF_NAMES);
+        return new CvCfCFRegistry("BCC_A2", 4, BccA2TModelCvCfTransformations.QUATERNARY_CF_NAMES);
     }
 }

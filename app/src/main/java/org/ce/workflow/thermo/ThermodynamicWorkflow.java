@@ -5,7 +5,7 @@ import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.ClusCoordListResult;
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
@@ -376,7 +376,7 @@ public class ThermodynamicWorkflow {
         emit(progressSink, "  STAGE 3b.3: Full CVCF c-matrix (all t,j blocks)");
         dumpFullCmat("CVCF", cvcf, progressSink);
 
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
         if (basis.Tinv == null || basis.Tinv.length == 0) {
             emit(progressSink, "  STAGE 3b.4: Orthogonal c-matrix reconstruction skipped (missing Tinv)");
             return;

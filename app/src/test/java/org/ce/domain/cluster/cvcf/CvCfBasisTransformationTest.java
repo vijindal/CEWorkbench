@@ -20,7 +20,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("Binary BCC_A2 basis structure is correct")
     void testBinaryBasisStructure() {
-        CvCfBasis binary = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis binary = BccA2TModelCvCfTransformations.binaryBasis();
 
         assertEquals("BCC_A2", binary.structurePhase);
         assertEquals(2, binary.numComponents);
@@ -39,7 +39,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("Ternary BCC_A2 basis structure is correct")
     void testTernaryBasisStructure() {
-        CvCfBasis ternary = BccA2CvCfTransformations.ternaryBasis();
+        CvCfBasis ternary = BccA2TModelCvCfTransformations.ternaryBasis();
 
         assertEquals("BCC_A2", ternary.structurePhase);
         assertEquals(3, ternary.numComponents);
@@ -54,7 +54,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("Quaternary BCC_A2 basis structure is correct")
     void testQuaternaryBasisStructure() {
-        CvCfBasis quaternary = BccA2CvCfTransformations.quaternaryBasis();
+        CvCfBasis quaternary = BccA2TModelCvCfTransformations.quaternaryBasis();
 
         assertEquals("BCC_A2", quaternary.structurePhase);
         assertEquals(4, quaternary.numComponents);
@@ -70,7 +70,7 @@ class CvCfBasisTransformationTest {
     @DisplayName("Binary basis component ordering is correct")
     void testBinaryComponentPairs() {
         // Test component ordering directly from basis
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
         assertEquals(6, basis.cfNames.size());
         assertEquals("v4AB", basis.cfNames.get(0));  // First non-point CF
         assertEquals("v21AB", basis.cfNames.get(3)); // Last non-point CF
@@ -81,7 +81,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("Ternary basis component ordering is correct")
     void testTernaryComponentOrdering() {
-        CvCfBasis basis = BccA2CvCfTransformations.ternaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.ternaryBasis();
         assertEquals(21, basis.cfNames.size());
         assertEquals("v4AB", basis.cfNames.get(0));  // First tetrahedra binary
         assertEquals("xA", basis.cfNames.get(18));   // First point variable
@@ -90,7 +90,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("Quaternary basis component ordering is correct")
     void testQuaternaryComponentOrdering() {
-        CvCfBasis basis = BccA2CvCfTransformations.quaternaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.quaternaryBasis();
         assertEquals(55, basis.cfNames.size());
         assertEquals("xA", basis.cfNames.get(51));   // First point variable
         assertEquals("xB", basis.cfNames.get(52));
@@ -102,7 +102,7 @@ class CvCfBasisTransformationTest {
     @DisplayName("ECI array to map conversion works correctly")
     void testEciArrayToMapConversion() {
         // Create a manual integration instance with a mock cmat result
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
         CvCfIntegration integration = new CvCfIntegration(basis, null, List.of(), List.of(), List.of());
 
         double[] eciArray = {1.0, 2.0, 3.0, 4.0};  // [e4, e3, e22, e21]
@@ -118,7 +118,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("ECI map to array conversion works correctly")
     void testEciMapToArrayConversion() {
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
         CvCfIntegration integration = new CvCfIntegration(basis, null, List.of(), List.of(), List.of());
 
         var eciMap = java.util.Map.of(
@@ -135,7 +135,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("ECI map to array handles missing ECIs (CEC inheritance)")
     void testEciInheritance() {
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
         CvCfIntegration integration = new CvCfIntegration(basis, null, List.of(), List.of(), List.of());
 
         // Only provide two ECIs
@@ -152,7 +152,7 @@ class CvCfBasisTransformationTest {
     @Test
     @DisplayName("T matrix for binary has expected sparsity")
     void testBinaryTMatrixStructure() {
-        double[][] T = BccA2CvCfTransformations.BINARY_T;
+        double[][] T = BccA2TModelCvCfTransformations.BINARY_T;
 
         // Check first row: should match transformation rule for u[1][1][1]
         // u[1][1][1] = -16·v21AB + 8·v22AB + 16·v4AB + xA + xB

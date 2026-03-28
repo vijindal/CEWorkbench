@@ -57,7 +57,7 @@ public final class CvCfIntegration {
 
         // Components in alphabetical order
         String[] sorted = sortComponents(componentA, componentB);
-        CvCfBasis basis = BccA2CvCfTransformations.binaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
         CMatrixResult transformedCmat = CvCfBasisTransformer.transform(oldCmatResult, basis);
 
         // Component pairs: only [A, B]
@@ -84,7 +84,7 @@ public final class CvCfIntegration {
 
         // Components in alphabetical order
         String[] sorted = sortComponents(componentA, componentB, componentC);
-        CvCfBasis basis = BccA2CvCfTransformations.ternaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.ternaryBasis();
         CMatrixResult transformedCmat = CvCfBasisTransformer.transform(oldCmatResult, basis);
 
         // Generate all component pairs (P < Q)
@@ -119,7 +119,7 @@ public final class CvCfIntegration {
 
         // Components in alphabetical order
         String[] sorted = sortComponents(componentA, componentB, componentC, componentD);
-        CvCfBasis basis = BccA2CvCfTransformations.quaternaryBasis();
+        CvCfBasis basis = BccA2TModelCvCfTransformations.quaternaryBasis();
         CMatrixResult transformedCmat = CvCfBasisTransformer.transform(oldCmatResult, basis);
 
         // Generate all component pairs (P < Q)
