@@ -29,6 +29,11 @@ public class SystemId {
      * e.g. {@code BCC_A2_T_bin}
      */
     public String clusterId() {
+        String modelPart = model.trim();
+        if (modelPart.equalsIgnoreCase("CVCF") || modelPart.toUpperCase().endsWith("_CVCF")) {
+            // Use fixed structure-based CVCF cluster directory naming.
+            return structure + "_CVCF_" + ncompSuffix();
+        }
         return structure + "_" + model + "_" + ncompSuffix();
     }
 

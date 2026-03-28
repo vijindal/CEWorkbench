@@ -2,6 +2,7 @@ package org.ce.ui.cli;
 
 import org.ce.domain.cluster.*;
 import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.engine.cvm.CVMFreeEnergy;
 import org.ce.domain.engine.cvm.CVMPhaseModel;
@@ -20,7 +21,10 @@ import org.ce.workflow.cec.CECManagementWorkflow;
 import org.ce.workflow.thermo.ThermodynamicWorkflow;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.io.PrintStream;
 
 /**
  * Main entry point for the CE Workbench CLI.
@@ -32,6 +36,7 @@ import java.util.List;
  *   ./gradlew run --args="type2"                   -- thermodynamic calculation only
  *   ./gradlew run --args="all  Nb-Ti BCC_A2 T"     -- explicit system, all modes
  *   ./gradlew run --args="all  Nb-Ti BCC_A2 T_CVCF" -- explicit system with CVCF basis
+ *   ./gradlew run --args="scaffold_cvcf Nb-Ti BCC_A2 T_CVCF" -- scaffold CEC using CVCF basis
  *   ./gradlew run --args="type2 Nb-Ti BCC_A2 T"    -- explicit system, type-2 only
  *   ./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 0.5"  -- calculate with minimization
  *   ./gradlew run --args="calc_min Nb-Ti BCC_A2 T_CVCF 1000 0.5"  -- CVCF calc_min
@@ -47,6 +52,50 @@ import java.util.List;
  *   for calc_fixed: temp comp cf1 cf2 ...
  */
 public class Main {
+
+    /**
+     * Registry of supported CVCF transformations.
+     *
+     * <p>Each entry maps a (structure, numComponents) pair to the corresponding CVCF basis
+     * transformation. Data sourced from {@link BccA2CvCfTransformations}, which provides:
+     * <ul>
+     *   <li>Binary BCC_A2 (2-component): transformation matrix + 4 non-point CFs</li>
+     *   <li>Ternary BCC_A2 (3-component): transformation matrix + 18 non-point CFs</li>
+     *   <li>Quaternary BCC_A2 (4-component): transformation matrix + 51 non-point CFs</li>
+     * </ul>
+     *
+     * <p>Format: key = "{STRUCTURE}|{NCOMP}" e.g. "BCC_A2|2"
+     */
+    private static final Map<String, CvCfBasis> CVCF_BASIS_REGISTRY = new HashMap<>();
+
+    /**
+     * Supported CVCF structures with their component ranges.
+     * <p>Enables discovery of what's available when user queries.</p>
+     */
+    private static final Map<String, String> CVCF_STRUCTURE_SUPPORT = new HashMap<>();
+
+    static {
+        // ===================================================================
+        // BCC_A2 structure: supported for 2, 3, 4 components
+        // Source: BccA2CvCfTransformations class
+        // ===================================================================
+
+        // Binary (A-B): 6 orthogonal CFs → 6 CVCF CFs (4 non-point + 2 point)
+        CVCF_BASIS_REGISTRY.put("BCC_A2|2", BccA2CvCfTransformations.basisForNumComponents(2));
+        // Ternary (A-B-C): 21 orthogonal CFs → 21 CVCF CFs (18 non-point + 3 point)
+        CVCF_BASIS_REGISTRY.put("BCC_A2|3", BccA2CvCfTransformations.basisForNumComponents(3));
+        // Quaternary (A-B-C-D): 55 orthogonal CFs → 55 CVCF CFs (51 non-point + 4 point)
+        CVCF_BASIS_REGISTRY.put("BCC_A2|4", BccA2CvCfTransformations.basisForNumComponents(4));
+
+        // Support metadata for discovery
+        CVCF_STRUCTURE_SUPPORT.put(
+            "BCC_A2",
+            "Binary (2-comp): 6 CFs (4 non-point). " +
+            "Ternary (3-comp): 21 CFs (18 non-point). " +
+            "Quaternary (4-comp): 55 CFs (51 non-point). " +
+            "Source: BccA2CvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}"
+        );
+    }
 
     public static void main(String[] args) {
 
@@ -95,11 +144,17 @@ public class Main {
 
         if (!mode.equals("type1a") && !mode.equals("type1b")
                 && !mode.equals("type2") && !mode.equals("all")
-                && !mode.equals("calc_min") && !mode.equals("calc_fixed")) {
+                && !mode.equals("calc_min") && !mode.equals("calc_fixed")
+                && !mode.equals("scaffold_cvcf")) {
             System.err.println("Unknown mode: " + mode);
             System.err.println("Usage: [mode] [elements] [structure] [model]");
-            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | calc_fixed");
+            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | calc_fixed | scaffold_cvcf");
             System.exit(1);
+        }
+
+        if (mode.equals("scaffold_cvcf")) {
+            scaffoldCecCvcf(elements, structure, model);
+            return;
         }
 
         SystemId system       = new SystemId(elements, structure, model);
@@ -242,6 +297,73 @@ public class Main {
         }
 
         System.out.println("\n================================================================================");
+    }
+
+    private static boolean isCvcfBasisRegistered(String structure, int numComponents) {
+        return CVCF_BASIS_REGISTRY.containsKey(structure.toUpperCase() + "|" + numComponents);
+    }
+
+    private static CvCfBasis getCvcfBasis(String structure, int numComponents) {
+        return CVCF_BASIS_REGISTRY.get(structure.toUpperCase() + "|" + numComponents);
+    }
+
+    private static void printSupportedCvcfStructures(PrintStream out) {
+        out.println("Supported CVCF structures and transformations:");
+        out.println("(Source: BccA2CvCfTransformations class)");
+        out.println();
+        for (String structure : CVCF_STRUCTURE_SUPPORT.keySet()) {
+            String support = CVCF_STRUCTURE_SUPPORT.get(structure);
+            out.println("  " + structure + ":");
+            out.println("    " + support);
+        }
+        out.println();
+    }
+
+    private static void scaffoldCecCvcf(String elements, String structure, String model) {
+        int numComponents = elements.split("-").length;
+
+        if (!isCvcfBasisRegistered(structure, numComponents)) {
+            System.err.println("CVCF basis not registered for structure '" + structure + "' with " + numComponents + " components.");
+            System.err.println();
+            printSupportedCvcfStructures(System.err);
+            System.exit(1);
+        }
+
+        CvCfBasis basis = getCvcfBasis(structure, numComponents);
+        System.out.println("Using CVCF basis for " + structure + " (" + numComponents + " components)");
+        System.out.println("Clustering to CVCF transformation matrix (orthogonal->CVCF):");
+        System.out.println(basis);
+
+        SystemId system = new SystemId(elements, structure, model);
+        String CLUSTER_ID = system.clusterId();
+        String HAMILTONIAN_ID = system.hamiltonianId();
+
+        System.out.println("Scaffolding CEC for CVCF basis:");
+        System.out.println("  Elements      : " + elements);
+        System.out.println("  Structure     : " + structure);
+        System.out.println("  Model         : " + model);
+        System.out.println("  Cluster ID    : " + CLUSTER_ID);
+        System.out.println("  Hamiltonian ID: " + HAMILTONIAN_ID);
+
+        try {
+            Workspace workspace = new Workspace();
+            ClusterDataStore clusterStore = new ClusterDataStore(workspace);
+            HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
+            CECManagementWorkflow cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
+
+            if (hamiltonianStore.exists(HAMILTONIAN_ID)) {
+                System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
+                System.out.println("  Delete ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/ to re-scaffold.");
+            } else {
+                cecWorkflow.scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
+                System.out.println("Saved: ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/hamiltonian.json");
+                System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
+            }
+        } catch (Exception e) {
+            System.err.println("Error scaffolding CVCF: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 
     private static void runEntropyDebug() {
