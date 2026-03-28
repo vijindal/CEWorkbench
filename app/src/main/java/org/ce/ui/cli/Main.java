@@ -4,6 +4,9 @@ import org.ce.domain.cluster.*;
 import org.ce.domain.cluster.cvcf.BccA2CvCfTransformations;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.engine.cvm.CVMFreeEnergy;
+import org.ce.domain.engine.cvm.CVMPhaseModel;
+import org.ce.domain.hamiltonian.CECEntry;
+import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.SystemId;
@@ -28,27 +31,59 @@ import java.util.List;
  *   ./gradlew run --args="type1b"                  -- Hamiltonian scaffold only
  *   ./gradlew run --args="type2"                   -- thermodynamic calculation only
  *   ./gradlew run --args="all  Nb-Ti BCC_A2 T"     -- explicit system, all modes
+ *   ./gradlew run --args="all  Nb-Ti BCC_A2 T_CVCF" -- explicit system with CVCF basis
  *   ./gradlew run --args="type2 Nb-Ti BCC_A2 T"    -- explicit system, type-2 only
+ *   ./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 0.5"  -- calculate with minimization
+ *   ./gradlew run --args="calc_min Nb-Ti BCC_A2 T_CVCF 1000 0.5"  -- CVCF calc_min
+ *   ./gradlew run --args="calc_fixed Nb-Ti BCC_A2 T 1000 0.5 0.1 0.2 0.3 0.4"  -- calculate with fixed CFs
+ *   ./gradlew run --args="calc_fixed Nb-Ti BCC_A2 T_CVCF 1000 0.5 0.1 0.2 0.3 0.4"  -- CVCF calc_fixed
  *
  * Arguments:  mode  [elements  structure  model]
- *   mode       : type1a | type1b | type2 | all  (default: all)
+ *   mode       : type1a | type1b | type2 | all | calc_min | calc_fixed  (default: all)
  *   elements   : element pair, e.g. Nb-Ti  (default: A-B)
  *   structure  : structure ID,  e.g. BCC_A2 (default: BCC_B2)
  *   model      : model ID,      e.g. T      (default: T)
+ *   for calc_min: temp comp
+ *   for calc_fixed: temp comp cf1 cf2 ...
  */
 public class Main {
 
     public static void main(String[] args) {
 
-        // Debug entropy with direct CVCF values
-        if (args.length > 0 && args[0].equals("entropy_debug")) {
-            runEntropyDebug();
+
+        // Calculate with minimization
+        if (args.length > 0 && args[0].equals("calc_min")) {
+            if (args.length < 6) {
+                System.err.println("Usage: calc_min <elements> <structure> <model> <temp> <comp>");
+                System.exit(1);
+            }
+            String elements = args[1];
+            String structure = args[2];
+            String model = args[3];
+            double temp = Double.parseDouble(args[4]);
+            double comp = Double.parseDouble(args[5]);
+            double[] composition = {1 - comp, comp};
+            runCalcMin(elements, structure, model, temp, composition);
             return;
         }
 
-        // Test CVM free energy with real Nb-Ti data
-        if (args.length > 0 && args[0].equals("cvm_test")) {
-            runCVMTest();
+        // Calculate with fixed CFs
+        if (args.length > 0 && args[0].equals("calc_fixed")) {
+            if (args.length < 7) {
+                System.err.println("Usage: calc_fixed <elements> <structure> <model> <temp> <comp> <cf1> <cf2> ...");
+                System.exit(1);
+            }
+            String elements = args[1];
+            String structure = args[2];
+            String model = args[3];
+            double temp = Double.parseDouble(args[4]);
+            double comp = Double.parseDouble(args[5]);
+            double[] composition = {1 - comp, comp};
+            double[] cfs = new double[args.length - 6];
+            for (int i = 6; i < args.length; i++) {
+                cfs[i - 6] = Double.parseDouble(args[i]);
+            }
+            runCalcFixed(elements, structure, model, temp, composition, cfs);
             return;
         }
 
@@ -59,10 +94,11 @@ public class Main {
         String model     = args.length > 3 ? args[3] : "T";
 
         if (!mode.equals("type1a") && !mode.equals("type1b")
-                && !mode.equals("type2") && !mode.equals("all")) {
+                && !mode.equals("type2") && !mode.equals("all")
+                && !mode.equals("calc_min") && !mode.equals("calc_fixed")) {
             System.err.println("Unknown mode: " + mode);
             System.err.println("Usage: [mode] [elements] [structure] [model]");
-            System.err.println("  mode: type1a | type1b | type2 | all | entropy_debug | cvm_test");
+            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | calc_fixed");
             System.exit(1);
         }
 
@@ -337,58 +373,279 @@ public class Main {
         System.out.println("================================================================================");
     }
 
-    private static void runCVMTest() {
-        System.out.println("================================================================================");
-        System.out.println("=== CVM FREE ENERGY TEST: Nb-Ti BCC_A2 T at 1000K, x=0.5 ===");
-        System.out.println("================================================================================\n");
+    private static double[] extractEciFromEntry(CECEntry entry, double temperature) {
+        double[] eci = new double[entry.ncf];
+        for (int i = 0; i < entry.ncf && i < entry.cecTerms.length; i++) {
+            CECTerm term = entry.cecTerms[i];
+            eci[i] = term.a + term.b * temperature;
+        }
+        return eci;
+    }
 
+    /**
+     * For CVM runs prefer CVCF Hamiltonians when available.
+     * Examples:
+     *   Nb-Ti_BCC_A2_T      -> Nb-Ti_BCC_A2_T_CVCF (preferred)
+     *   Nb-Ti_BCC_A2_T      -> Nb-Ti_BCC_A2_CVCF   (legacy fallback)
+     */
+    private static String resolveHamiltonianIdForCvm(String requestedHamiltonianId) {
+        if (requestedHamiltonianId == null || requestedHamiltonianId.isBlank()) {
+            return requestedHamiltonianId;
+        }
+        if (requestedHamiltonianId.endsWith("_CVCF")) {
+            return requestedHamiltonianId;
+        }
+
+        Workspace workspace = new Workspace();
+        HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
+
+        String preferredId = requestedHamiltonianId + "_CVCF";
+        if (hamiltonianStore.exists(preferredId)) {
+            System.out.println("CVM mode: using CVCF Hamiltonian '" + preferredId
+                    + "' instead of '" + requestedHamiltonianId + "'");
+            return preferredId;
+        }
+
+        int lastUnderscore = requestedHamiltonianId.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+            String legacyId = requestedHamiltonianId.substring(0, lastUnderscore) + "_CVCF";
+            if (hamiltonianStore.exists(legacyId)) {
+                System.out.println("CVM mode: using CVCF Hamiltonian '" + legacyId
+                        + "' instead of '" + requestedHamiltonianId + "'");
+                return legacyId;
+            }
+        }
+
+        System.out.println("CVM mode: CVCF Hamiltonian not found (tried '" + preferredId
+                + "' and legacy pattern), falling back to '" + requestedHamiltonianId + "'");
+        return requestedHamiltonianId;
+    }
+
+    private static void runCalcMin(String elements, String structure, String model, double temp, double[] composition) {
         try {
-            String CLUSTER_ID = "BCC_A2_T_bin";
-            String HAMILTONIAN_ID = "Nb-Ti_BCC_A2_T";
-
+            SystemId system = new SystemId(elements, structure, model);
+            String CLUSTER_ID = system.clusterId();
+            String HAMILTONIAN_ID = resolveHamiltonianIdForCvm(system.hamiltonianId());
             Workspace workspace = new Workspace();
             ClusterDataStore clusterStore = new ClusterDataStore(workspace);
             HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
-            CECManagementWorkflow cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
-
-            CVMEngine cvmEngine = new CVMEngine();
-            ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                    clusterStore, cecWorkflow, cvmEngine, null
+            AllClusterData allData = clusterStore.load(CLUSTER_ID);
+            CECEntry entry = hamiltonianStore.load(HAMILTONIAN_ID);
+            double[] eci = extractEciFromEntry(entry, temp);
+            CVMPhaseModel.CVMInput input = new CVMPhaseModel.CVMInput(
+                allData.getDisorderedClusterResult(),
+                allData.getDisorderedCFResult(),
+                allData.getCMatrixResult(),
+                HAMILTONIAN_ID,
+                elements + " " + structure + " " + model,
+                2,
+                BccA2CvCfTransformations.binaryBasis()
             );
-            CalculationService service = new CalculationService(thermoWorkflow);
+            CVMPhaseModel cvmModel = CVMPhaseModel.create(input, eci, temp, composition, null);
+            double G = cvmModel.getEquilibriumG();
+            double H = cvmModel.getEquilibriumH();
+            double S = cvmModel.getEquilibriumS();
+            double[] cfs = cvmModel.getEquilibriumCFs();
 
-            double temperature = 1000.0;
-            double[] composition = {0.5, 0.5};
-
-            System.out.println("Running single-point CVM calculation:");
-            System.out.println("  System      : " + HAMILTONIAN_ID);
-            System.out.println("  Structure   : BCC_A2 (binary, T model)");
-            System.out.println("  Composition : x_A=0.5, x_B=0.5");
-            System.out.println("  Temperature : " + temperature + " K\n");
-
-            ThermodynamicResult result = service.runSinglePoint(
-                    CLUSTER_ID, HAMILTONIAN_ID, temperature, composition, "CVM"
-            );
-
-            double entropy = (result.enthalpy - result.gibbsEnergy) / temperature;
-
-            System.out.println("Result:");
-            System.out.println("  G (Gibbs energy)   = " + String.format("%.8e", result.gibbsEnergy) + " J/mol");
-            System.out.println("  H (Enthalpy)       = " + String.format("%.8e", result.enthalpy) + " J/mol");
-            System.out.println("  S (Entropy)        = " + String.format("%.8e", entropy) + " J/(mol·K)");
-            System.out.println("                     = " + String.format("%.6f", entropy) + " J/(mol·K)");
+            System.out.println("System: " + HAMILTONIAN_ID);
+            System.out.println("Temperature: " + temp + " K");
+            System.out.println("Composition: [" + composition[0] + ", " + composition[1] + "]");
             System.out.println();
-            System.out.println("Entropy check:");
-            System.out.println("  For binary at x=0.5 (equimolar), entropy should include");
-            System.out.println("  contribution from both composition variables (xA, xB).");
-            System.out.println("  If entropy is reasonable (not halved), CVCF C-matrix is correct.");
+
+            System.out.println("ECI VALUES (at " + temp + " K):");
+            System.out.println("-".repeat(80));
+            for (int i = 0; i < eci.length; i++) {
+                System.out.printf("  ECI[%d] = %20.10f J/mol%n", i, eci[i]);
+            }
             System.out.println();
-            System.out.println("================================================================================");
+
+            System.out.println("EQUILIBRIUM PROPERTIES (after minimization)");
+            System.out.println("-".repeat(80));
+            System.out.printf("Gibbs Energy (G):     %20.10f J/mol%n", G);
+            System.out.printf("Enthalpy (H):         %20.10f J/mol%n", H);
+            System.out.printf("Entropy (S):          %20.10f J/(mol·K)%n", S);
+            System.out.println();
+
+            System.out.println("EQUILIBRIUM CORRELATION FUNCTIONS:");
+            System.out.println("-".repeat(80));
+            System.out.printf("v4AB (CF[0]):  %20.10f%n", cfs[0]);
+            System.out.printf("v3AB (CF[1]):  %20.10f%n", cfs[1]);
+            System.out.printf("v22AB (CF[2]): %20.10f%n", cfs[2]);
+            System.out.printf("v21AB (CF[3]): %20.10f%n", cfs[3]);
+            System.out.println();
+
+            // Now evaluate at equilibrium point to get derivatives
+            ClusterIdentificationResult disResult = allData.getDisorderedClusterResult();
+            CFIdentificationResult cfResult = allData.getDisorderedCFResult();
+            CMatrixResult cmatResult = allData.getCMatrixResult();
+
+            List<Double> mhdis = disResult.getDisClusterData().getMultiplicities();
+            double[] kb = disResult.getKbCoefficients();
+            int tcdis = disResult.getTcdis();
+            int[] lc = disResult.getLc();
+            double[][] mh = disResult.getMh();
+            int[][] lcv = cmatResult.getLcv();
+            List<List<double[][]>> cmat = cmatResult.getCmat();
+            List<List<int[]>> wcv = cmatResult.getWcv();
+            
+            int ncf = cfResult.getNcf();
+            int tcf = ncf + 2;  // Total CFs = independent CFs + 2 composition variables (binary)
+
+            CVMFreeEnergy.EvalResult result = CVMFreeEnergy.evaluate(
+                    cfs, composition, temp, eci, mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf);
+
+            System.out.println("FIRST DERIVATIVES at equilibrium (Gradient):");
+            System.out.println("-".repeat(80));
+            System.out.println("dG/dv (Gcu) - should be ~0 at minimum:");
+            for (int i = 0; i < ncf; i++) {
+                System.out.printf("  Gcu[%d] = %20.10e%n", i, result.Gcu[i]);
+            }
+            System.out.println();
+            System.out.println("dH/dv (Hcu):");
+            for (int i = 0; i < ncf; i++) {
+                System.out.printf("  Hcu[%d] = %20.10e%n", i, result.Hcu[i]);
+            }
+            System.out.println();
+            System.out.println("dS/dv (Scu):");
+            for (int i = 0; i < ncf; i++) {
+                System.out.printf("  Scu[%d] = %20.10e%n", i, result.Scu[i]);
+            }
+            System.out.println();
+
+            System.out.println("SECOND DERIVATIVES at equilibrium (Hessian):");
+            System.out.println("-".repeat(80));
+            System.out.println("d²G/dv² (Gcuu) - positive definite at minimum:");
+            boolean hasNonZero = false;
+            for (int i = 0; i < ncf; i++) {
+                for (int j = i; j < ncf; j++) {
+                    if (Math.abs(result.Gcuu[i][j]) > 1e-15) {
+                        System.out.printf("  Gcuu[%d][%d] = %20.10e%n", i, j, result.Gcuu[i][j]);
+                        hasNonZero = true;
+                    }
+                }
+            }
+            if (!hasNonZero) System.out.println("  (all zero)");
+            System.out.println();
 
         } catch (Exception e) {
-            System.err.println("\nError: " + e.getMessage());
             e.printStackTrace();
-            System.exit(1);
+        }
+    }
+
+    private static void runCalcFixed(String elements, String structure, String model, double temp, double[] composition, double[] cfs) {
+        try {
+            SystemId system = new SystemId(elements, structure, model);
+            String CLUSTER_ID = system.clusterId();
+            String HAMILTONIAN_ID = resolveHamiltonianIdForCvm(system.hamiltonianId());
+            Workspace workspace = new Workspace();
+            ClusterDataStore clusterStore = new ClusterDataStore(workspace);
+            HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
+            AllClusterData allData = clusterStore.load(CLUSTER_ID);
+            CECEntry entry = hamiltonianStore.load(HAMILTONIAN_ID);
+            double[] eci = extractEciFromEntry(entry, temp);
+
+            // Extract CVM parameters from AllClusterData
+            ClusterIdentificationResult disResult = allData.getDisorderedClusterResult();
+            CFIdentificationResult cfResult = allData.getDisorderedCFResult();
+            CMatrixResult cmatResult = allData.getCMatrixResult();
+
+            List<Double> mhdis = disResult.getDisClusterData().getMultiplicities();
+            double[] kb = disResult.getKbCoefficients();
+            int tcdis = disResult.getTcdis();
+            int[] lc = disResult.getLc();
+            double[][] mh = disResult.getMh();
+            int[][] lcv = cmatResult.getLcv();
+            List<List<double[][]>> cmat = cmatResult.getCmat();
+            List<List<int[]>> wcv = cmatResult.getWcv();
+            
+            int ncf = cfResult.getNcf();
+            int tcf = ncf + 2;  // Total CFs = independent CFs + 2 composition variables (binary)
+
+            System.out.println("System: " + HAMILTONIAN_ID);
+            System.out.println("Temperature: " + temp + " K");
+            System.out.println("Composition: [" + composition[0] + ", " + composition[1] + "]");
+            System.out.println("Input CFs: [v4AB=" + cfs[0] + ", v3AB=" + cfs[1] + ", v22AB=" + cfs[2] + ", v21AB=" + cfs[3] + "]");
+            System.out.println();
+
+            System.out.println("ECI VALUES (at " + temp + " K):");
+            System.out.println("-".repeat(80));
+            for (int i = 0; i < eci.length; i++) {
+                System.out.printf("  ECI[%d] = %20.10f J/mol%n", i, eci[i]);
+            }
+            System.out.println();
+
+            // Evaluate free energy at fixed CFs
+            CVMFreeEnergy.EvalResult result = CVMFreeEnergy.evaluate(
+                    cfs, composition, temp, eci, mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf);
+
+            System.out.println("THERMODYNAMIC PROPERTIES:");
+            System.out.println("-".repeat(80));
+            System.out.printf("Gibbs Energy (G):     %20.10f J/mol%n", result.G);
+            System.out.printf("Enthalpy (H):         %20.10f J/mol%n", result.H);
+            System.out.printf("Entropy (S):          %20.10f J/(mol·K)%n", result.S);
+            System.out.println();
+
+            System.out.println("FIRST DERIVATIVES (Gradient):");
+            System.out.println("-".repeat(80));
+            System.out.println("dG/dv (Gcu):");
+            for (int i = 0; i < ncf; i++) {
+                System.out.printf("  Gcu[%d] = %20.10e%n", i, result.Gcu[i]);
+            }
+            System.out.println();
+            System.out.println("dH/dv (Hcu):");
+            for (int i = 0; i < ncf; i++) {
+                System.out.printf("  Hcu[%d] = %20.10e%n", i, result.Hcu[i]);
+            }
+            System.out.println();
+            System.out.println("dS/dv (Scu):");
+            for (int i = 0; i < ncf; i++) {
+                System.out.printf("  Scu[%d] = %20.10e%n", i, result.Scu[i]);
+            }
+            System.out.println();
+
+            System.out.println("SECOND DERIVATIVES (Hessian):");
+            System.out.println("-".repeat(80));
+            System.out.println("d²G/dv² (Gcuu) [non-zero values only]:");
+            boolean hasNonZero = false;
+            for (int i = 0; i < ncf; i++) {
+                for (int j = i; j < ncf; j++) {
+                    if (Math.abs(result.Gcuu[i][j]) > 1e-15) {
+                        System.out.printf("  Gcuu[%d][%d] = %20.10e%n", i, j, result.Gcuu[i][j]);
+                        hasNonZero = true;
+                    }
+                }
+            }
+            if (!hasNonZero) System.out.println("  (all zero)");
+            System.out.println();
+
+            System.out.println("d²H/dv² (Hcuu) [non-zero values only]:");
+            hasNonZero = false;
+            for (int i = 0; i < ncf; i++) {
+                for (int j = i; j < ncf; j++) {
+                    if (Math.abs(result.Hcuu[i][j]) > 1e-15) {
+                        System.out.printf("  Hcuu[%d][%d] = %20.10e%n", i, j, result.Hcuu[i][j]);
+                        hasNonZero = true;
+                    }
+                }
+            }
+            if (!hasNonZero) System.out.println("  (all zero)");
+            System.out.println();
+
+            System.out.println("d²S/dv² (Scuu) [non-zero values only]:");
+            hasNonZero = false;
+            for (int i = 0; i < ncf; i++) {
+                for (int j = i; j < ncf; j++) {
+                    if (Math.abs(result.Scuu[i][j]) > 1e-15) {
+                        System.out.printf("  Scuu[%d][%d] = %20.10e%n", i, j, result.Scuu[i][j]);
+                        hasNonZero = true;
+                    }
+                }
+            }
+            if (!hasNonZero) System.out.println("  (all zero)");
+            System.out.println();
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }

@@ -173,8 +173,25 @@ public class CECManagementWorkflow {
         if (sep < 0) {
             throw new IllegalArgumentException("Invalid hamiltonianId format: " + hamiltonianId);
         }
-        String elements      = hamiltonianId.substring(0, sep);
+        String elements = hamiltonianId.substring(0, sep);
         String structureModel = hamiltonianId.substring(sep + 1);
+
+        // Support both orthogonal and CVCF Hamiltonians.
+        // - Nb-Ti_BCC_A2_T -> BCC_A2_T_bin
+        // - Nb-Ti_BCC_A2_T_CVCF -> BCC_A2_CVCF_bin
+        // - Nb-Ti_BCC_A2_CVCF -> BCC_A2_CVCF_bin
+        String clusterModel;
+        String upper = structureModel.toUpperCase();
+        if (upper.endsWith("_CVCF")) {
+            String noCvcf = structureModel.substring(0, structureModel.length() - "_CVCF".length());
+            if (noCvcf.toUpperCase().endsWith("_T")) {
+                noCvcf = noCvcf.substring(0, noCvcf.length() - 2);
+            }
+            clusterModel = noCvcf + "_CVCF";
+        } else {
+            clusterModel = structureModel;
+        }
+
         int ncomp = elements.split("-").length;
         String suffix = switch (ncomp) {
             case 2 -> "bin";
@@ -183,7 +200,7 @@ public class CECManagementWorkflow {
             default -> throw new IllegalArgumentException(
                     "No ncomp suffix for " + ncomp + " components (hamiltonianId=" + hamiltonianId + ")");
         };
-        return structureModel + "_" + suffix;
+        return clusterModel + "_" + suffix;
     }
 
     /**
@@ -240,7 +257,24 @@ public class CECManagementWorkflow {
      */
     public CECEntry loadAndValidateCEC(String clusterId, String hamiltonianId) throws Exception {
 
-        AllClusterData clusterData = clusterStore.load(clusterId);
+        AllClusterData clusterData;
+        if (clusterStore.exists(clusterId)) {
+            clusterData = clusterStore.load(clusterId);
+        } else {
+            // Fallback for CVCF model IDs where clusterId may be BCC_A2_T_CVCF_bin
+            // but stored data is BCC_A2_CVCF_bin.
+            String altClusterId = null;
+            if (clusterId.toUpperCase().contains("_T_CVCF")) {
+                altClusterId = clusterId.toUpperCase().replace("_T_CVCF", "_CVCF");
+            } else if (clusterId.toUpperCase().contains("_CVCF")) {
+                altClusterId = clusterId;
+            }
+            if (altClusterId != null && clusterStore.exists(altClusterId)) {
+                clusterData = clusterStore.load(altClusterId);
+            } else {
+                throw new IllegalArgumentException("Cluster data not found: " + clusterId);
+            }
+        }
 
         int ncf = clusterData.getDisorderedCFResult().getNcf();
 
