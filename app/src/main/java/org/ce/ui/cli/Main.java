@@ -54,43 +54,49 @@ import java.io.PrintStream;
 public class Main {
 
     /**
-     * Registry of supported CVCF transformations.
+     * Registry of supported CVCF transformations (T model of CVM).
      *
-     * <p>Each entry maps a (structure, numComponents) pair to the corresponding CVCF basis
-     * transformation. Data sourced from {@link BccA2CvCfTransformations}, which provides:
+     * <p>Maps (structure, numComponents) pairs to their corresponding CVCF basis transformations
+     * as defined in the T model of CVM. All transformation matrices are sourced from the
+     * {@link BccA2CvCfTransformations} class, which encodes the orthogonal-to-CVCF basis
+     * transformations derived from first-principles theory for the T model.
+     *
+     * <p>Supported systems (BCC_A2 structure, T model only):
      * <ul>
-     *   <li>Binary BCC_A2 (2-component): transformation matrix + 4 non-point CFs</li>
-     *   <li>Ternary BCC_A2 (3-component): transformation matrix + 18 non-point CFs</li>
-     *   <li>Quaternary BCC_A2 (4-component): transformation matrix + 51 non-point CFs</li>
+     *   <li>Binary BCC_A2_T (2-component): 6 orthogonal CFs → 6 CVCF CFs (4 non-point + 2 point)</li>
+     *   <li>Ternary BCC_A2_T (3-component): 21 orthogonal CFs → 21 CVCF CFs (18 non-point + 3 point)</li>
+     *   <li>Quaternary BCC_A2_T (4-component): 55 orthogonal CFs → 55 CVCF CFs (51 non-point + 4 point)</li>
      * </ul>
      *
      * <p>Format: key = "{STRUCTURE}|{NCOMP}" e.g. "BCC_A2|2"
+     * <p>Source matrices: BccA2CvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}
      */
     private static final Map<String, CvCfBasis> CVCF_BASIS_REGISTRY = new HashMap<>();
 
     /**
-     * Supported CVCF structures with their component ranges.
-     * <p>Enables discovery of what's available when user queries.</p>
+     * Supported CVCF structures and their component ranges (T model of CVM).
+     * <p>Enables user discovery when querying available CVCF transformations.</p>
      */
     private static final Map<String, String> CVCF_STRUCTURE_SUPPORT = new HashMap<>();
 
     static {
         // ===================================================================
-        // BCC_A2 structure: supported for 2, 3, 4 components
+        // BCC_A2 structure, T model of CVM
+        // All transformation matrices derived from theory for T model
         // Source: BccA2CvCfTransformations class
         // ===================================================================
 
-        // Binary (A-B): 6 orthogonal CFs → 6 CVCF CFs (4 non-point + 2 point)
+        // Binary BCC_A2_T (A-B): 6 orthogonal CFs → 6 CVCF CFs (4 non-point + 2 point)
         CVCF_BASIS_REGISTRY.put("BCC_A2|2", BccA2CvCfTransformations.basisForNumComponents(2));
-        // Ternary (A-B-C): 21 orthogonal CFs → 21 CVCF CFs (18 non-point + 3 point)
+        // Ternary BCC_A2_T (A-B-C): 21 orthogonal CFs → 21 CVCF CFs (18 non-point + 3 point)
         CVCF_BASIS_REGISTRY.put("BCC_A2|3", BccA2CvCfTransformations.basisForNumComponents(3));
-        // Quaternary (A-B-C-D): 55 orthogonal CFs → 55 CVCF CFs (51 non-point + 4 point)
+        // Quaternary BCC_A2_T (A-B-C-D): 55 orthogonal CFs → 55 CVCF CFs (51 non-point + 4 point)
         CVCF_BASIS_REGISTRY.put("BCC_A2|4", BccA2CvCfTransformations.basisForNumComponents(4));
 
-        // Support metadata for discovery
+        // Support metadata for user discovery
         CVCF_STRUCTURE_SUPPORT.put(
             "BCC_A2",
-            "Binary (2-comp): 6 CFs (4 non-point). " +
+            "T model of CVM. Binary (2-comp): 6 CFs (4 non-point). " +
             "Ternary (3-comp): 21 CFs (18 non-point). " +
             "Quaternary (4-comp): 55 CFs (51 non-point). " +
             "Source: BccA2CvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}"
