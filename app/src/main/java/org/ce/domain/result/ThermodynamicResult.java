@@ -52,7 +52,7 @@ public class ThermodynamicResult {
             double[] stdCFs) {
 
         this.temperature  = temperature;
-        this.composition  = composition;
+        this.composition  = composition.clone();
         this.gibbsEnergy  = gibbsEnergy;
         this.enthalpy     = enthalpy;
         this.stdEnthalpy  = stdEnthalpy;
@@ -60,6 +60,9 @@ public class ThermodynamicResult {
         this.avgCFs       = avgCFs != null ? avgCFs.clone() : null;
         this.stdCFs       = stdCFs != null ? stdCFs.clone() : null;
     }
+
+    /** Returns true when {@link #gibbsEnergy} holds a physically valid G value. */
+    public boolean isFreeEnergyValid() { return !Double.isNaN(gibbsEnergy); }
 
     /**
      * Converts engine-specific EquilibriumState to UI-ready result.

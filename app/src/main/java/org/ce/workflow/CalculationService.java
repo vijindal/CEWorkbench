@@ -39,71 +39,20 @@ public class CalculationService {
     // Single Point Calculation
     // =========================================================================
 
+    /** Primary entry point — accepts a fully constructed {@link ThermodynamicRequest}. */
+    public ThermodynamicResult runSinglePoint(ThermodynamicRequest request) throws Exception {
+        return thermoWorkflow.runCalculation(request);
+    }
+
+    /** Convenience overload for the common case with no callbacks or MCS parameters. */
     public ThermodynamicResult runSinglePoint(
             String clusterId,
             String hamiltonianId,
             double temperature,
             double[] composition,
             String engineType) throws Exception {
-        return runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType, null);
-    }
-
-    public ThermodynamicResult runSinglePoint(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            Consumer<String> progressSink) throws Exception {
-        return runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType, progressSink, null);
-    }
-
-    public ThermodynamicResult runSinglePoint(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink) throws Exception {
-
         return thermoWorkflow.runCalculation(
-                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType, progressSink, eventSink)
-        );
-    }
-
-    public ThermodynamicResult runSinglePoint(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            String cvmBasisMode,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink,
-            int mcsL,
-            int mcsNEquil,
-            int mcsNAvg) throws Exception {
-
-        return thermoWorkflow.runCalculation(
-                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
-                        progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg)
-        );
-    }
-
-    public ThermodynamicResult runSinglePoint(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink,
-            int mcsL,
-            int mcsNEquil,
-            int mcsNAvg) throws Exception {
-        return runSinglePoint(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF",
-                progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg);
+                new ThermodynamicRequest(clusterId, hamiltonianId, temperature, composition, engineType));
     }
 
     // =========================================================================

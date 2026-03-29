@@ -4,6 +4,7 @@ import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.SystemId;
 import org.ce.workflow.CalculationService;
+import org.ce.workflow.thermo.ThermodynamicRequest;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -127,8 +128,13 @@ public class CalculationPanel extends JPanel {
         prodButton.addActionListener(e -> runProductionScan());
 
         setLayout(new BorderLayout(0, 0));
-        setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
-        add(buildForm(), BorderLayout.NORTH);
+        setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+
+        JScrollPane scrollPane = new JScrollPane(buildForm());
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
+        add(scrollPane, BorderLayout.CENTER);
 
         updateMcsFieldVisibility();
     }
@@ -386,11 +392,11 @@ public class CalculationPanel extends JPanel {
         SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<ThermodynamicResult, Object>() {
             @Override
             protected ThermodynamicResult doInBackground() throws Exception {
-                return service.runSinglePoint(clusterId, hamiltonianId, temperature, composition,
-                        engineType, cvmBasisMode,
+                return service.runSinglePoint(new ThermodynamicRequest(
+                        clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
                         msg -> publish((Object) msg),
                         evt -> publish((Object) evt),
-                        mcsL, mcsNEquil, mcsNAvg);
+                        mcsL, mcsNEquil, mcsNAvg));
             }
 
             @Override

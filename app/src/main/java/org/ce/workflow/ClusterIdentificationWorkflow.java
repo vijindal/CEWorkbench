@@ -1,7 +1,7 @@
 package org.ce.workflow;
 
 import org.ce.domain.cluster.*;
-import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
+import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.InputLoader;
 
 import java.util.Arrays;
@@ -50,6 +50,19 @@ public class ClusterIdentificationWorkflow {
         emit(progressSink, "  disorderedClusterFile : " + config.getDisorderedClusterFile());
         emit(progressSink, "  disorderedSymmetryGroup: " + config.getDisorderedSymmetryGroup());
         emit(progressSink, "  numComponents         : " + config.getNumComponents());
+
+        // Validate CVCF basis is supported for this (structure, numComponents)
+        String structurePhase = config.getStructurePhase();
+        int numComponents = config.getNumComponents();
+        if (!CvCfBasisRegistry.INSTANCE.isSupported(structurePhase, numComponents)) {
+            String msg = "CVCF basis not supported for " + structurePhase
+                    + " with " + numComponents + " components.\n"
+                    + CvCfBasisRegistry.INSTANCE.supportedSummary();
+            LOG.severe(msg);
+            emit(progressSink, "ERROR: " + msg);
+            throw new IllegalArgumentException(msg);
+        }
+        emit(progressSink, "  basis supported: " + structurePhase + ", K=" + numComponents);
 
         // =====================================================================
         // 1. Load disordered phase (HSP) data
@@ -154,7 +167,7 @@ public class ClusterIdentificationWorkflow {
                 cfResult,
                 orderedClusters,              // ✅ correct choice
                 config.getNumComponents(),
-                BccA2TModelCvCfTransformations.basisForNumComponents(config.getNumComponents()),
+                CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), config.getNumComponents()),
                 progressSink
         );
 
@@ -193,31 +206,6 @@ public class ClusterIdentificationWorkflow {
         }
         for (int i = 0; i < table.length; i++) {
             emit(sink, label + "[" + i + "] = " + Arrays.toString(table[i]));
-        }
-    }
-
-    private static void dumpCmat(CMatrixResult cMatrix, Consumer<String> sink) {
-        if (cMatrix == null || cMatrix.getCmat() == null) {
-            emit(sink, "    cmat = null");
-            return;
-        }
-        List<List<double[][]>> cmat = cMatrix.getCmat();
-        for (int t = 0; t < cmat.size(); t++) {
-            List<double[][]> groups = cmat.get(t);
-            for (int j = 0; j < groups.size(); j++) {
-                double[][] block = groups.get(j);
-                int rows = block.length;
-                int cols = rows > 0 ? block[0].length : 0;
-                emit(sink, String.format("    cmat[t=%d][j=%d] dims=%dx%d", t, j, rows, cols));
-                for (int r = 0; r < rows; r++) {
-                    StringBuilder sb = new StringBuilder("      r=");
-                    sb.append(r).append(" |");
-                    for (int c = 0; c < cols; c++) {
-                        sb.append(String.format(" % .8e", block[r][c]));
-                    }
-                    emit(sink, sb.toString());
-                }
-            }
         }
     }
 

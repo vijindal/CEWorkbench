@@ -191,7 +191,7 @@ public class ThermodynamicWorkflow {
         }
 
         String preferredId = requestedHamiltonianId + "_CVCF";
-        if (cecWorkflow.store.exists(preferredId)) {
+        if (cecWorkflow.hamiltonianExists(preferredId)) {
             emit(progressSink, "CVM mode: using CVCF Hamiltonian '" + preferredId
                     + "' instead of '" + requestedHamiltonianId + "'");
             LOG.info("CVM mode: using CVCF Hamiltonian '" + preferredId
@@ -202,7 +202,7 @@ public class ThermodynamicWorkflow {
         int lastUnderscore = requestedHamiltonianId.lastIndexOf('_');
         if (lastUnderscore > 0) {
             String legacyId = requestedHamiltonianId.substring(0, lastUnderscore) + "_CVCF";
-            if (cecWorkflow.store.exists(legacyId)) {
+            if (cecWorkflow.hamiltonianExists(legacyId)) {
                 emit(progressSink, "CVM mode: using CVCF Hamiltonian '" + legacyId
                         + "' instead of '" + requestedHamiltonianId + "'");
                 LOG.info("CVM mode: using CVCF Hamiltonian '" + legacyId
@@ -385,7 +385,8 @@ public class ThermodynamicWorkflow {
         try {
             orth = reconstructOrthCmat(cvcf, basis.Tinv);
         } catch (IllegalArgumentException e) {
-            emit(progressSink, "  STAGE 3b.4: Orthogonal c-matrix reconstruction skipped (" + e.getMessage() + ")");
+            // In CVCF-first mode, orthogonal c-matrix reconstruction is optional (debug only)
+            emit(progressSink, "  STAGE 3b.4: Orthogonal c-matrix reconstruction skipped (CVCF-first mode, not needed for Type-2)");
             return;
         }
         emit(progressSink, "  STAGE 3b.4: Full orthogonal c-matrix (reconstructed from CVCF via Tinv)");

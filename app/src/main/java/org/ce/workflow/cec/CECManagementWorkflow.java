@@ -3,6 +3,7 @@ package org.ce.workflow.cec;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.GroupedCFResult;
+import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.ClusterDataStore;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
@@ -20,7 +21,7 @@ import java.util.List;
  */
 public class CECManagementWorkflow {
 
-    public final HamiltonianStore store;
+    private final HamiltonianStore store;
 
     private final ClusterDataStore clusterStore;
 
@@ -110,6 +111,13 @@ public class CECManagementWorkflow {
      */
     public void validateCEC(CECEntry entry, int expectedNcf) {
 
+        if (entry.structurePhase == null || entry.structurePhase.isBlank()) {
+            throw new IllegalStateException("CECEntry.structurePhase is null or blank");
+        }
+        if (entry.elements == null || entry.elements.isBlank()) {
+            throw new IllegalStateException("CECEntry.elements is null or blank");
+        }
+
         if (entry.cecTerms == null) {
             throw new IllegalStateException("CEC database contains no terms");
         }
@@ -122,6 +130,10 @@ public class CECManagementWorkflow {
                 "CEC term count (" + termCount +
                 ") is invalid (must be > 0 and <= " + expectedNcf + ")"
             );
+        }
+
+        for (CECTerm term : entry.cecTerms) {
+            term.validate();
         }
     }
 
@@ -145,6 +157,18 @@ public class CECManagementWorkflow {
             String elements,
             String structurePhase,
             String model) throws Exception {
+
+        // Determine numComponents from elements (e.g. "A-B" → 2, "A-B-C" → 3)
+        int numComponents = elements.split("-").length;
+
+        // Validate CVCF basis is supported for this (structure, numComponents)
+        if (!CvCfBasisRegistry.INSTANCE.isSupported(structurePhase, numComponents)) {
+            String msg = "CVCF basis not supported for " + structurePhase
+                    + " with " + numComponents + " components.\n"
+                    + "Cannot scaffold CEC for unsupported basis.\n"
+                    + CvCfBasisRegistry.INSTANCE.supportedSummary();
+            throw new IllegalArgumentException(msg);
+        }
 
         String clusterId = deriveClusterId(hamiltonianId);
 
@@ -386,6 +410,17 @@ public class CECManagementWorkflow {
         store.save(ternaryId, ternaryEntry);
 
         return ternaryEntry;
+    }
+
+    /** Returns true if a Hamiltonian with the given ID exists in the store. */
+    public boolean hamiltonianExists(String hamiltonianId) {
+        return store.exists(hamiltonianId);
+    }
+
+    /** Saves a Hamiltonian entry to the store under the given ID. */
+    public void saveHamiltonian(String hamiltonianId, org.ce.domain.hamiltonian.CECEntry entry)
+            throws java.io.IOException {
+        store.save(hamiltonianId, entry);
     }
 
 }

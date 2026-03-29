@@ -739,7 +739,9 @@ public class OutputPanel extends JPanel {
             g.drawString(lastResult.composition.length > 1
                     ? String.format("%.4f", lastResult.composition[1]) : "\u2014",
                     x0 + colW,  row2);
-            g.drawString(String.format("%.4f", lastResult.gibbsEnergy), x0 + 2 * colW, row2);
+            g.drawString(lastResult.isFreeEnergyValid()
+                    ? String.format("%.4f", lastResult.gibbsEnergy) : "\u2014",
+                    x0 + 2 * colW, row2);
             g.drawString(String.format("%.4f", lastResult.enthalpy),    x0 + 3 * colW, row2);
             g.drawString(!Double.isNaN(lastResult.heatCapacity)
                     ? String.format("%.5f", lastResult.heatCapacity) : "\u2014",

@@ -1,6 +1,8 @@
 package org.ce.domain.cluster.cvcf;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Holds all data for one (structure, numComponents) CVCF basis combination.
@@ -66,10 +68,12 @@ public final class CvCfBasis {
      * <p>Used to transform an orthogonal-basis vector back to CVCF basis:
      * {@code v[j] = Σ_i Tinv[j][i] * u_orth[i]}.</p>
      *
-     * <p>May be {@code null} if not provided — in that case CVCF random
-     * initialization will fall back to the zero vector.</p>
+     * <p>Must not be null; computed as the matrix inverse of T.</p>
      */
     public final double[][] Tinv;
+
+    /** O(1) CF-name to index map. Built once in the constructor. */
+    private final Map<String, Integer> cfNameIndex;
 
     public CvCfBasis(String structurePhase,
                      int numComponents,
@@ -86,11 +90,22 @@ public final class CvCfBasis {
                      double[][] T,
                      double[][] Tinv) {
         this.structurePhase = structurePhase;
-        this.numComponents = numComponents;
-        this.cfNames = cfNames;
+        this.numComponents  = numComponents;
+        this.cfNames        = cfNames;
         this.numNonPointCfs = numNonPointCfs;
-        this.T = T;
-        this.Tinv = Tinv;
+        this.T              = T;
+        this.Tinv           = Tinv;
+        Map<String, Integer> idx = new HashMap<>(cfNames.size() * 2);
+        for (int i = 0; i < cfNames.size(); i++) idx.put(cfNames.get(i), i);
+        this.cfNameIndex = idx;
+    }
+
+    /**
+     * Returns the index of the given CF name in {@code cfNames}, or -1 if not found.
+     * O(1) via internal HashMap.
+     */
+    public int indexOfCf(String name) {
+        return cfNameIndex.getOrDefault(name, -1);
     }
 
     /** Total number of CFs (non-point + point). */

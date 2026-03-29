@@ -20,6 +20,7 @@ public class ClusterIdentificationRequest {
     private final double[][] transformationMatrix;
     private final Vector3D translationVector;
     private final int numComponents;
+    private final String structurePhase;
 
     private ClusterIdentificationRequest(Builder builder) {
         this.disorderedClusterFile = builder.disorderedClusterFile;
@@ -29,6 +30,7 @@ public class ClusterIdentificationRequest {
         this.transformationMatrix = builder.transformationMatrix;
         this.translationVector = builder.translationVector;
         this.numComponents = builder.numComponents;
+        this.structurePhase = builder.structurePhase;
     }
 
     // =========================================================================
@@ -63,6 +65,10 @@ public class ClusterIdentificationRequest {
         return numComponents;
     }
 
+    public String getStructurePhase() {
+        return structurePhase;
+    }
+
     // =========================================================================
     // Builder
     // =========================================================================
@@ -82,6 +88,7 @@ public class ClusterIdentificationRequest {
         private double[][] transformationMatrix;
         private Vector3D translationVector;
         private int numComponents;
+        private String structurePhase = "BCC_A2";
 
         public Builder disorderedClusterFile(String file) {
             this.disorderedClusterFile = file;
@@ -115,6 +122,11 @@ public class ClusterIdentificationRequest {
 
         public Builder numComponents(int numComp) {
             this.numComponents = numComp;
+            return this;
+        }
+
+        public Builder structurePhase(String sp) {
+            this.structurePhase = sp;
             return this;
         }
 

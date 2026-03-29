@@ -48,7 +48,12 @@ public class MainWindow extends JFrame {
         applyDarkTheme();
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1200, 760);
+
+        // Size window responsively based on available screen space
+        Dimension screenSize = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+        int width = Math.min(1200, (int)(screenSize.width * 0.9));
+        int height = Math.min(760, (int)(screenSize.height * 0.9));
+        setSize(width, height);
         setMinimumSize(new Dimension(900, 580));
         setLocationRelativeTo(null);
 

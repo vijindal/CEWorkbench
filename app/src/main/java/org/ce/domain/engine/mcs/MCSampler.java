@@ -1,32 +1,38 @@
 package org.ce.domain.engine.mcs;
 
 import org.ce.domain.cluster.Cluster;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 
 import java.util.List;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.logging.Logger;
 
 /** Accumulates running averages of thermodynamic observables during the averaging phase. */
 public class MCSampler {
 
-    private final int    tc;
-    private final int[]  orbitSizes;
-    private final int    N;
-    private final double R;
-    private final double[]            hmixCoeff;
-    private final int[]               multiSiteEmbedCounts;
-    private final double[]            cfNumScratch;
+    private static final Logger LOG = Logger.getLogger(MCSampler.class.getName());
 
-    // Running sums (backward compatibility)
+    private final int         tc;
+    private final int[]       orbitSizes;
+    private final int         N;
+    private final double      R;
+    private final double[]    eci;               // CVCF-ordered ECIs (0..numNonPointCfs-1)
+    private final int[]       multiSiteEmbedCounts;
+    private final double[]    cfNumScratch;      // size tc, indexed by orbit type (for Tinv transform)
+    private final CvCfBasis   basis;             // null-safe: CVCF transform unavailable if null
+    private boolean           hmixWarnedOnce       = false;
+    private boolean           warnedTinvUnavailable = false;
+
+    // Running sums: indexed by CVCF CF position (0..numNonPointCfs-1), not orbit type
     private double   sumHmix  = 0.0;
     private double   sumHmix2 = 0.0;
-    private double[] sumCF;
+    private double[] sumCF;           // size numNonPointCfs
     private long     nSamples = 0;
 
-    // Full per-sweep time series stored during averaging (reset on reset())
+    // Full per-sweep time series (CVCF indexed)
     private final List<Double>   seriesHmix = new ArrayList<>();
     private final List<Double>   seriesE    = new ArrayList<>();
-    private       List<Double>[] seriesCF;
+    private       List<Double>[] seriesCF;  // size numNonPointCfs
 
     // Results populated by computeStatistics() after all averaging sweeps finish
     private double   tauInt            = Double.NaN;
@@ -37,48 +43,56 @@ public class MCSampler {
     private double   meanE             = Double.NaN;  // true ⟨E⟩/N
     private double   stdE              = Double.NaN;  // SEM of ⟨E⟩/N
     private double   stdHmix           = Double.NaN;  // SEM of ⟨H⟩/N
-    private double[] stdCF;                           // [tc] SEM of each CF
+    private double[] stdCF;                           // [numNonPointCfs] SEM of each CVCF CF
     private double   cvJackknife       = Double.NaN;  // Cv from jackknife
     private double   cvStdErr          = Double.NaN;  // jackknife SEM of Cv
 
     public MCSampler(int N, int[] orbitSizes, List<List<Cluster>> orbits, double R,
-                     double[] hmixCoeff, int[] multiSiteEmbedCounts) {
+                     double[] eci, int[] multiSiteEmbedCounts, CvCfBasis basis) {
         if (N <= 0) throw new IllegalArgumentException("N must be > 0");
         if (R <= 0) throw new IllegalArgumentException("R must be > 0");
         this.N                    = N;
         this.tc                   = orbitSizes.length;
         this.orbitSizes           = orbitSizes.clone();
-        this.sumCF                = new double[tc];
         this.R                    = R;
-        this.hmixCoeff            = hmixCoeff.clone();
+        this.eci                  = eci.clone();
         this.multiSiteEmbedCounts = multiSiteEmbedCounts.clone();
         this.cfNumScratch         = new double[tc];
-        this.seriesCF             = new ArrayList[tc];
-        for (int t = 0; t < tc; t++) {
-            this.seriesCF[t] = new ArrayList<>();
+        this.basis                = basis;
+        int ncf = (basis != null) ? basis.numNonPointCfs : 0;
+        this.sumCF   = new double[ncf];
+        this.seriesCF = new ArrayList[ncf];
+        for (int l = 0; l < ncf; l++) {
+            this.seriesCF[l] = new ArrayList<>();
         }
     }
 
     public void sample(LatticeConfig config, EmbeddingData emb, double currentEnergy) {
+        // ── accumulate orthogonal CF products per orbit type ──────────────────
         for (int t = 0; t < tc; t++) cfNumScratch[t] = 0.0;
-
         for (Embedding e : emb.getAllEmbeddings()) {
             int t    = e.getClusterType();
             int size = e.size();
             if (t >= tc || size <= 1) continue;
-            double phi = LocalEnergyCalc.clusterProduct(e, config);
-            cfNumScratch[t] += phi;
+            cfNumScratch[t] += LocalEnergyCalc.clusterProduct(e, config);
         }
 
+        // ── transform orthogonal u-vector → CVCF v-vector ────────────────────
+        double[] u = toOrthogonalVector(cfNumScratch, config);
+        double[] v = applyCvCfTransform(u);
+
+        // ── Hmix and CF accumulation from CVCF v-vector ───────────────────────
         double hmix_per_site = 0.0;
-        for (int t = 0; t < tc; t++) {
-            int embedCnt = multiSiteEmbedCounts[t];
-            double u = (embedCnt > 0) ? cfNumScratch[t] / embedCnt : 0.0;
-            if (embedCnt > 0) {
-                sumCF[t]      += u;
-                hmix_per_site += hmixCoeff[t] * u;
+        if (v != null) {
+            int ncf = basis.numNonPointCfs;
+            for (int l = 0; l < ncf; l++) {
+                hmix_per_site += eci[l] * v[l];
+                sumCF[l]      += v[l];
+                seriesCF[l].add(v[l]);
             }
-            seriesCF[t].add(u);  // store normalized CF (same units as meanCFs())
+        } else if (!hmixWarnedOnce) {
+            LOG.warning("CVCF Hmix unavailable: Tinv not defined for this basis — Hmix will be 0.0");
+            hmixWarnedOnce = true;
         }
 
         double Hmix = hmix_per_site * N;
@@ -86,9 +100,69 @@ public class MCSampler {
         sumHmix2 += Hmix * Hmix;
         nSamples++;
 
-        // Store time series for statistics computation
         seriesHmix.add(Hmix);
         seriesE.add(currentEnergy);
+    }
+
+    /**
+     * Builds the full orthogonal u-vector (size {@code basis.totalCfs()}) from the
+     * per-orbit-type cfNumScratch accumulators and the current lattice composition.
+     *
+     * <ul>
+     *   <li>Entries 0..numNonPointCfs-1 : normalized multi-site orbit CFs u[t]</li>
+     *   <li>Entries numNonPointCfs..totalCfs-2 : composition-weighted point-basis averages</li>
+     *   <li>Entry totalCfs-1 : empty-cluster CF = 1.0</li>
+     * </ul>
+     */
+    private double[] toOrthogonalVector(double[] cfScratch, LatticeConfig config) {
+        int totalOld = basis.totalCfs();
+        double[] u   = new double[totalOld];
+
+        // Multi-site orbit CFs
+        for (int t = 0; t < basis.numNonPointCfs; t++) {
+            int cnt = multiSiteEmbedCounts[t];
+            u[t] = (cnt > 0) ? cfScratch[t] / cnt : 0.0;
+        }
+
+        // Point-like CFs: Σ_c  phi_alpha(c) · x_c, for alpha = 1 .. numPointRows-1
+        double[] x              = config.composition();
+        SiteOperatorBasis pointB = config.getBasis();
+        int numPointRows         = totalOld - basis.numNonPointCfs;  // e.g. 2 for binary
+        for (int alpha = 1; alpha <= numPointRows - 1; alpha++) {
+            double avg = 0.0;
+            for (int c = 0; c < x.length; c++) avg += pointB.evaluate(alpha, c) * x[c];
+            u[basis.numNonPointCfs + (alpha - 1)] = avg;
+        }
+
+        // Empty-cluster CF
+        u[totalOld - 1] = 1.0;
+        return u;
+    }
+
+    /**
+     * Applies {@code Tinv} to the orthogonal u-vector to produce the CVCF v-vector.
+     * Returns {@code null} when {@code basis.Tinv} is not available (ternary/quaternary).
+     */
+    private double[] applyCvCfTransform(double[] u) {
+        if (basis == null || basis.Tinv == null) {
+            if (!warnedTinvUnavailable) {
+                LOG.warning("CVCF CF measurement unavailable: Tinv not defined for "
+                        + (basis != null
+                                ? basis.structurePhase + ", K=" + basis.numComponents
+                                : "null basis"));
+                warnedTinvUnavailable = true;
+            }
+            return null;
+        }
+        double[][] Tinv = basis.Tinv;
+        int n = Tinv.length;
+        double[] v = new double[n];
+        for (int j = 0; j < n; j++) {
+            double sum = 0.0;
+            for (int i = 0; i < u.length; i++) sum += Tinv[j][i] * u[i];
+            v[j] = sum;
+        }
+        return v;
     }
 
     public long getSampleCount() { return nSamples; }
@@ -104,10 +178,15 @@ public class MCSampler {
         return (mH2 - mH * mH) / ((double) N * R * T * T);
     }
 
+    /**
+     * Returns the mean CVCF correlation functions v[0..numNonPointCfs-1].
+     * Returns an empty array when Tinv is unavailable (ternary/quaternary).
+     */
     public double[] meanCFs() {
-        double[] r = new double[tc];
-        if (nSamples == 0) return r;
-        for (int t = 0; t < tc; t++) r[t] = sumCF[t] / nSamples;
+        if (basis == null || basis.Tinv == null || nSamples == 0) return new double[0];
+        int ncf    = basis.numNonPointCfs;
+        double[] r = new double[ncf];
+        for (int l = 0; l < ncf; l++) r[l] = sumCF[l] / nSamples;
         return r;
     }
 
@@ -135,18 +214,19 @@ public class MCSampler {
             return;
         }
 
-        // 3. Block averages for E, Hmix, each CF
+        // 3. Block averages for E, Hmix, each CVCF CF
         double[] blockE    = blockMeans(toArray(seriesE), blockSizeUsed, nBlocks);
         double[] blockHmix = blockMeans(toArray(seriesHmix), blockSizeUsed, nBlocks);
 
         meanE   = mean(blockE) / N;
         stdE    = sem(blockE) / N;
         stdHmix = sem(blockHmix) / N;
-        stdCF   = new double[tc];
-        for (int t = 0; t < tc; t++) {
-            if (seriesCF[t].size() == n) {
-                double[] blk = blockMeans(toArray(seriesCF[t]), blockSizeUsed, nBlocks);
-                stdCF[t] = sem(blk);
+        int ncf = (basis != null) ? basis.numNonPointCfs : 0;
+        stdCF   = new double[ncf];
+        for (int l = 0; l < ncf; l++) {
+            if (seriesCF[l].size() == n) {
+                double[] blk = blockMeans(toArray(seriesCF[l]), blockSizeUsed, nBlocks);
+                stdCF[l] = sem(blk);
             }
         }
 
@@ -267,23 +347,26 @@ public class MCSampler {
 
     public void reset() {
         sumHmix = 0; sumHmix2 = 0;
-        sumCF = new double[tc];
+        int ncf = (basis != null) ? basis.numNonPointCfs : 0;
+        sumCF = new double[ncf];
         nSamples = 0;
         seriesHmix.clear();
         seriesE.clear();
-        for (int t = 0; t < tc; t++) {
-            seriesCF[t].clear();
+        for (int l = 0; l < ncf; l++) {
+            seriesCF[l].clear();
         }
-        tauInt            = Double.NaN;
-        statInefficiency  = Double.NaN;
-        nEff              = 0;
-        blockSizeUsed     = 0;
-        nBlocks           = 0;
-        meanE             = Double.NaN;
-        stdE              = Double.NaN;
-        stdHmix           = Double.NaN;
-        stdCF             = null;
-        cvJackknife       = Double.NaN;
-        cvStdErr          = Double.NaN;
+        tauInt                = Double.NaN;
+        statInefficiency      = Double.NaN;
+        nEff                  = 0;
+        blockSizeUsed         = 0;
+        nBlocks               = 0;
+        meanE                 = Double.NaN;
+        stdE                  = Double.NaN;
+        stdHmix               = Double.NaN;
+        stdCF                 = null;
+        cvJackknife           = Double.NaN;
+        cvStdErr              = Double.NaN;
+        warnedTinvUnavailable = false;
+        hmixWarnedOnce        = false;
     }
 }

@@ -20,15 +20,16 @@ public class ClusterIdentificationWorkflowTest {
 
     @Test
     public void testA2B2SystemWithBinaryBasis() {
-        // Build the configuration for A2 (disordered) to B2 (ordered) system
+        // Build the configuration for BCC_A2 binary system
         ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
-                .disorderedClusterFile("clus/A2-T.txt")    // Disordered phase clusters
-                .orderedClusterFile("clus/A2-T.txt")       // Ordered phase clusters (using A2 for testing)
-                .disorderedSymmetryGroup("A2-SG")          // Disordered phase symmetry
-                .orderedSymmetryGroup("A2-SG")             // Ordered phase symmetry
+                .disorderedClusterFile("clus/BCC_A2-T.txt")    // Disordered phase (A2) clusters
+                .orderedClusterFile("clus/BCC_A2-T.txt")       // Ordered phase clusters
+                .disorderedSymmetryGroup("BCC_A2-SG")          // Disordered phase symmetry
+                .orderedSymmetryGroup("BCC_A2-SG")             // Ordered phase symmetry
                 .transformationMatrix(new double[][]{{1,0,0},{0,1,0},{0,0,1}})  // Identity
                 .translationVector(new Vector3D(0,0,0))    // No translation
                 .numComponents(2)                           // Binary system
+                .structurePhase("BCC_A2")                   // Use BCC_A2 structure (supported basis)
                 .build();
 
         // Run the identification workflow

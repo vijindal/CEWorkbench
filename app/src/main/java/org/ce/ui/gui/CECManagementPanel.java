@@ -343,7 +343,7 @@ public class CECManagementPanel extends JPanel {
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                cecWorkflow.store.save(id, ent);
+                cecWorkflow.saveHamiltonian(id, ent);
                 return null;
             }
 
@@ -370,7 +370,7 @@ public class CECManagementPanel extends JPanel {
         if (cvcfId == null || !isCvcfId(cvcfId)) return null;
         String base = cvcfId.substring(0, cvcfId.length() - "_cvcf".length());
         try {
-            if (cecWorkflow.store.exists(base)) {
+            if (cecWorkflow.hamiltonianExists(base)) {
                 return cecWorkflow.loadAndValidateCEC(clusterId, base);
             }
         } catch (Exception ignored) {}
@@ -392,7 +392,7 @@ public class CECManagementPanel extends JPanel {
         for (String id : candidates) {
             if (id == null) continue;
             try {
-                if (cecWorkflow.store.exists(id)) {
+                if (cecWorkflow.hamiltonianExists(id)) {
                     return cecWorkflow.loadAndValidateCEC(clusterId, id);
                 }
             } catch (Exception ignored) {

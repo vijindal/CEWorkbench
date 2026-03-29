@@ -72,6 +72,9 @@ public class EquilibriumState {
         return freeEnergy;
     }
 
+    /** Returns true when {@link #getFreeEnergy()} holds a physically valid G value. */
+    public boolean isFreeEnergyValid() { return !Double.isNaN(freeEnergy); }
+
     public double getEnthalpyStdErr() { return enthalpyStdErr; }
     public double getHeatCapacity()   { return heatCapacity; }
     public double[] getAvgCFs()       { return avgCFs != null ? avgCFs.clone() : null; }

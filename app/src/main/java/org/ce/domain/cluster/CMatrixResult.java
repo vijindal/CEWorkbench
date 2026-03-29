@@ -115,6 +115,24 @@ public final class CMatrixResult {
      * @see RMatrixCalculator#buildBasis(int)
      * @see ClusterVariableEvaluator#computeRandomCFs(double[], int, int[][], int, int)
      */
+    /**
+     * Validates that the first cmat block has exactly {@code expectedCols} columns.
+     *
+     * @throws IllegalStateException if the actual column count does not match
+     */
+    public void validateCols(int expectedCols, String contextMsg) {
+        if (cmat == null || cmat.isEmpty()) return;
+        var firstType = cmat.get(0);
+        if (firstType == null || firstType.isEmpty()) return;
+        double[][] firstBlock = firstType.get(0);
+        if (firstBlock == null || firstBlock.length == 0) return;
+        int actual = firstBlock[0].length;
+        if (actual != expectedCols) {
+            throw new IllegalStateException(contextMsg
+                    + ": expected " + expectedCols + " columns, got " + actual);
+        }
+    }
+
     public double[] evaluateRandomCFs(double[] moleFractions, int numElements) {
         if (moleFractions == null) {
             throw new IllegalArgumentException("moleFractions must not be null");

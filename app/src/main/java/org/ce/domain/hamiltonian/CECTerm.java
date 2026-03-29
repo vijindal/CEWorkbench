@@ -51,4 +51,16 @@ public class CECTerm {
      */
     public double b;
 
+    /**
+     * Validates that {@link #a} and {@link #b} are finite numbers.
+     *
+     * @throws IllegalStateException if either value is NaN or infinite
+     */
+    public void validate() {
+        if (!Double.isFinite(a)) throw new IllegalStateException(
+                "CECTerm '" + name + "': a=" + a + " is not finite");
+        if (!Double.isFinite(b)) throw new IllegalStateException(
+                "CECTerm '" + name + "': b=" + b + " is not finite");
+    }
+
 }

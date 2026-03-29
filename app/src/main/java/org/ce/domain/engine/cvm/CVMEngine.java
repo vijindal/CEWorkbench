@@ -3,8 +3,9 @@ package org.ce.domain.engine.cvm;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
+import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
@@ -15,8 +16,6 @@ import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 
 import java.util.List;
-import java.util.Map;
-import java.util.function.IntFunction;
 import java.util.logging.Logger;
 
 /**
@@ -38,13 +37,6 @@ public class CVMEngine implements ThermodynamicEngine {
 
     private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
 
-    /**
-     * Registry mapping structure phase → basis factory (numComponents → CvCfBasis).
-     * Add a new entry here when a new structure is supported.
-     */
-    private static final Map<String, IntFunction<CvCfBasis>> STRUCTURE_BASIS_REGISTRY = Map.of(
-            "BCC_A2", BccA2TModelCvCfTransformations::basisForNumComponents
-    );
 
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
@@ -66,7 +58,7 @@ public class CVMEngine implements ThermodynamicEngine {
         LOG.info("  composition: [" + formatArray(composition) + "]");
         LOG.info("  numComponents: " + composition.length);
 
-        CvCfBasis basis = resolveBasis(structurePhase, composition.length);
+        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, composition.length);
 
         /*
          * 1. Validate CMatrix exists
@@ -80,6 +72,15 @@ public class CVMEngine implements ThermodynamicEngine {
             );
         }
         LOG.fine("✓ C-Matrix found");
+
+        // Validate C-matrix dimensions match basis
+        CMatrixResult cmatResult = clusterData.getCMatrixResult();
+        cmatResult.validateCols(
+                basis.totalCfs(),
+                "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
+                + " + " + basis.numComponents + " point variables)"
+        );
+        LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
 
         /*
          * 2. Validate composition
@@ -238,7 +239,7 @@ public class CVMEngine implements ThermodynamicEngine {
                 continue;
             }
             String cfName = "v" + term.name.substring(1);  // e4AB → v4AB
-            int idx = basis.cfNames.indexOf(cfName);
+            int idx = basis.indexOfCf(cfName);
             if (idx < 0) {
                 LOG.finer("  Skipping term: " + term.name + " (CF " + cfName + " not in registry)");
                 continue;
@@ -253,23 +254,6 @@ public class CVMEngine implements ThermodynamicEngine {
 
         LOG.fine("  ECI array: [" + formatEciArray(eci) + "]");
         return eci;
-    }
-
-    /**
-     * Resolves the currently supported CVCF basis.
-     * Hardcoded for BCC_A2 with binary/ternary/quaternary component counts.
-     */
-    private static CvCfBasis resolveBasis(String structurePhase, int numComponents) {
-        if (structurePhase == null || structurePhase.isBlank()) {
-            throw new IllegalArgumentException("Missing structurePhase in Hamiltonian entry");
-        }
-        IntFunction<CvCfBasis> factory = STRUCTURE_BASIS_REGISTRY.get(structurePhase);
-        if (factory == null) {
-            throw new IllegalArgumentException(
-                    "Unsupported structure for CVCF runtime: " + structurePhase
-                            + " (supported: " + STRUCTURE_BASIS_REGISTRY.keySet() + ")");
-        }
-        return factory.apply(numComponents);
     }
 
     /**

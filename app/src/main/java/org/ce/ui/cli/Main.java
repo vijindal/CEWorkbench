@@ -1,8 +1,7 @@
 package org.ce.ui.cli;
 
 import org.ce.domain.cluster.*;
-import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.engine.cvm.CVMFreeEnergy;
 import org.ce.domain.engine.mcs.MCSEngine;
@@ -18,11 +17,10 @@ import org.ce.workflow.CalculationService;
 import org.ce.workflow.ClusterIdentificationRequest;
 import org.ce.workflow.ClusterIdentificationWorkflow;
 import org.ce.workflow.cec.CECManagementWorkflow;
+import org.ce.workflow.thermo.ThermodynamicRequest;
 import org.ce.workflow.thermo.ThermodynamicWorkflow;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.io.PrintStream;
 
 /**
@@ -70,37 +68,6 @@ public class Main {
      * <p>Format: key = "{STRUCTURE}|{NCOMP}" e.g. "BCC_A2|2"
      * <p>Source matrices: BccA2TModelCvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}
      */
-    private static final Map<String, CvCfBasis> CVCF_BASIS_REGISTRY = new HashMap<>();
-
-    /**
-     * Supported CVCF structures and their component ranges (T model of CVM).
-     * <p>Enables user discovery when querying available CVCF transformations.</p>
-     */
-    private static final Map<String, String> CVCF_STRUCTURE_SUPPORT = new HashMap<>();
-
-    static {
-        // ===================================================================
-        // BCC_A2 structure, T model of CVM
-        // All transformation matrices derived from theory for T model
-        // Source: BccA2TModelCvCfTransformations class
-        // ===================================================================
-
-        // Binary BCC_A2_T (A-B): 6 orthogonal CFs → 6 CVCF CFs (4 non-point + 2 point)
-        CVCF_BASIS_REGISTRY.put("BCC_A2|2", BccA2TModelCvCfTransformations.basisForNumComponents(2));
-        // Ternary BCC_A2_T (A-B-C): 21 orthogonal CFs → 21 CVCF CFs (18 non-point + 3 point)
-        CVCF_BASIS_REGISTRY.put("BCC_A2|3", BccA2TModelCvCfTransformations.basisForNumComponents(3));
-        // Quaternary BCC_A2_T (A-B-C-D): 55 orthogonal CFs → 55 CVCF CFs (51 non-point + 4 point)
-        CVCF_BASIS_REGISTRY.put("BCC_A2|4", BccA2TModelCvCfTransformations.basisForNumComponents(4));
-
-        // Support metadata for user discovery
-        CVCF_STRUCTURE_SUPPORT.put(
-            "BCC_A2",
-            "T model of CVM. Binary (2-comp): 6 CFs (4 non-point). " +
-            "Ternary (3-comp): 21 CFs (18 non-point). " +
-            "Quaternary (4-comp): 55 CFs (51 non-point). " +
-            "Source: BccA2TModelCvCfTransformations.{BINARY_T, TERNARY_T, QUATERNARY_T}"
-        );
-    }
 
     public static void main(String[] args) {
 
@@ -196,8 +163,6 @@ public class Main {
             HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
             CECManagementWorkflow cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
 
-            java.nio.file.Path inputsDir = workspace.inputsDir();
-
             // ------------------------------------------------------------------
             // TYPE-1a: Cluster Identification + Save
             // ------------------------------------------------------------------
@@ -235,7 +200,7 @@ public class Main {
                         clusterData.getDisorderedCFResult(),
                         maxClusters,
                         config.getNumComponents(),
-                        BccA2TModelCvCfTransformations.basisForNumComponents(config.getNumComponents())
+                        CvCfBasisRegistry.INSTANCE.get(structure, config.getNumComponents())
                 );
                 System.out.println("C-matrix built: " + cmatrix.getLcv().length + " cluster types");
 
@@ -320,37 +285,22 @@ public class Main {
         System.out.println("\n================================================================================");
     }
 
-    private static boolean isCvcfBasisRegistered(String structure, int numComponents) {
-        return CVCF_BASIS_REGISTRY.containsKey(structure.toUpperCase() + "|" + numComponents);
-    }
-
-    private static CvCfBasis getCvcfBasis(String structure, int numComponents) {
-        return CVCF_BASIS_REGISTRY.get(structure.toUpperCase() + "|" + numComponents);
-    }
-
     private static void printSupportedCvcfStructures(PrintStream out) {
-        out.println("Supported CVCF structures and transformations:");
-        out.println("(Source: BccA2CvCfTransformations class)");
-        out.println();
-        for (String structure : CVCF_STRUCTURE_SUPPORT.keySet()) {
-            String support = CVCF_STRUCTURE_SUPPORT.get(structure);
-            out.println("  " + structure + ":");
-            out.println("    " + support);
-        }
+        out.println(CvCfBasisRegistry.INSTANCE.supportedSummary());
         out.println();
     }
 
     private static void scaffoldCecCvcf(String elements, String structure, String model) {
         int numComponents = elements.split("-").length;
 
-        if (!isCvcfBasisRegistered(structure, numComponents)) {
+        if (!CvCfBasisRegistry.INSTANCE.isSupported(structure, numComponents)) {
             System.err.println("CVCF basis not registered for structure '" + structure + "' with " + numComponents + " components.");
             System.err.println();
             printSupportedCvcfStructures(System.err);
             System.exit(1);
         }
 
-        CvCfBasis basis = getCvcfBasis(structure, numComponents);
+        var basis = CvCfBasisRegistry.INSTANCE.get(structure, numComponents);
         System.out.println("Using CVCF basis for " + structure + " (" + numComponents + " components)");
         System.out.println("Clustering to CVCF transformation matrix (orthogonal->CVCF):");
         System.out.println(basis);
@@ -417,9 +367,8 @@ public class Main {
 
             // Run calculation through CalculationService (same path as GUI)
             ThermodynamicResult result = service.runSinglePoint(
-                    clusterId, hamiltonianId, temp, composition, "CVM",
-                    msg -> System.out.println(msg)
-            );
+                    new ThermodynamicRequest(clusterId, hamiltonianId, temp, composition, "CVM",
+                            System.out::println, null));
 
             // Format and display results
             System.out.println("System: " + hamiltonianId);

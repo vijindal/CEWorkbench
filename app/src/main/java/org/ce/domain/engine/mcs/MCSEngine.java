@@ -1,14 +1,20 @@
 package org.ce.domain.engine.mcs;
 
 import org.ce.domain.cluster.ClusCoordListResult;
+import org.ce.domain.cluster.CMatrixResult;
+import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.engine.mcs.MCResult;
 import org.ce.domain.engine.mcs.MCSRunner;
 import org.ce.domain.engine.mcs.MCSUpdate;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.result.EquilibriumState;
+
+import java.util.logging.Logger;
 
 import java.util.function.Consumer;
 
@@ -22,13 +28,28 @@ public class MCSEngine implements ThermodynamicEngine {
 
     private static final double GAS_CONSTANT      = 8.314;  // J/(mol·K)
 
+    private static final Logger LOG = Logger.getLogger(MCSEngine.class.getName());
+
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
 
         ClusCoordListResult clusterData =
                 input.clusterData.getDisorderedClusterResult().getDisClusterData();
 
-        double[] eci = extractEci(input.cec.cecTerms, input.temperature);
+        // Validate C-matrix dimensions match basis (same check as CVMEngine)
+        String structurePhase = input.cec.structurePhase;
+        int numComponents = input.composition.length;
+        var basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, numComponents);
+
+        CMatrixResult cmatResult = input.clusterData.getCMatrixResult();
+        cmatResult.validateCols(
+                basis.totalCfs(),
+                "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
+                + " + " + basis.numComponents + " point variables)"
+        );
+        LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
+
+        double[] eci = extractEci(input.cec, input.temperature, basis);
 
         int L           = input.mcsL;
         int nEquil      = input.mcsNEquil;
@@ -47,6 +68,7 @@ public class MCSEngine implements ThermodynamicEngine {
                 .L(L)
                 .seed(System.currentTimeMillis())
                 .R(GAS_CONSTANT)
+                .basis(basis)
                 .cancellationCheck(Thread.currentThread()::isInterrupted);
 
         Consumer<String> strSink = input.progressSink;
@@ -124,7 +146,7 @@ public class MCSEngine implements ThermodynamicEngine {
                 result.getTemperature(),
                 result.getComposition(),
                 result.getHmixPerSite(),    // enthalpy (energy of mixing per site)
-                result.getHmixPerSite(),    // free energy — G not directly from MCS; use Hmix as proxy
+                Double.NaN,                 // freeEnergy — not available from canonical MCS
                 result.getStdHmixPerSite(), // enthalpy std error from MCS
                 result.getCvJackknife(),    // heat capacity from jackknife
                 result.getAvgCFs(),         // mean correlation functions
@@ -209,11 +231,24 @@ public class MCSEngine implements ThermodynamicEngine {
         }
     }
 
-    /** Extracts temperature-dependent ECI: J(T) = a + b*T */
-    private static double[] extractEci(CECTerm[] terms, double temperature) {
-        double[] eci = new double[terms.length];
-        for (int i = 0; i < terms.length; i++) {
-            eci[i] = terms[i].a + terms[i].b * temperature;
+    /**
+     * Extracts temperature-dependent ECI by CF name, matching CVMEngine.evaluateECI().
+     *
+     * <p>Each term name (e.g. {@code e4AB}) is converted to its CF name ({@code v4AB})
+     * and looked up in {@code basis.cfNames}. The returned array is indexed by CF position
+     * (0..numNonPointCfs−1); missing terms default to 0.</p>
+     */
+    private static double[] extractEci(CECEntry cec, double temperature, CvCfBasis basis) {
+        int ncf = basis.numNonPointCfs;
+        double[] eci = new double[ncf];   // defaults to 0
+        if (cec.cecTerms == null) return eci;
+        for (CECTerm term : cec.cecTerms) {
+            if (term.name == null || !term.name.startsWith("e")) continue;
+            String cfName = "v" + term.name.substring(1);   // e4AB → v4AB
+            int idx = basis.indexOfCf(cfName);
+            if (idx >= 0 && idx < ncf) {
+                eci[idx] = term.a + term.b * temperature;
+            }
         }
         return eci;
     }

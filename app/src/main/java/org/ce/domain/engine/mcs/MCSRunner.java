@@ -3,6 +3,7 @@ package org.ce.domain.engine.mcs;
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.ClusCoordListResult;
 import org.ce.domain.cluster.Vector3D;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,7 @@ public class MCSRunner {
     private final long                seed;
     private final Consumer<MCSUpdate> updateListener;
     private final BooleanSupplier     cancellationCheck;
+    private final CvCfBasis           basis;
 
     private MCSRunner(Builder b) {
         this.clusterData       = b.clusterData;
@@ -44,6 +46,7 @@ public class MCSRunner {
         this.R                 = b.R;
         this.updateListener    = b.updateListener;
         this.cancellationCheck = b.cancellationCheck;
+        this.basis             = b.basis;
     }
 
     public MCResult run() {
@@ -63,11 +66,18 @@ public class MCSRunner {
         List<List<Cluster>> orbits = clusterData.getOrbitList();
         for (int t = 0; t < tc; t++) orbitSizes[t] = orbits.get(t).size();
 
-        double[] hmixCoeff           = emb.computeHmixCoeff(eci, tc);
         int[]    multiSiteEmbedCounts = emb.multiSiteEmbedCountsPerType(tc);
-        MCSampler sampler = new MCSampler(N, orbitSizes, orbits, R, hmixCoeff, multiSiteEmbedCounts);
+        MCSampler sampler = new MCSampler(N, orbitSizes, orbits, R, eci, multiSiteEmbedCounts, basis);
 
-        MCEngine engine = new MCEngine(emb, eci, orbits, numComp, T, nEquil, nAvg, R, rng);
+        // Build orbit-type-indexed ECI array for MCEngine/LocalEnergyCalc.
+        // eci[] is CVCF-ordered (eci[l] = ECI for basis.cfNames[l]).
+        // MCEngine uses eci[clusterType] — indexed by orbit type t.
+        // Transform: eciOrth[t] = Σ_l  eci_cvcf[l] * Tinv[l][t]
+        // This is the effective orthogonal-basis ECI for orbit type t, assuming
+        // orbit type t corresponds to T-matrix row t (confirmed for binary BCC_A2).
+        double[] eciOrth = buildEciByOrbitType(eci, tc, basis);
+
+        MCEngine engine = new MCEngine(emb, eciOrth, orbits, numComp, T, nEquil, nAvg, R, rng);
         if (updateListener    != null) engine.setUpdateListener(updateListener);
         if (cancellationCheck != null) engine.setCancellationCheck(cancellationCheck);
 
@@ -75,6 +85,41 @@ public class MCSRunner {
         LOG.fine(String.format("MCSRunner.run — EXIT: acceptRate=%.3f, <E>/site=%.6f",
                 result.getAcceptRate(), result.getEnergyPerSite()));
         return result;
+    }
+
+    /**
+     * Converts a CVCF-ordered ECI array (indexed by CF position l) into an
+     * orbit-type-indexed ECI array (indexed by orbit type t) suitable for
+     * {@link LocalEnergyCalc}.
+     *
+     * <p>Uses the Tinv transform: {@code eciOrth[t] = Σ_l eci_cvcf[l] * Tinv[l][t]}.
+     * This is the effective orthogonal-basis ECI for orbit type t, given that orbit
+     * type t corresponds to T-matrix row t.</p>
+     *
+     * <p>When {@code basis} or {@code basis.Tinv} is null (ternary/quaternary without
+     * Tinv), falls back to passing the CVCF eci[] directly with a WARNING — this will
+     * be wrong for ternary/quaternary but avoids a crash.</p>
+     */
+    private static double[] buildEciByOrbitType(double[] eciCvcf, int tc, CvCfBasis basis) {
+        if (basis == null || basis.Tinv == null) {
+            LOG.warning("buildEciByOrbitType: Tinv unavailable — passing CVCF eci[] directly to MCEngine "
+                    + "(ECI indexing will be wrong for multi-component systems)");
+            // Pad or trim to tc length
+            double[] out = new double[tc];
+            System.arraycopy(eciCvcf, 0, out, 0, Math.min(eciCvcf.length, tc));
+            return out;
+        }
+        double[][] Tinv = basis.Tinv;   // [numCFs][numRows(T)] = [totalCfs][tc]
+        int nCvcf = eciCvcf.length;     // = numNonPointCfs
+        double[] eciOrth = new double[tc];
+        for (int t = 0; t < tc; t++) {
+            double sum = 0.0;
+            for (int l = 0; l < nCvcf && l < Tinv.length; l++) {
+                if (t < Tinv[l].length) sum += eciCvcf[l] * Tinv[l][t];
+            }
+            eciOrth[t] = sum;
+        }
+        return eciOrth;
     }
 
     public static List<Vector3D> buildBCCPositions(int L) {
@@ -105,6 +150,7 @@ public class MCSRunner {
         private double              R                 = 1.0;
         private Consumer<MCSUpdate> updateListener    = null;
         private BooleanSupplier     cancellationCheck = null;
+        private CvCfBasis           basis             = null;
 
         private Builder() {}
 
@@ -122,6 +168,7 @@ public class MCSRunner {
         public Builder R(double r)                              { this.R = r;                  return this; }
         public Builder updateListener(Consumer<MCSUpdate> l)    { this.updateListener = l;     return this; }
         public Builder cancellationCheck(BooleanSupplier check) { this.cancellationCheck = check; return this; }
+        public Builder basis(CvCfBasis b)                       { this.basis = b;              return this; }
 
         public MCSRunner build() {
             if (clusterData == null) throw new IllegalStateException("clusterData required");
@@ -130,6 +177,10 @@ public class MCSRunner {
             if (xFrac == null) {
                 xFrac = new double[numComp];
                 for (int c = 0; c < numComp; c++) xFrac[c] = 1.0 / numComp;
+            }
+            if (basis == null) {
+                LOG.warning("MCSRunner built without a CvCfBasis — "
+                        + "CVCF CF measurement will be unavailable for this run");
             }
             return new MCSRunner(this);
         }

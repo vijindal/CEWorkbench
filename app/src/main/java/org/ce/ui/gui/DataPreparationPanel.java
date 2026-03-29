@@ -5,7 +5,7 @@ import org.ce.domain.cluster.CMatrixBuilder;
 import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.Vector3D;
-import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
+import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.InputLoader;
 import org.ce.storage.Workspace;
@@ -331,7 +331,7 @@ public class DataPreparationPanel extends JPanel {
                         partial.getDisorderedCFResult(),
                         maxClusters,
                         numComp,
-                        BccA2TModelCvCfTransformations.basisForNumComponents(numComp)
+                        CvCfBasisRegistry.INSTANCE.get("BCC_A2", numComp)
                 );
 
                 publish("Saving AllClusterData...");
