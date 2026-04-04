@@ -1,136 +1,155 @@
 {
-  "elements" : "Nb-Ti-V",
-  "structurePhase" : "BCC_A2",
-  "model" : "T_CVCF",
-  "cecTerms" : [ {
-    "name" : "e4AB",
-    "description" : "v4AB (Nb-Ti tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "e4AC",
-    "description" : "v4AC (Nb-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "e4BC",
-    "description" : "v4BC (Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "e4ABC1",
-    "description" : "v4ABC1 (Nb-Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : -48800.0,
-    "b" : 0.0
-  }, {
-    "name" : "e4ABC2",
-    "description" : "v4ABC2 (Nb-Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : -24400.0,
-    "b" : 0.0
-  }, {
-    "name" : "e4ABC3",
-    "description" : "v4ABC3 (Nb-Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : -24400.0,
-    "b" : 0.0
-  }, {
-    "name" : "e3AB",
-    "description" : "v3AB (Nb-Ti triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "e3AC",
-    "description" : "v3AC (Nb-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "e3BC",
-    "description" : "v3BC (Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "e3ABC1",
-    "description" : "v3ABC1 (Nb-Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -20000.0,
-    "b" : 0.0
-  }, {
-    "name" : "e3ABC2",
-    "description" : "v3ABC2 (Nb-Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -20000.0,
-    "b" : 0.0
-  }, {
-    "name" : "e3ABC3",
-    "description" : "v3ABC3 (Nb-Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -20000.0,
-    "b" : 0.0
-  }, {
-    "name" : "e22AB",
-    "description" : "v22AB (Nb-Ti II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 3120.0,
-    "b" : 0.0
-  }, {
-    "name" : "e22AC",
-    "description" : "v22AC (Nb-V II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 7040.0,
-    "b" : 0.0
-  }, {
-    "name" : "e22BC",
-    "description" : "v22BC (Ti-V II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 4080.0,
-    "b" : 0.0
-  }, {
-    "name" : "e21AB",
-    "description" : "v21AB (Nb-Ti I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 6240.0,
-    "b" : 0.0
-  }, {
-    "name" : "e21AC",
-    "description" : "v21AC (Nb-V I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 14080.0,
-    "b" : 0.0
-  }, {
-    "name" : "e21BC",
-    "description" : "v21BC (Ti-V I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 8160.0,
-    "b" : 0.0
-  } ],
-  "cecUnits" : "J/mol",
-  "reference" : "Extracted from Nb-Ti-V-Zr quaternary system (Jindal & Lele 2025)",
-  "notes" : "CVCF CEC for ternary Nb-Ti-V in T model of CVM. 18 non-point CFs + 3 point variables",
-  "ncf" : 18
+  "elements": "Nb-Ti-V",
+  "structurePhase": "BCC_A2",
+  "model": "T_CVCF",
+  "cecTerms": [
+    {
+      "name": "e4AB",
+      "description": "v4AB (Nb-Ti tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4AC",
+      "description": "v4AC (Nb-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4BC",
+      "description": "v4BC (Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4ABC1",
+      "description": "v4ABC1 (Nb-Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 48800.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4ABC2",
+      "description": "v4ABC2 (Nb-Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": -24400.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4ABC3",
+      "description": "v4ABC3 (Nb-Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": -24400.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3AB",
+      "description": "v3AB (Nb-Ti triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3AC",
+      "description": "v3AC (Nb-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3BC",
+      "description": "v3BC (Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3ABC1",
+      "description": "v3ABC1 (Nb-Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -20000.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3ABC2",
+      "description": "v3ABC2 (Nb-Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -20000.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3ABC3",
+      "description": "v3ABC3 (Nb-Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -20000.0,
+      "b": 0.0
+    },
+    {
+      "name": "e22AB",
+      "description": "v22AB (Nb-Ti II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 3120.0,
+      "b": 0.0
+    },
+    {
+      "name": "e22AC",
+      "description": "v22AC (Nb-V II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 7040.0,
+      "b": 0.0
+    },
+    {
+      "name": "e22BC",
+      "description": "v22BC (Ti-V II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 4080.0,
+      "b": 0.0
+    },
+    {
+      "name": "e21AB",
+      "description": "v21AB (Nb-Ti I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 6240.0,
+      "b": 0.0
+    },
+    {
+      "name": "e21AC",
+      "description": "v21AC (Nb-V I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 14080.0,
+      "b": 0.0
+    },
+    {
+      "name": "e21BC",
+      "description": "v21BC (Ti-V I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 8160.0,
+      "b": 0.0
+    }
+  ],
+  "cecUnits": "J/mol",
+  "reference": "Extracted from Nb-Ti-V-Zr quaternary system (Jindal & Lele 2025)",
+  "notes": "CVCF CEC for ternary Nb-Ti-V in T model of CVM. 18 non-point CFs + 3 point variables",
+  "ncf": 18
 }

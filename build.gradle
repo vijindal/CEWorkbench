@@ -14,18 +14,18 @@ java {
 sourceSets {
     main {
         java {
-            srcDirs = ['app/src/main/java']
+            srcDirs = ['src/main/java']
         }
         resources {
-            srcDirs = ['app/src/main/resources']
+            srcDirs = ['src/main/resources']
         }
     }
     test {
         java {
-            srcDirs = ['app/src/test/java']
+            srcDirs = ['src/test/java']
         }
         resources {
-            srcDirs = ['app/src/main/resources']
+            srcDirs = ['src/main/resources']
         }
     }
 }
@@ -56,6 +56,29 @@ task runGui(type: JavaExec) {
     mainClass = 'org.ce.CEWorkbench'
     // Enable FINE-level logging via logging.properties at project root
     jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
+}
+
+task runGuiDebug(type: JavaExec) {
+    group = 'application'
+    description = 'Launch the CE Workbench GUI with CVM stage-by-stage debug dumps enabled'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.CEWorkbench'
+    jvmArgs = [
+        '-Djava.util.logging.config.file=logging.properties',
+        '-Dcvm.debug=true'      // enables CVMDebugDump output at every stage
+    ]
+}
+
+task runDebugCli(type: JavaExec) {
+    group = 'application'
+    description = 'Launch the CE Workbench CLI with CVM stage-by-stage debug dumps enabled'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.ui.cli.Main'
+    jvmArgs = [
+        '-Djava.util.logging.config.file=logging.properties',
+        '-Dcvm.debug=true'
+    ]
+    args = ['all', 'Nb-Ti', 'BCC_A2', 'T_CVCF']
 }
 
 task runDemo(type: JavaExec) {

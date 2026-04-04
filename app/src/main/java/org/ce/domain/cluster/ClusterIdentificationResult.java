@@ -1,11 +1,17 @@
 package org.ce.domain.cluster;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
  * Immutable result of the two-stage Cluster Identification pipeline.
+ *
+ * <p>Annotated with @JsonIgnoreProperties(ignoreUnknown = true) to remain
+ * robust against diagnostic fields (like nijTable) that may be added to the 
+ * Mathematica-exported JSON but aren't strictly required for thermodynamic 
+ * calculations.</p>
  *
  * <h2>Conceptual role</h2>
  * <p>Cluster identification determines <em>which clusters exist</em> for a
