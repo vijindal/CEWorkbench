@@ -1,6 +1,7 @@
 package org.ce.domain.cluster.cvcf;
 
 import java.util.List;
+import org.ce.domain.cluster.LinearAlgebra;
 
 /**
  * Hardcoded CVCF basis transformation matrices for BCC_A2 (T model of CVM).
@@ -279,8 +280,6 @@ public final class BccA2TModelCvCfTransformations {
      * ECI (Effective Cluster Interaction) names for quaternary BCC_A2.
      * Order matches {@code QUATERNARY_CF_NAMES} for consistent ECI lookup.
      *
-     * <p>Used by CvCfHamiltonianEvaluator to map CF names to their effective ECIs
-     * when computing Hmc directly from eq. 30 of Jindal & Lele (2025).</p>
      */
     public static final List<String> QUATERNARY_ECI_NAMES = List.of(
             // Tetrahedra (binary subsets)
@@ -400,10 +399,10 @@ public final class BccA2TModelCvCfTransformations {
     };
 
     /** Numerically computed inverse of {@link #TERNARY_T}. */
-    public static final double[][] TERNARY_T_INV   = invert(TERNARY_T);
+    public static final double[][] TERNARY_T_INV = LinearAlgebra.invert(TERNARY_T);
 
     /** Numerically computed inverse of {@link #QUATERNARY_T}. */
-    public static final double[][] QUATERNARY_T_INV = invert(QUATERNARY_T);
+    public static final double[][] QUATERNARY_T_INV = LinearAlgebra.invert(QUATERNARY_T);
 
     static {
         assertIdentity(BINARY_T,     BINARY_T_INV,     "BINARY");
@@ -436,40 +435,6 @@ public final class BccA2TModelCvCfTransformations {
     // =========================================================================
     // Matrix utilities
     // =========================================================================
-
-    /**
-     * Computes the inverse of a square matrix via Gaussian elimination with
-     * partial pivoting.
-     *
-     * @throws IllegalStateException if the matrix is singular
-     */
-    private static double[][] invert(double[][] A) {
-        int n = A.length;
-        double[][] aug = new double[n][2 * n];
-        for (int i = 0; i < n; i++) {
-            System.arraycopy(A[i], 0, aug[i], 0, n);
-            aug[i][n + i] = 1.0;
-        }
-        for (int col = 0; col < n; col++) {
-            int pivot = col;
-            for (int row = col + 1; row < n; row++) {
-                if (Math.abs(aug[row][col]) > Math.abs(aug[pivot][col])) pivot = row;
-            }
-            if (Math.abs(aug[pivot][col]) < 1e-12)
-                throw new IllegalStateException("Matrix is singular at column " + col);
-            double[] tmp = aug[col]; aug[col] = aug[pivot]; aug[pivot] = tmp;
-            double scale = aug[col][col];
-            for (int j = 0; j < 2 * n; j++) aug[col][j] /= scale;
-            for (int row = 0; row < n; row++) {
-                if (row == col) continue;
-                double f = aug[row][col];
-                for (int j = 0; j < 2 * n; j++) aug[row][j] -= f * aug[col][j];
-            }
-        }
-        double[][] inv = new double[n][n];
-        for (int i = 0; i < n; i++) System.arraycopy(aug[i], n, inv[i], 0, n);
-        return inv;
-    }
 
     /** Asserts T @ Tinv ≈ Identity within 1e-10 at class-load time. */
     private static void assertIdentity(double[][] T, double[][] Tinv, String label) {

@@ -103,7 +103,7 @@ public class CFIdentifier {
         ClusCoordListResult disCFData =
                 ClusCoordListGenerator.generate(disMaxClusCoord, disSymOps, basisN);
 
-        int tcfdis = countNonEmpty(disCFData);
+        int tcfdis = ClusterUtils.countNonEmpty(disCFData);
 
         // ================================================================
         // STAGE 2b: Phase CFs (n-component basis, phase symmetry)
@@ -115,7 +115,7 @@ public class CFIdentifier {
         ClusCoordListResult phaseCFData =
                 ClusCoordListGenerator.generate(maxClusCoord, symOps, basisN);
 
-        int tcPhase = countNonEmpty(phaseCFData);
+        int tcPhase = ClusterUtils.countNonEmpty(phaseCFData);
 
         // 2b-2. Transform phase CF coordinates to HSP frame
         // Mathematica: CFCoordList = ordToDisordCoord[rotateMat, translateMat, CFData[[1]]]
@@ -127,8 +127,8 @@ public class CFIdentifier {
 
         // 2b-3. Classify phase CFs into HSP CF types
         // Mathematica: ordCFData = transClusCoordList[disCFData, CFData, CFCoordList]
-        ClusCoordListResult disCFNonEmpty   = trimToNonEmpty(disCFData,    tcfdis);
-        ClusCoordListResult phaseCFNonEmpty = trimToNonEmpty(phaseCFData,  tcPhase);
+        ClusCoordListResult disCFNonEmpty   = ClusterUtils.trimToNonEmpty(disCFData,    tcfdis);
+        ClusCoordListResult phaseCFNonEmpty = ClusterUtils.trimToNonEmpty(phaseCFData,  tcPhase);
 
         ClassifiedClusterResult ordCFData =
                 OrderedClusterClassifier.classify(
@@ -143,7 +143,7 @@ public class CFIdentifier {
         List<String> basisBin = List.of("s1");
 
         ClusCoordListResult disClusDataForGrouping =
-                trimToNonEmpty(clusterResult.getDisClusterData(), tcdis);
+                ClusterUtils.trimToNonEmpty(clusterResult.getDisClusterData(), tcdis);
 
         GroupedCFResult groupedCFData =
                 CFGroupGenerator.groupCFData(
@@ -236,27 +236,6 @@ public class CFIdentifier {
             basis.add("s" + i);
         }
         return basis;
-    }
-
-    /** Counts non-empty clusters (site count > 0) in a result. */
-    private static int countNonEmpty(ClusCoordListResult data) {
-        int count = 0;
-        for (Cluster c : data.getClusCoordList()) {
-            if (!c.getAllSites().isEmpty()) count++;
-        }
-        return count;
-    }
-
-    /** Returns a new result trimmed to the first {@code n} entries. */
-    private static ClusCoordListResult trimToNonEmpty(
-            ClusCoordListResult data, int n) {
-        return new ClusCoordListResult(
-                data.getClusCoordList() .subList(0, n),
-                data.getMultiplicities().subList(0, n),
-                data.getOrbitList()     .subList(0, n),
-                data.getRcList()        .subList(0, n),
-                n,
-                data.getNumPointSubClusFound());
     }
 
     /**

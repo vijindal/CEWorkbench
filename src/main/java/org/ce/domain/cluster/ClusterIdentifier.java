@@ -122,7 +122,7 @@ public class ClusterIdentifier {
         // tcdis excludes the empty cluster (last element in Mathematica 1-indexed list)
         // In Java the empty cluster is the last element (smallest size = 0)
         // tcdis = disClusData[[5]] - 1  (Mathematica)
-        int tcdis = countNonEmptyClusters(disClusterData);
+        int tcdis = ClusterUtils.countNonEmpty(disClusterData);
 
         LOG.fine("ClusterIdentifier.identify — Stage 1a: tcdis=" + tcdis + ", nxcdis=1");
 
@@ -157,7 +157,7 @@ public class ClusterIdentifier {
         ClusCoordListResult phaseClusterData =
                 ClusCoordListGenerator.generate(maxClusCoord, symOps, basisBin);
 
-        int tc = countNonEmptyClusters(phaseClusterData);
+        int tc = ClusterUtils.countNonEmpty(phaseClusterData);
         LOG.fine("ClusterIdentifier.identify — Stage 1b: tc=" + tc);
 
         // 1b-2. Transform ordered cluster coordinates into HSP frame
@@ -171,8 +171,8 @@ public class ClusterIdentifier {
         // 1b-3. Classify ordered clusters into HSP types
         // Mathematica: ordClusData = transClusCoordList[disClusData, clusData, clusCoordList]
         // We pass a ClusCoordListResult wrapping only the non-empty dis clusters for classification
-        ClusCoordListResult disClusDataNonEmpty = trimToNonEmpty(disClusterData, tcdis);
-        ClusCoordListResult phaseDataNonEmpty   = trimToNonEmpty(phaseClusterData, tc);
+        ClusCoordListResult disClusDataNonEmpty = ClusterUtils.trimToNonEmpty(disClusterData, tcdis);
+        ClusCoordListResult phaseDataNonEmpty   = ClusterUtils.trimToNonEmpty(phaseClusterData, tc);
 
         ClassifiedClusterResult ordClusterData =
                 OrderedClusterClassifier.classify(
@@ -225,41 +225,4 @@ public class ClusterIdentifier {
                 tc,
                 nxc);
     }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Counts cluster types that have at least one site (excludes the empty cluster).
-     * The empty cluster always appears last in the sorted list (smallest size = 0).
-     */
-    private static int countNonEmptyClusters(ClusCoordListResult data) {
-        int count = 0;
-        for (Cluster c : data.getClusCoordList()) {
-            if (!c.getAllSites().isEmpty()) count++;
-        }
-        return count;
-    }
-
-    /**
-     * Returns a new {@link ClusCoordListResult} containing only the first
-     * {@code nonEmptyCount} entries (the non-empty clusters).
-     * This is needed because {@link OrderedClusterClassifier} expects
-     * only non-empty clusters in its input.
-     */
-    private static ClusCoordListResult trimToNonEmpty(
-            ClusCoordListResult data, int nonEmptyCount) {
-
-        return new ClusCoordListResult(
-                data.getClusCoordList()  .subList(0, nonEmptyCount),
-                data.getMultiplicities() .subList(0, nonEmptyCount),
-                data.getOrbitList()      .subList(0, nonEmptyCount),
-                data.getRcList()         .subList(0, nonEmptyCount),
-                nonEmptyCount,
-                data.getNumPointSubClusFound());
-    }
 }
-
-
-

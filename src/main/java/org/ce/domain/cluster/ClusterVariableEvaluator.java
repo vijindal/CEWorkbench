@@ -324,7 +324,7 @@ public final class ClusterVariableEvaluator {
         System.out.println("DEBUG: Orthogonal Random state (uOldFull): " + Arrays.toString(uForTransform));
 
         // Step 2: v_nonpoint = Tinv[:ncf, :] * u_for_transform
-        double[][] tInv = basis.Tinv != null ? basis.Tinv : invertSquareMatrix(basis.T);
+        double[][] tInv = basis.Tinv != null ? basis.Tinv : LinearAlgebra.invert(basis.T);
         double[] vRand = new double[ncf];
         for (int j = 0; j < ncf; j++) {
             for (int i = 0; i < tInv[0].length; i++) {
@@ -371,7 +371,7 @@ public final class ClusterVariableEvaluator {
 
         System.out.println("DEBUG: Orthogonal Random state (fallback uApprox): " + Arrays.toString(uApprox));
 
-        double[][] tInv = basis.Tinv != null ? basis.Tinv : invertSquareMatrix(basis.T);
+        double[][] tInv = basis.Tinv != null ? basis.Tinv : LinearAlgebra.invert(basis.T);
         double[] vRand = new double[ncf];
         for (int j = 0; j < ncf; j++) {
             for (int i = 0; i < tInv[0].length; i++) {
@@ -379,31 +379,6 @@ public final class ClusterVariableEvaluator {
             }
         }
         return vRand;
-    }
-
-    /**
-     * Inverts a square matrix using Gaussian elimination by solving A*x=e_i.
-     */
-    private static double[][] invertSquareMatrix(double[][] a) {
-        int n = a.length;
-        if (n == 0) {
-            throw new IllegalArgumentException("Cannot invert empty matrix");
-        }
-        for (int i = 0; i < n; i++) {
-            if (a[i] == null || a[i].length != n) {
-                throw new IllegalArgumentException("Matrix must be square for inversion");
-            }
-        }
-        double[][] inv = new double[n][n];
-        for (int col = 0; col < n; col++) {
-            double[] e = new double[n];
-            e[col] = 1.0;
-            double[] x = LinearAlgebra.solve(a, e);
-            for (int row = 0; row < n; row++) {
-                inv[row][col] = x[row];
-            }
-        }
-        return inv;
     }
 
     /**

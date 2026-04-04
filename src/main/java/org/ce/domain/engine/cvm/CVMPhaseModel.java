@@ -5,7 +5,6 @@ import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfIntegration;
 import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 
@@ -225,20 +224,6 @@ public class CVMPhaseModel {
         model.setMoleFractions(moleFractions);
         model.ensureMinimized();
         return model;
-    }
-
-    /**
-     * Compatibility wrapper for old CVCF integration overload.
-     */
-    public static CVMPhaseModel create(
-            CVMInput input,
-            double[] eci,
-            double temperature,
-            double[] moleFractions,
-            CvCfIntegration integration) throws Exception {
-        // integration is currently unused in the unified model path
-        // and exists for legacy compatibility.
-        return create(input, eci, temperature, moleFractions);
     }
 
     /**

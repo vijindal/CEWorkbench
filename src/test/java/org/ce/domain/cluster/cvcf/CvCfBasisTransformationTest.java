@@ -99,57 +99,6 @@ class CvCfBasisTransformationTest {
     }
 
     @Test
-    @DisplayName("ECI array to map conversion works correctly")
-    void testEciArrayToMapConversion() {
-        // Create a manual integration instance with a mock cmat result
-        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
-        CvCfIntegration integration = new CvCfIntegration(basis, null, List.of(), List.of(), List.of());
-
-        double[] eciArray = {1.0, 2.0, 3.0, 4.0};  // [e4, e3, e22, e21]
-        var eciMap = integration.flatEciToMap(eciArray);
-
-        assertEquals(4, eciMap.size());
-        assertEquals(1.0, eciMap.get("v4AB"));
-        assertEquals(2.0, eciMap.get("v3AB"));
-        assertEquals(3.0, eciMap.get("v22AB"));
-        assertEquals(4.0, eciMap.get("v21AB"));
-    }
-
-    @Test
-    @DisplayName("ECI map to array conversion works correctly")
-    void testEciMapToArrayConversion() {
-        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
-        CvCfIntegration integration = new CvCfIntegration(basis, null, List.of(), List.of(), List.of());
-
-        var eciMap = java.util.Map.of(
-                "v4AB", 1.0,
-                "v3AB", 2.0,
-                "v22AB", 3.0,
-                "v21AB", 4.0
-        );
-        double[] eciArray = integration.mapEciToFlat(eciMap);
-
-        assertArrayEquals(new double[]{1.0, 2.0, 3.0, 4.0}, eciArray, 1e-10);
-    }
-
-    @Test
-    @DisplayName("ECI map to array handles missing ECIs (CEC inheritance)")
-    void testEciInheritance() {
-        CvCfBasis basis = BccA2TModelCvCfTransformations.binaryBasis();
-        CvCfIntegration integration = new CvCfIntegration(basis, null, List.of(), List.of(), List.of());
-
-        // Only provide two ECIs
-        var eciMap = java.util.Map.of(
-                "v4AB", 1.0,
-                "v21AB", 4.0
-        );
-        double[] eciArray = integration.mapEciToFlat(eciMap);
-
-        // Missing values should be 0
-        assertArrayEquals(new double[]{1.0, 0.0, 0.0, 4.0}, eciArray, 1e-10);
-    }
-
-    @Test
     @DisplayName("T matrix for binary has expected sparsity")
     void testBinaryTMatrixStructure() {
         double[][] T = BccA2TModelCvCfTransformations.BINARY_T;

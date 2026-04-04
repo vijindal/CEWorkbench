@@ -119,6 +119,68 @@ public final class LinearAlgebra {
     }
 
     /**
+     * Computes the inverse of a square matrix using Gaussian elimination with
+     * partial pivoting.
+     *
+     * @param A the n Ã— n matrix to invert
+     * @return the n Ã— n inverse matrix
+     * @throws IllegalArgumentException if the matrix is singular or not square
+     */
+    public static double[][] invert(double[][] A) {
+        int n = A.length;
+        if (n == 0) throw new IllegalArgumentException("Empty matrix");
+        if (A[0].length != n) throw new IllegalArgumentException("Matrix must be square");
+
+        // Augmented matrix [A | I]
+        double[][] aug = new double[n][2 * n];
+        for (int i = 0; i < n; i++) {
+            System.arraycopy(A[i], 0, aug[i], 0, n);
+            aug[i][n + i] = 1.0;
+        }
+
+        // Forward elimination
+        for (int col = 0; col < n; col++) {
+            // Find pivot
+            int pivot = col;
+            for (int row = col + 1; row < n; row++) {
+                if (Math.abs(aug[row][col]) > Math.abs(aug[pivot][col])) pivot = row;
+            }
+
+            // Check for singularity
+            if (Math.abs(aug[pivot][col]) < 1e-18) {
+                throw new IllegalArgumentException("Matrix is singular or near-singular at column " + col);
+            }
+
+            // Swap rows
+            double[] tmp = aug[col];
+            aug[col] = aug[pivot];
+            aug[pivot] = tmp;
+
+            // Normalize pivot row
+            double scale = aug[col][col];
+            for (int j = 0; j < 2 * n; j++) {
+                aug[col][j] /= scale;
+            }
+
+            // Eliminate other rows
+            for (int row = 0; row < n; row++) {
+                if (row == col) continue;
+                double f = aug[row][col];
+                for (int j = 0; j < 2 * n; j++) {
+                    aug[row][j] -= f * aug[col][j];
+                }
+            }
+        }
+
+        // Extract inverse [I | A^-1]
+        double[][] inv = new double[n][n];
+        for (int i = 0; i < n; i++) {
+            System.arraycopy(aug[i], n, inv[i], 0, n);
+        }
+        return inv;
+    }
+
+    /**
      * Computes the dot product of two vectors.
      *
      * @param a first vector

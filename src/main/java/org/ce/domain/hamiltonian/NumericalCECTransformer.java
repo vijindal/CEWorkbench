@@ -1,6 +1,7 @@
 package org.ce.domain.hamiltonian;
 
 import java.util.*;
+import org.ce.domain.cluster.LinearAlgebra;
 
 /**
  * Numerical CEC–CVM Transformer: basis transformation from lower-order (K_low) to higher-order (K_high) systems.
@@ -233,36 +234,7 @@ public class NumericalCECTransformer {
             }
         }
 
-        return gaussianSolve(ATA, ATb);
-    }
-
-    /**
-     * Gaussian elimination with partial pivoting to solve A·x = b.
-     */
-    private static double[] gaussianSolve(double[][] A, double[] b) {
-        int n = b.length;
-
-        for (int i = 0; i < n; i++) {
-
-            double pivot = A[i][i];
-            if (Math.abs(pivot) < 1e-12) continue;
-
-            // Scale pivot row
-            for (int j = i; j < n; j++) A[i][j] /= pivot;
-            b[i] /= pivot;
-
-            // Eliminate below/above
-            for (int k = 0; k < n; k++) {
-                if (k == i) continue;
-                double factor = A[k][i];
-                for (int j = i; j < n; j++) {
-                    A[k][j] -= factor * A[i][j];
-                }
-                b[k] -= factor * b[i];
-            }
-        }
-
-        return b;
+        return LinearAlgebra.solve(ATA, ATb);
     }
 
     // ============================================================

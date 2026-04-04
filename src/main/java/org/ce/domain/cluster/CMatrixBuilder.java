@@ -48,11 +48,11 @@ public final class CMatrixBuilder {
                 + ", numElements=" + numElements);
 
         List<Position> siteList = SiteListBuilder.buildSiteList(maxClusters);
-        PRules pRules = PRulesBuilder.build(siteList.size(), numElements);
+        PRules pRules = PRules.build(siteList.size(), numElements);
 
         List<List<List<List<SiteOp>>>> cfSiteOpList =
                 CFSiteOpListBuilder.build(cfResult.getGroupedCFData(), siteList);
-        SubstituteRules substituteRules = SubstituteRulesBuilder.build(cfSiteOpList, siteList);
+        SubstituteRules substituteRules = SubstituteRules.build(cfSiteOpList, siteList);
 
         int totalCfs = cfResult.getTcf();
         int[][] lcf = cfResult.getLcf();

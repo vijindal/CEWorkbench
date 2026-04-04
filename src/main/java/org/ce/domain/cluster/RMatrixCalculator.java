@@ -37,7 +37,7 @@ public final class RMatrixCalculator {
             }
         }
 
-        return invert(matM);
+        return LinearAlgebra.invert(matM);
     }
 
     /**
@@ -68,67 +68,6 @@ public final class RMatrixCalculator {
             }
         }
         return basis;
-    }
-
-    private static double[][] invert(double[][] matrix) {
-        int n = matrix.length;
-        double[][] a = new double[n][n];
-        double[][] inv = new double[n][n];
-
-        for (int i = 0; i < n; i++) {
-            if (matrix[i].length != n) {
-                throw new IllegalArgumentException("Matrix must be square");
-            }
-            for (int j = 0; j < n; j++) {
-                a[i][j] = matrix[i][j];
-            }
-            inv[i][i] = 1.0;
-        }
-
-        for (int i = 0; i < n; i++) {
-            int pivot = i;
-            double max = Math.abs(a[i][i]);
-            for (int r = i + 1; r < n; r++) {
-                double v = Math.abs(a[r][i]);
-                if (v > max) {
-                    max = v;
-                    pivot = r;
-                }
-            }
-            if (max < EPS) {
-                throw new IllegalStateException("Matrix is singular or ill-conditioned");
-            }
-            if (pivot != i) {
-                double[] tmp = a[i];
-                a[i] = a[pivot];
-                a[pivot] = tmp;
-                double[] tmpInv = inv[i];
-                inv[i] = inv[pivot];
-                inv[pivot] = tmpInv;
-            }
-
-            double diag = a[i][i];
-            for (int j = 0; j < n; j++) {
-                a[i][j] /= diag;
-                inv[i][j] /= diag;
-            }
-
-            for (int r = 0; r < n; r++) {
-                if (r == i) {
-                    continue;
-                }
-                double factor = a[r][i];
-                if (Math.abs(factor) < EPS) {
-                    continue;
-                }
-                for (int c = 0; c < n; c++) {
-                    a[r][c] -= factor * a[i][c];
-                    inv[r][c] -= factor * inv[i][c];
-                }
-            }
-        }
-
-        return inv;
     }
 }
 
