@@ -1,8 +1,11 @@
 package org.ce.domain.cluster.cvcf;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.IntFunction;
 
 /**
  * Holds all data for one (structure, numComponents) CVCF basis combination.
@@ -120,5 +123,94 @@ public final class CvCfBasis {
     /** Total number of CFs (non-point + point). */
     public int totalCfs() {
         return cfNames.size();
+    }
+
+    // =========================================================================
+    // Registry
+    // =========================================================================
+
+    /**
+     * Single registry mapping (structurePhase, numComponents) → CvCfBasis.
+     *
+     * <p>Replaces the standalone CvCfBasisRegistry. Usage:</p>
+     * <pre>
+     *   CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get("BCC_A2", 3);
+     * </pre>
+     */
+    public static final class Registry {
+
+        /** Singleton. */
+        public static final Registry INSTANCE = new Registry();
+
+        /** Key: structurePhase, Value: factory producing the basis. */
+        private final Map<String, IntFunction<CvCfBasis>> factories = new LinkedHashMap<>();
+
+        private Registry() {
+            register("BCC_A2", BccA2TModelCvCfTransformations::basisForNumComponents);
+        }
+
+        /**
+         * Registers a basis factory for a structure phase.
+         */
+        public void register(String structurePhase, IntFunction<CvCfBasis> factory) {
+            factories.put(structurePhase, factory);
+        }
+
+        /**
+         * Returns true if (structurePhase, numComponents) is supported.
+         */
+        public boolean isSupported(String structurePhase, int numComponents) {
+            IntFunction<CvCfBasis> factory = factories.get(structurePhase);
+            if (factory == null) return false;
+            try {
+                return factory.apply(numComponents) != null;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
+         * Returns an Optional with the basis, or empty if unsupported.
+         */
+        public Optional<CvCfBasis> find(String structurePhase, int numComponents) {
+            IntFunction<CvCfBasis> factory = factories.get(structurePhase);
+            if (factory == null) return Optional.empty();
+            try {
+                CvCfBasis basis = factory.apply(numComponents);
+                return Optional.ofNullable(basis);
+            } catch (Exception e) {
+                return Optional.empty();
+            }
+        }
+
+        /**
+         * Returns the basis for (structurePhase, numComponents), or throws.
+         */
+        public CvCfBasis get(String structurePhase, int numComponents) {
+            return find(structurePhase, numComponents)
+                    .orElseThrow(() -> unsupportedError(structurePhase, numComponents));
+        }
+
+        /**
+         * Returns a human-readable summary of all registered structure phases.
+         */
+        public String supportedSummary() {
+            StringBuilder sb = new StringBuilder("Supported (structurePhase, numComponents) keys:\n");
+            for (String structure : factories.keySet()) {
+                for (int k = 2; k <= 4; k++) {
+                    if (isSupported(structure, k)) {
+                        sb.append("  ").append(structure).append(", K=").append(k).append("\n");
+                    }
+                }
+            }
+            return sb.toString().stripTrailing();
+        }
+
+        private IllegalArgumentException unsupportedError(String structurePhase, int numComponents) {
+            return new IllegalArgumentException(
+                    "No CVCF basis registered for (structurePhase=" + structurePhase
+                    + ", numComponents=" + numComponents + ").\n"
+                    + supportedSummary());
+        }
     }
 }

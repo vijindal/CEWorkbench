@@ -4,7 +4,6 @@ import static org.ce.domain.cluster.SpaceGroup.SymmetryOperation;
 
 import org.ce.domain.cluster.*;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.InputLoader;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CMatrix;
@@ -65,10 +64,10 @@ public class ClusterIdentificationWorkflow {
                 // Validate CVCF basis is supported for this (structure, numComponents)
                 String structurePhase = config.getStructurePhase();
                 int numComponents = config.getNumComponents();
-                if (!CvCfBasisRegistry.INSTANCE.isSupported(structurePhase, numComponents)) {
+                if (!CvCfBasis.Registry.INSTANCE.isSupported(structurePhase, numComponents)) {
                         String msg = "CVCF basis not supported for " + structurePhase
                                         + " with " + numComponents + " components.\n"
-                                        + CvCfBasisRegistry.INSTANCE.supportedSummary();
+                                        + CvCfBasis.Registry.INSTANCE.supportedSummary();
                         LOG.severe(msg);
                         emit(progressSink, "ERROR: " + msg);
                         throw new IllegalArgumentException(msg);
@@ -168,7 +167,7 @@ public class ClusterIdentificationWorkflow {
                                 cfResult,
                                 orderedClusters, // ✅ correct choice
                                 numComponents,
-                                CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), numComponents),
+                                CvCfBasis.Registry.INSTANCE.get(config.getStructurePhase(), numComponents),
                                 progressSink);
 
                 LOG.fine("C-Matrix built successfully");
@@ -181,7 +180,7 @@ public class ClusterIdentificationWorkflow {
                 // 6. Generate basis-specific symbol lists
                 // =====================================================================
                 LOG.fine("Retrieving symbolic lists for CFs and CECs from Stage 2 result...");
-                CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), numComponents);
+                CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(config.getStructurePhase(), numComponents);
 
                 List<String> uList  = cfResult.getUNames();
                 List<String> eOList = cfResult.getEONames();

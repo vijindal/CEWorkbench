@@ -4,70 +4,94 @@ import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
+import org.ce.domain.cluster.LinearAlgebra;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Central thermodynamic model for CVM free-energy calculations.
- *
- * <p><b>User's Mental Model:</b>
- * Create a CVM phase model for a given system, provide system parameters (CECs)
- * and macro parameters (T, composition), and query for equilibrium thermodynamic
- * quantities. When parameters change, the model automatically re-minimizes to find
- * equilibrium values.
- *
- * <p><b>Data Ownership:</b>
- * <ul>
- *   <li><b>Immutable:</b> Cluster data (Stages 1-3) from AllClusterData â€" fixed at creation</li>
- *   <li><b>Mutable:</b> System parameters (ECI) and macro parameters (T, x) â€" can change anytime</li>
- *   <li><b>Cached:</b> Equilibrium results â€" invalidated when parameters change</li>
- * </ul>
- *
- * <p><b>Typical Usage:</b>
- * <pre>{@code
- * // Create model with initial parameters
- * CVMModelInput input = ...;
- * CVMPhaseModel model = CVMPhaseModel.create(input, eci, 1000.0, 0.5);
- *
- * // Query equilibrium properties (auto-minimizes on first call)
- * double G = model.getEquilibriumG();
- *
- * // Change temperature
- * model.setTemperature(1100.0);
- * double newG = model.getEquilibriumG();  // Auto-minimizes at new T
- *
- * // Scan over composition
- * for (double x = 0; x <= 1.0; x += 0.1) {
- *     model.setComposition(x);
- *     System.out.println("x=" + x + " G=" + model.getEquilibriumG());
- * }
- * }</pre>
- *
- * @see CVMFreeEnergy
- * @see NewtonRaphsonSolverSimple
  */
 public class CVMPhaseModel {
 
     // =========================================================================
-    // Input contract (moved here from standalone CVMInput.java to avoid an
-    // extra file — CVMPhaseModel is the sole consumer of this bundle)
+    // Solver Result Containers
     // =========================================================================
 
-    /**
-     * Immutable input bundle wrapping Stage 1-3 topology data plus system metadata.
-     *
-     * <p>Created by {@link org.ce.domain.engine.cvm.CVMEngine} and consumed by
-     * {@link CVMPhaseModel#create} to decouple the engine from workbench containers.</p>
-     */
-    public static final class CVMInput {
+    public static final class SolverResult {
 
+        public static final class IterationSnapshot {
+            private final int iteration;
+            private final double gibbsEnergy;
+            private final double enthalpy;
+            private final double entropy;
+            private final double gradientNorm;
+            private final double[] cf;
+            private final double[] dGdu;
+
+            public IterationSnapshot(int iteration, double gibbsEnergy, double enthalpy,
+                    double entropy, double gradientNorm, double[] cf, double[] dGdu) {
+                this.iteration = iteration;
+                this.gibbsEnergy = gibbsEnergy;
+                this.enthalpy = enthalpy;
+                this.entropy = entropy;
+                this.gradientNorm = gradientNorm;
+                this.cf = cf;
+                this.dGdu = dGdu;
+            }
+
+            public int getIteration()       { return iteration; }
+            public double getGibbsEnergy()  { return gibbsEnergy; }
+            public double getEnthalpy()     { return enthalpy; }
+            public double getEntropy()      { return entropy; }
+            public double getGradientNorm() { return gradientNorm; }
+            public double[] getCf()         { return cf; }
+            public double[] getDGdu()       { return dGdu; }
+        }
+
+        private final double[] equilibriumCFs;
+        private final double   gibbsEnergy;
+        private final double   enthalpy;
+        private final double   entropy;
+        private final int      iterations;
+        private final double   gradientNorm;
+        private final boolean  converged;
+        private final List<IterationSnapshot> iterationTrace;
+
+        public SolverResult(double[] equilibriumCFs, double gibbsEnergy, double enthalpy,
+                double entropy, int iterations, double gradientNorm, boolean converged,
+                List<IterationSnapshot> iterationTrace) {
+            this.equilibriumCFs = equilibriumCFs;
+            this.gibbsEnergy = gibbsEnergy;
+            this.enthalpy = enthalpy;
+            this.entropy = entropy;
+            this.iterations = iterations;
+            this.gradientNorm = gradientNorm;
+            this.converged = converged;
+            this.iterationTrace = new ArrayList<>(iterationTrace);
+        }
+
+        public double[] getEquilibriumCFs()            { return equilibriumCFs; }
+        public double   getGibbsEnergy()               { return gibbsEnergy; }
+        public double   getEnthalpy()                  { return enthalpy; }
+        public double   getEntropy()                   { return entropy; }
+        public int      getIterations()                { return iterations; }
+        public double   getGradientNorm()              { return gradientNorm; }
+        public boolean  isConverged()                  { return converged; }
+        public List<IterationSnapshot> getIterationTrace() { return new ArrayList<>(iterationTrace); }
+    }
+
+    // =========================================================================
+    // Input contract
+    // =========================================================================
+
+    public static final class CVMInput {
         private final ClusterIdentificationResult stage1;
         private final CFIdentificationResult stage2;
         private final CMatrix.Result stage3;
@@ -84,18 +108,6 @@ public class CVMPhaseModel {
                 String systemName,
                 int numComponents,
                 CvCfBasis basis) {
-
-            if (systemId == null || systemId.isBlank())
-                throw new IllegalArgumentException("systemId must not be blank");
-            if (systemName == null || systemName.isBlank())
-                throw new IllegalArgumentException("systemName must not be blank");
-            if (numComponents < 2)
-                throw new IllegalArgumentException("numComponents must be >= 2");
-            if (stage1 == null || stage2 == null || stage3 == null)
-                throw new IllegalArgumentException("Stage 1/2/3 data must be non-null");
-            if (basis == null)
-                throw new IllegalArgumentException("CvCfBasis must not be null");
-
             this.stage1 = stage1;
             this.stage2 = stage2;
             this.stage3 = stage3;
@@ -117,107 +129,43 @@ public class CVMPhaseModel {
     // =========================================================================
 
     private static final Logger LOG = Logger.getLogger(CVMPhaseModel.class.getName());
-
-    /** Default convergence tolerance for the Newton-Raphson minimizer. */
     private static final double DEFAULT_TOLERANCE = 1.0e-5;
-
-    /** Maximum allowed convergence tolerance (upper bound for setTolerance). */
     private static final double MAX_TOLERANCE = 1.0e-3;
 
-    // =========================================================================
-    // IMMUTABLE: Cluster Data (from AllClusterData) — never changes
-    // =========================================================================
-
-    private final int tcdis;              // Number of cluster types
-    private final int tcf;                // Total CF count (including point)
-    private final int ncf;                // Non-point CF count (optimization vars)
-    private final List<Double> mhdis;     // HSP cluster multiplicities
-    private final double[] kb;            // Kikuchi-Baker entropy coefficients
-    private final double[][] mh;          // Normalized multiplicities: mh[t][j]
-    private final int[] lc;               // Cluster count per type: lc[t]
-    private final List<List<double[][]>> cmat;  // C-matrix (CVCF basis): cmat[t][j][v][k]
-    private final int[][] lcv;                  // CV counts: lcv[t][j]
-    private final List<List<int[]>> wcv;        // CV weights: wcv.get(t).get(j)[v]
-    private final int[][] orthCfBasisIndices;   // orthogonal decoration metadata for exact random init
+    private final int tcdis, tcf, ncf;
+    private final List<Double> mhdis;
+    private final double[] kb;
+    private final double[][] mh;
+    private final int[] lc;
+    private final List<List<double[][]>> cmat;
+    private final int[][] lcv;
+    private final List<List<int[]>> wcv;
+    private final int[][] orthCfBasisIndices;
     private final String systemId;
     private final String systemName;
     private final int numComponents;
-    private final CvCfBasis basis;              // CVCF basis (holds Tinv for random init)
+    private final CvCfBasis basis;
 
-    // =========================================================================
-    // MUTABLE: System Parameters â€" can be changed at any time
-    // =========================================================================
-
-    private double[] eci;            // Effective Cluster Interactions (CECs)
-    private double tolerance;        // Convergence criterion
-
-    // =========================================================================
-    // MUTABLE: Macro Parameters â€" can be changed at any time
-    // =========================================================================
-
-    private double temperature;      // Kelvin
-    private double[] moleFractions;  // Composition (length numComponents)
-
-    // =========================================================================
-    // CACHED: Equilibrium results â€" updated when parameters change
-    // =========================================================================
+    private double[] eci;
+    private double tolerance;
+    private double temperature;
+    private double[] moleFractions;
 
     private boolean isMinimized = false;
     private long lastMinimizationTimeNanos;
-    private double[] equilibriumCFs;              // [ncf] non-point CFs
-    private CVMFreeEnergy.EvalResult equilibrium; // G, H, S, âˆ‡G, âˆ‡Â²G
-
-    // =========================================================================
-    // DIAGNOSTICS: Solver convergence info
-    // =========================================================================
+    private double[] equilibriumCFs;
+    private CVMFreeEnergy.EvalResult equilibrium;
 
     private int lastIterations;
     private double lastGradientNorm;
     private String lastConvergenceStatus;
-    private List<CVMSolverResult.IterationSnapshot> lastIterationTrace = new ArrayList<>();
+    private List<SolverResult.IterationSnapshot> lastIterationTrace = new ArrayList<>();
 
-    // =========================================================================
-    // FACTORY METHOD
-    // =========================================================================
-
-    /**
-    * Factory creates a CVM phase model from stage-model input.
-     *
-     * <p>Loads all cluster data (Stages 1-3) from the input contract.
-     * User provides initial CEC, temperature, and composition values.
-     * Performs first minimization on creation.
-     *
-     * @param input CVM stage model input
-     * @param eci initial effective cluster interactions
-     * @param temperature initial temperature in Kelvin
-     * @param composition initial composition (binary: mole fraction of component 2)
-     * @return CVMPhaseModel ready for queries
-     * @throws IllegalArgumentException if input is invalid or parameters invalid
-     * @throws Exception if first minimization fails
-     */
-    /**
-     * Creates a CVM phase model for any K-component system (old orthogonal basis).
-     *
-     * <p>This is the canonical factory method for old basis calculations.
-     * Pass the full mole-fraction array {@code x[0..K-1]} — works for binary, ternary, and any K.</p>
-     *
-     * @param input         CVMInput carrying cluster topology data (Stages 1-3)
-     * @param eci           ncf-length effective cluster interactions (J/mol)
-     * @param temperature   initial temperature in Kelvin
-     * @param moleFractions mole fractions x[0..K-1]; must sum to 1.0
-     * @return CVMPhaseModel with first N-R minimization complete (old basis)
-     * @throws Exception if minimization fails or input is invalid
-     */
     public static CVMPhaseModel create(
             CVMInput input,
             double[] eci,
             double temperature,
             double[] moleFractions) throws Exception {
-
-        if (input == null) {
-            throw new IllegalArgumentException("CVMInput must not be null");
-        }
-
         CVMPhaseModel model = new CVMPhaseModel(input);
         model.setECI(eci);
         model.setTemperature(temperature);
@@ -226,37 +174,7 @@ public class CVMPhaseModel {
         return model;
     }
 
-    /**
-     * Creates a CVM phase model using the binary B-fraction shorthand (K=2 only).
-     *
-     * <p>Convenience for callers that have a scalar x_B. Delegates to
-     * {@link #create(CVMInput, double[], double, double[])} via
-     * {@code [1-xB, xB]}. For K &ge; 3 use the array overload directly.</p>
-     *
-     * @deprecated Use {@link #create(CVMInput, double[], double, double[])} for all K
-     */
-    @Deprecated
-    public static CVMPhaseModel create(
-            CVMInput input,
-            double[] eci,
-            double temperature,
-            double xB) throws Exception {
-
-        return create(input, eci, temperature, new double[]{1.0 - xB, xB});
-    }
-
-    // =========================================================================
-    // CONSTRUCTOR (Private â€" only called by factory)
-    // =========================================================================
-
-    /**
-     * Private constructor. Extracts and caches all stage data from CVMInput.
-     * Only called by the factory method.
-     *
-     * @param input CVMInput with cluster topology and CVCF basis
-     */
     private CVMPhaseModel(CVMInput input) {
-        // Extract Stage 1: Cluster Identification
         ClusterIdentificationResult stage1 = input.getStage1();
         this.tcdis = stage1.getTcdis();
         this.mhdis = stage1.getDisClusterData().getMultiplicities();
@@ -264,146 +182,42 @@ public class CVMPhaseModel {
         this.mh = stage1.getMh();
         this.lc = stage1.getLc();
 
-        // Extract Stage 3: C-Matrix (CVCF basis — already transformed by CMatrix)
         CMatrix.Result stage3 = input.getStage3();
         this.cmat = stage3.getCmat();
         this.lcv = stage3.getLcv();
         this.wcv = stage3.getWcv();
         this.orthCfBasisIndices = stage3.getCfBasisIndices();
 
-        // System info
         this.systemId = input.getSystemId();
         this.systemName = input.getSystemName();
         this.numComponents = input.getNumComponents();
         this.basis = input.getBasis();
-
-        // Use basis-derived ncf/tcf (cluster data values may be inconsistent with CVCF)
         this.ncf = basis.numNonPointCfs;
         this.tcf = basis.totalCfs();
 
-        // Initialize parameter storage (not yet set)
-        this.eci = null;
-        this.temperature = Double.NaN;
-        this.moleFractions = null;
         this.tolerance = DEFAULT_TOLERANCE;
-        this.isMinimized = false;
     }
 
-    // =========================================================================
-    // PARAMETER SETTERS (Trigger Re-minimization)
-    // =========================================================================
-
-    /**
-     * Sets cluster interaction energies (CECs).
-     * Invalidates cached results â€" next query will re-minimize.
-     *
-     * @param newECI effective cluster interactions (must have length ncf)
-     * @throws IllegalArgumentException if length mismatch
-     */
-    public void setECI(double[] newECI) throws IllegalArgumentException {
-        int expectedLength = basis.numNonPointCfs;  // ECI length = non-point CFs only
-        if (newECI == null || newECI.length < expectedLength) {
-            throw new IllegalArgumentException(
-                "ECI too short: got " + (newECI == null ? 0 : newECI.length) +
-                ", expected >= " + expectedLength);
-        }
-        this.eci = Arrays.copyOf(newECI, expectedLength);
+    public void setECI(double[] newECI) {
+        this.eci = Arrays.copyOf(newECI, ncf);
         invalidateMinimization();
     }
 
-    /**
-     * Sets temperature.
-     * Invalidates cached results â€" next query will re-minimize.
-     *
-     * @param T_K temperature in Kelvin (must be positive)
-     * @throws IllegalArgumentException if temperature invalid
-     */
-    public void setTemperature(double T_K) throws IllegalArgumentException {
-        if (T_K <= 0) {
-            throw new IllegalArgumentException("Temperature must be positive: " + T_K);
-        }
+    public void setTemperature(double T_K) {
         this.temperature = T_K;
         invalidateMinimization();
     }
 
-    /**
-     * Sets composition using the binary shorthand (only valid for K=2).
-     *
-     * <p>For K=2: builds {@code moleFractions = {1 − x_B, x_B}}.</p>
-     *
-     * <p>For K≥3 use {@link #setMoleFractions(double[])} instead. Calling this
-     * method on a multi-component model throws {@link IllegalArgumentException}
-     * because a single scalar cannot specify the full composition vector, and
-     * silently zeroing the extra components gives physically wrong results.</p>
-     *
-     * @param x_B mole fraction of component B in [0,1]
-     * @throws IllegalArgumentException if composition invalid or numComponents > 2
-     */
-    /**
-     * @deprecated Use {@link #setMoleFractions(double[])} for all K
-     */
-    @Deprecated
-    public void setComposition(double x_B) throws IllegalArgumentException {
-        if (x_B < 0 || x_B > 1) {
-            throw new IllegalArgumentException("Composition must be in [0,1]: " + x_B);
-        }
-        if (numComponents != 2) {
-            throw new IllegalArgumentException(
-                "setComposition(double) is only valid for binary (K=2) systems. "
-                + "This model has K=" + numComponents + " components. "
-                + "Use setMoleFractions(double[]) to specify the full composition vector.");
-        }
-
-        this.moleFractions = new double[]{1.0 - x_B, x_B};
-        invalidateMinimization();
-    }
-
-    /**
-     * Sets full mole fraction vector (for K â‰¥ 3).
-     *
-     * @param fractions mole fractions (length numComponents, summing to 1.0)
-     * @throws IllegalArgumentException if length mismatch or sum != 1
-     */
-    public void setMoleFractions(double[] fractions) throws IllegalArgumentException {
-        if (fractions == null || fractions.length != numComponents) {
-            throw new IllegalArgumentException(
-                "Mole fractions length mismatch: got " + (fractions == null ? 0 : fractions.length) +
-                ", expected " + numComponents);
-        }
-
-        double sum = 0;
-        for (double x : fractions) {
-            if (x < 0 || x > 1) {
-                throw new IllegalArgumentException("Mole fractions must be in [0,1]");
-            }
-            sum += x;
-        }
-        if (Math.abs(sum - 1.0) > 1.0e-9) {
-            throw new IllegalArgumentException("Mole fractions don't sum to 1: " + sum);
-        }
-
+    public void setMoleFractions(double[] fractions) {
         this.moleFractions = fractions.clone();
         invalidateMinimization();
     }
 
-    /**
-     * Sets convergence tolerance.
-     *
-     * @param tol convergence tolerance (recommended: 1e-6 to 1e-3)
-     * @throws IllegalArgumentException if tolerance out of reasonable range
-     */
-    public void setTolerance(double tol) throws IllegalArgumentException {
-        if (tol <= 0 || tol > MAX_TOLERANCE) {
-            throw new IllegalArgumentException("Tolerance out of range: " + tol);
-        }
+    public void setTolerance(double tol) {
         this.tolerance = tol;
         invalidateMinimization();
     }
 
-    /**
-     * Invalidates cached minimization results.
-     * Next call to getEquilibrium* will trigger re-minimization.
-     */
     private void invalidateMinimization() {
         this.isMinimized = false;
         this.equilibriumCFs = null;
@@ -411,472 +225,151 @@ public class CVMPhaseModel {
         this.lastIterationTrace = new ArrayList<>();
     }
 
-    // =========================================================================
-    // AUTOMATIC LAZY MINIMIZATION
-    // =========================================================================
-
-    /**
-     * Ensures model is minimized.
-     * If parameters changed since last minimization, re-minimizes.
-     * Safe to call multiple times â€" only computes if needed.
-     *
-     * @throws Exception if minimization fails
-     * @throws IllegalStateException if required parameters not set
-     */
     public synchronized void ensureMinimized() throws Exception {
-        if (isMinimized && equilibriumCFs != null && equilibrium != null) {
-            LOG.finer("Minimization already complete — using cached results");
-            return;  // Already minimized, all results cached
-        }
-
-        // Validate parameters are set
-        if (eci == null || Double.isNaN(temperature) || moleFractions == null) {
-            LOG.severe("Cannot minimize: missing required parameters");
-            throw new IllegalStateException(
-                "Cannot minimize: missing parameters\n" +
-                "  ECI set: " + (eci != null) + "\n" +
-                "  T set: " + !Double.isNaN(temperature) + "\n" +
-                "  x set: " + (moleFractions != null));
-        }
-
-        // Perform minimization
-        LOG.info("CVMPhaseModel.ensureMinimized — STARTING minimization");
-        LOG.info("  systemId: " + systemId);
-        LOG.info("  temperature: " + temperature + " K");
-        LOG.info("  composition: " + Arrays.toString(moleFractions));
-        LOG.info("  ncf: " + ncf + ", tcf: " + tcf);
-        LOG.fine("  tolerance: " + tolerance);
-        LOG.fine("  ECI: [" + formatEciForLog(eci) + "]");
+        if (isMinimized) return;
         minimize();
-
-        if (!isMinimized) {
-            LOG.severe("Minimization FAILED: " + lastConvergenceStatus);
-            throw new Exception("Minimization failed: " + lastConvergenceStatus);
-        }
-        LOG.info("CVMPhaseModel.ensureMinimized — COMPLETE");
+        if (!isMinimized) throw new Exception("Minimization failed: " + lastConvergenceStatus);
     }
 
-    /**
-     * Internal minimization routine (private).
-     */
     private void minimize() {
         long startTime = System.nanoTime();
-
         try {
-            LOG.fine("  Calling NewtonRaphsonSolverSimple.solve()...");
-            // Run Newton-Raphson solver
-            // (Solver generates initial guess internally using computeRandomCVCFs)
-            CVMSolverResult result = NewtonRaphsonSolverSimple.solve(
-                moleFractions,
-                temperature,
-                eci,
-                mhdis,
-                kb,
-                mh,
-                lc,
-                cmat,
-                lcv,
-                wcv,
-                tcdis,
-                tcf,
-                ncf,
-                basis,
-                orthCfBasisIndices,
-                tolerance
-            );
-            LOG.fine("  Newton-Raphson solver returned");
-
-            // Cache iteration trace
+            SolverResult result = runNewtonRaphson();
             this.lastIterationTrace = result.getIterationTrace();
-            LOG.fine("  Cached " + lastIterationTrace.size() + " iteration snapshots");
-
             if (result.isConverged()) {
-                LOG.fine("  Solver converged!");
                 this.equilibriumCFs = result.getEquilibriumCFs();
-                LOG.fine("  Equilibrium CFs (non-point): " + Arrays.toString(equilibriumCFs));
-
-                // Evaluate thermodynamics at equilibrium non-point CFs
-                LOG.fine("  Evaluating CVMFreeEnergy at equilibrium CFs...");
                 this.equilibrium = CVMFreeEnergy.evaluate(
-                    equilibriumCFs,
-                    moleFractions,
-                    temperature,
-                    eci,
-                    mhdis,
-                    kb,
-                    mh,
-                    lc,
-                    cmat,
-                    lcv,
-                    wcv,
-                    tcdis,
-                    tcf,
-                    ncf
+                    equilibriumCFs, moleFractions, temperature, eci,
+                    mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf
                 );
-                LOG.fine("  Thermodynamic values: G=" + String.format("%.6e", equilibrium.G)
-                        + ", H=" + String.format("%.6e", equilibrium.H)
-                        + ", S=" + String.format("%.6e", equilibrium.S));
-
                 this.isMinimized = true;
                 this.lastIterations = result.getIterations();
                 this.lastGradientNorm = result.getGradientNorm();
                 this.lastConvergenceStatus = "OK";
                 this.lastMinimizationTimeNanos = System.nanoTime() - startTime;
-
-                logMinimizationSuccess();
             } else {
                 this.isMinimized = false;
                 this.lastConvergenceStatus = "Solver did not converge";
                 this.lastIterations = result.getIterations();
                 this.lastGradientNorm = result.getGradientNorm();
-                logMinimizationFailure();
             }
         } catch (Exception e) {
             this.isMinimized = false;
-            this.lastConvergenceStatus = "Exception: " + e.getMessage();
-            LOG.log(Level.WARNING, "CVMPhaseModel.minimize — EXCEPTION: " + e.getMessage(), e);
+            this.lastConvergenceStatus = e.getMessage();
         }
     }
 
-
-
-    /**
-     * Build full CF vector [tcf] from non-point CFs [ncf].
-     * Adds point CFs based on composition.
-     */
-    private double[] buildFullCFVector(double[] u_nonpoint) {
-        return ClusterVariableEvaluator.buildFullCVCFVector(u_nonpoint, moleFractions, ncf, tcf);
-    }
-
-    private void logMinimizationSuccess() {
-        LOG.fine("CVMPhaseModel.minimize — SUCCESS: T=" + temperature + " K"
-                + ", x=" + Arrays.toString(moleFractions)
-                + ", iterations=" + lastIterations
-                + ", ||dG||=" + String.format("%.4e", lastGradientNorm)
-                + ", G=" + String.format("%.6e", equilibrium != null ? equilibrium.G : Double.NaN) + " J/mol"
-                + ", elapsed=" + (lastMinimizationTimeNanos / 1_000_000) + " ms");
-    }
-
-    private void logMinimizationFailure() {
-        LOG.warning("CVMPhaseModel.minimize — FAILED: T=" + temperature + " K"
-                + ", status=" + lastConvergenceStatus
-                + ", iterations=" + lastIterations);
-    }
-
     // =========================================================================
-    // QUERY INTERFACE: Thermodynamic Quantities
+    // Solver Implementation
     // =========================================================================
 
-    /**
-     * Gets Gibbs energy of mixing at current equilibrium.
-     * Automatically minimizes if parameters changed.
-     *
-     * @return G in J/mol
-     * @throws Exception if minimization fails
-     */
-    public double getEquilibriumG() throws Exception {
-        ensureMinimized();
-        return equilibrium.G;
+    private static final int MAX_ITER = 400;
+    private static final double TOLX = 1.0e-12;
+    private static final double STEP_MARGIN = 0.1;
+
+    private SolverResult runNewtonRaphson() {
+        int n = ncf;
+        double xold[] = ClusterVariableEvaluator.generateFullRandomCVCFs(moleFractions, basis, orthCfBasisIndices);
+        double xTrial[] = new double[tcf];
+        double[] fvec = new double[n];
+        double[][] fjac = new double[n][n];
+        System.arraycopy(xold, 0, xTrial, 0, tcf);
+
+        double errf = 0, errx = 0;
+        List<SolverResult.IterationSnapshot> trace = new ArrayList<>();
+
+        for (int its = 0; its < MAX_ITER; its++) {
+            if (Thread.currentThread().isInterrupted()) throw new CancellationException();
+
+            double[][][] cv_old = updateCVInternal(xold);
+            double cvMin = findMinInternal(cv_old);
+            if (cvMin <= 0) {
+                double[] vals = usrfunInternal(xold, fvec, fjac);
+                return new SolverResult(xold, vals[0], vals[1], vals[2], its, errf, true, trace);
+            }
+
+            double[] vals = usrfunInternal(xold, fvec, fjac);
+            errf = 0;
+            for (int i = 0; i < n; i++) errf += Math.abs(fvec[i]);
+            trace.add(new SolverResult.IterationSnapshot(its, vals[0], vals[1], vals[2], errf, xold.clone(), fvec.clone()));
+
+            if (errf <= tolerance) return new SolverResult(xold, vals[0], vals[1], vals[2], its, errf, true, trace);
+
+            try {
+                double[] negFvec = new double[n];
+                for (int i = 0; i < n; i++) negFvec[i] = -fvec[i];
+                double[] p = LinearAlgebra.solve(fjac, negFvec);
+                errx = 0;
+                for (int i = 0; i < n; i++) {
+                    errx += Math.abs(p[i]);
+                    xTrial[i] = xold[i] + p[i];
+                }
+                double scalFactor = stpmxInternal(xold, xTrial);
+                for (int i = 0; i < n; i++) xold[i] = xold[i] + scalFactor * p[i];
+                if (errx <= TOLX) {
+                    vals = usrfunInternal(xold, fvec, fjac);
+                    return new SolverResult(xold, vals[0], vals[1], vals[2], its, errf, true, trace);
+                }
+            } catch (Exception e) {
+                return new SolverResult(xold, vals[0], vals[1], vals[2], its, errf, false, trace);
+            }
+        }
+        double[] last = usrfunInternal(xold, fvec, fjac);
+        return new SolverResult(xold, last[0], last[1], last[2], MAX_ITER, errf, false, trace);
     }
 
-    /**
-     * Gets enthalpy of mixing at current equilibrium.
-     */
-    public double getEquilibriumH() throws Exception {
-        ensureMinimized();
-        return equilibrium.H;
+    private double findMinInternal(double[][][] cv) {
+        double min = Double.MAX_VALUE;
+        for (double[][] m : cv) for (double[] r : m) for (double v : r) if (v < min) min = v;
+        return min;
     }
 
-    /**
-     * Gets entropy of mixing at current equilibrium.
-     */
-    public double getEquilibriumS() throws Exception {
-        ensureMinimized();
-        return equilibrium.S;
+    private double stpmxInternal(double[] xold, double[] xTrial) {
+        double fmin = 1.0;
+        double[][][] cv_old = updateCVInternal(xold);
+        double[][][] cv_new = updateCVInternal(xTrial);
+        for (int i = 0; i < tcdis - 1; i++) {
+            for (int j = 0; j < lc[i]; j++) {
+                for (int v = 0; v < lcv[i][j]; v++) {
+                    double vO = cv_old[i][j][v], vN = cv_new[i][j][v];
+                    if (vN <= 0) fmin = Math.min(fmin, Math.abs(vO / (vN - vO)));
+                    if (vN >= 1) fmin = Math.min(fmin, Math.abs((1.0 - vO) / (vN - vO)));
+                }
+            }
+        }
+        return (fmin >= 1.0) ? 1.0 : (STEP_MARGIN * fmin);
     }
 
-    /**
-     * Gets Helmholtz free energy F = H - TÂ·S (alternative to G).
-     */
-    public double getHelmholtzF() throws Exception {
-        ensureMinimized();
-        return equilibrium.H - temperature * equilibrium.S;
+    private double[] usrfunInternal(double[] u, double[] fvec, double[][] fjac) {
+        CVMFreeEnergy.EvalResult r = CVMFreeEnergy.evaluate(
+                u, moleFractions, temperature, eci, mhdis, kb, mh,
+                lc, cmat, lcv, wcv, tcdis, tcf, ncf);
+        System.arraycopy(r.Gcu, 0, fvec, 0, ncf);
+        for (int i = 0; i < ncf; i++) System.arraycopy(r.Gcuu[i], 0, fjac[i], 0, ncf);
+        return new double[]{r.G, r.H, r.S};
     }
 
-    /**
-     * Gets equilibrium non-point correlation functions.
-     *
-     * @return array of length ncf
-     */
-    public double[] getEquilibriumCFs() throws Exception {
-        ensureMinimized();
-        return equilibriumCFs.clone();
-    }
-
-    /**
-     * Gets full equilibrium CF vector including point CFs.
-     *
-     * @return array of length tcf
-     */
-    public double[] getEquilibriumCFsFull() throws Exception {
-        ensureMinimized();
-        return buildFullCFVector(equilibriumCFs);
-    }
-
-    /**
-     * Gets cluster variables at equilibrium.
-     *
-     * @return cv[tcdis][lc[t]][lcv[t][j]]
-     */
-    public double[][][] getEquilibriumCVs() throws Exception {
-        ensureMinimized();
-        double[] uFull = getEquilibriumCFsFull();
+    private double[][][] updateCVInternal(double[] u) {
+        double[] uFull = ClusterVariableEvaluator.buildFullCVCFVector(u, moleFractions, ncf, tcf);
         return ClusterVariableEvaluator.evaluate(uFull, cmat, lcv, tcdis, lc);
     }
 
-    /**
-     * Gets short-range order parameters.
-     * SRO_t measures ordering in cluster type t.
-     *
-     * @return array of length tcdis-1 (excluding point type)
-     */
-    public double[] getSROs() throws Exception {
-        ensureMinimized();
-        double[][][] cvs = getEquilibriumCVs();
-        double[] sro = new double[tcdis];
-
-        for (int t = 0; t < tcdis - 1; t++) {  // Exclude point type
-            for (int j = 0; j < lc[t]; j++) {
-                for (int v = 0; v < lcv[t][j]; v++) {
-                    sro[t] += wcv.get(t).get(j)[v] * cvs[t][j][v];
-                }
-            }
-        }
-        return sro;
-    }
-
-    /**
-     * Gets gradient of Gibbs energy (should be ~0 at minimum).
-     */
-    public double[] getGradient() throws Exception {
-        ensureMinimized();
-        return equilibrium.Gcu.clone();
-    }
-
-    /**
-     * Gets gradient norm ||âˆ‡G|| (convergence measure).
-     */
-    public double getGradientNorm() throws Exception {
-        ensureMinimized();
-        return getGradientNormValue(equilibrium.Gcu);
-    }
-
-    /**
-     * Gets Gibbs energy Hessian (for stability analysis).
-     */
-    public double[][] getStabilityMatrix() throws Exception {
-        ensureMinimized();
-        return copyMatrix(equilibrium.Gcuu);
-    }
-
-    /**
-     * Checks if phase is thermodynamically stable (local minimum of G).
-     *
-     * <p>A phase is stable if and only if the Hessian d²G/du² is positive
-     * definite — i.e., all eigenvalues are strictly positive. This is verified
-     * via Cholesky decomposition: the decomposition succeeds (all pivots > 0)
-     * if and only if the matrix is positive definite.</p>
-     *
-     * <p>The previous diagonal-only check ({@code H[i][i] > 0}) was insufficient:
-     * a matrix can have all positive diagonal entries yet still be indefinite
-     * (saddle point) when off-diagonal terms are large.</p>
-     *
-     * @return true if stable (Hessian is positive definite), false otherwise
-     */
-    public boolean isStable() throws Exception {
-        ensureMinimized();
-        double[][] H = equilibrium.Gcuu;
-        return isPositiveDefinite(H);
-    }
-
-    /**
-     * Tests positive definiteness via Cholesky decomposition.
-     *
-     * <p>Attempts the decomposition H = L · Lᵀ in-place. Succeeds iff every
-     * pivot is strictly positive ({@code > STAB_EPS}). No allocation of L is
-     * needed — only the diagonal pivots are required for the test.</p>
-     *
-     * @param H symmetric matrix to test
-     * @return true if H is positive definite
-     */
-    private static boolean isPositiveDefinite(double[][] H) {
-        final double STAB_EPS = 1.0e-10;
-        int n = H.length;
-        // Work on a copy to avoid mutating the Hessian
-        double[][] A = new double[n][n];
-        for (int i = 0; i < n; i++) {
-            A[i] = H[i].clone();
-        }
-        for (int j = 0; j < n; j++) {
-            // Subtract contributions from previous columns
-            for (int k = 0; k < j; k++) {
-                A[j][j] -= A[j][k] * A[j][k];
-            }
-            if (A[j][j] <= STAB_EPS) {
-                return false;  // Non-positive pivot → not positive definite
-            }
-            double diag = Math.sqrt(A[j][j]);
-            for (int i = j + 1; i < n; i++) {
-                for (int k = 0; k < j; k++) {
-                    A[i][j] -= A[i][k] * A[j][k];
-                }
-                A[i][j] /= diag;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Returns the unified domain {@link EquilibriumState} at current equilibrium.
-     *
-     * <p>CVM-specific diagnostics (gradient ∇G and Hessian ∇²G) are stored in
-     * {@link EngineMetrics.CvmMetrics} and accessible via pattern matching.</p>
-     */
-    public EquilibriumState getEquilibriumState() throws Exception {
-        ensureMinimized();
-        return new EquilibriumState(
-            temperature,
-            moleFractions.clone(),
-            equilibrium.H,
-            equilibrium.G
-        );
-    }
-
     // =========================================================================
-    // QUERY INTERFACE: Model Introspection
+    // Accessors
     // =========================================================================
 
-    public double getTemperature() { return temperature; }
-    public double[] getMoleFractions() { return moleFractions == null ? null : moleFractions.clone(); }
-    public double[] getECI() { return eci == null ? null : eci.clone(); }
-    public int getNumComponents() { return numComponents; }
-    public int getNumCFs() { return ncf; }
-    public int getTotalCFs() { return tcf; }
-    public int getNumClusterTypes() { return tcdis; }
-    public double getTolerance() { return tolerance; }
-    public String getSystemId() { return systemId; }
-    public String getSystemName() { return systemName; }
+    public double getEquilibriumG() throws Exception { ensureMinimized(); return equilibrium.G; }
+    public double getEquilibriumH() throws Exception { ensureMinimized(); return equilibrium.H; }
+    public double getEquilibriumS() throws Exception { ensureMinimized(); return equilibrium.S; }
+    public double[] getEquilibriumCFs() throws Exception { ensureMinimized(); return equilibriumCFs.clone(); }
+    public int getLastIterations() { return lastIterations; }
+    public double getLastGradientNorm() { return lastGradientNorm; }
+    public List<SolverResult.IterationSnapshot> getLastIterationTrace() { return new ArrayList<>(lastIterationTrace); }
 
-    /**
-     * Minimization status check.
-     */
-    public boolean isMinimized() { return isMinimized; }
-
-    /**
-     * Gets diagnostic information about last minimization.
-     */
-    public int getLastIterations() throws IllegalStateException {
-        if (!isMinimized) throw new IllegalStateException("Not yet minimized");
-        return lastIterations;
-    }
-
-    public double getLastGradientNorm() throws IllegalStateException {
-        if (!isMinimized) throw new IllegalStateException("Not yet minimized");
-        return lastGradientNorm;
-    }
-
-    public long getLastMinimizationTimeMs() {
-        return lastMinimizationTimeNanos / 1_000_000;
-    }
-
-    /** Returns per-iteration N-R diagnostics (CFs and dG/du). */
-    public List<CVMSolverResult.IterationSnapshot> getLastIterationTrace() {
-        return new ArrayList<>(lastIterationTrace);
-    }
-
-    /**
-     * Computes G, H, S for a given non-point CF vector using the current model state.
-     * Used by CVMEngine to compute thermodynamic properties at each N-R iteration.
-     *
-     * @param nonPointCFs the non-point cluster fractions (length ncf)
-     * @return {G, H, S} in J/mol and J/(mol·K)
-     */
-    double[] computeGHS(double[] nonPointCFs) {
+    public double[] computeGHS(double[] nonPointCFs) {
         CVMFreeEnergy.EvalResult r = CVMFreeEnergy.evaluate(
             nonPointCFs, moleFractions, temperature, eci,
             mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf);
         return new double[]{r.G, r.H, r.S};
     }
-
-    /**
-     * Summary report.
-     */
-    public String getSummary() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("=== CVMPhaseModel ===\n");
-        sb.append("System: ").append(systemName).append(" (").append(systemId).append(")\n");
-        sb.append("Components: ").append(numComponents).append("\n");
-        sb.append("Cluster types: ").append(tcdis).append("\n");
-        sb.append("CFs: ").append(ncf).append(" (total ").append(tcf).append(")\n");
-        sb.append("\nCurrent Parameters:\n");
-        sb.append("  T: ").append(temperature).append(" K\n");
-        if (moleFractions != null) {
-            sb.append("  x: ").append(Arrays.toString(moleFractions)).append("\n");
-        }
-        sb.append("  ECI length: ").append(eci == null ? "not set" : eci.length).append("\n");
-        sb.append("\nMinimization Status:\n");
-        sb.append("  Minimized: ").append(isMinimized).append("\n");
-        if (isMinimized && equilibrium != null) {
-            try {
-                sb.append("  G_eq: ").append(String.format("%.6e", getEquilibriumG())).append(" J/mol\n");
-                sb.append("  H_eq: ").append(String.format("%.6e", getEquilibriumH())).append(" J/mol\n");
-                sb.append("  S_eq: ").append(String.format("%.6e", getEquilibriumS())).append(" J/(molÂ·K)\n");
-                sb.append("  ||âˆ‡G||: ").append(String.format("%.2e", getLastGradientNorm())).append("\n");
-                sb.append("  Iterations: ").append(getLastIterations()).append("\n");
-                sb.append("  Time: ").append(getLastMinimizationTimeMs()).append(" ms\n");
-            } catch (Exception e) {
-                sb.append("  [Query failed: ").append(e.getMessage()).append("]\n");
-            }
-        }
-        return sb.toString();
-    }
-
-    // =========================================================================
-    // UTILITY METHODS
-    // =========================================================================
-
-    private double getGradientNormValue(double[] grad) {
-        double norm = 0.0;
-        for (double g : grad) {
-            norm += g * g;
-        }
-        return Math.sqrt(norm);
-    }
-
-    private double[][] copyMatrix(double[][] mat) {
-        double[][] copy = new double[mat.length][];
-        for (int i = 0; i < mat.length; i++) {
-            copy[i] = mat[i].clone();
-        }
-        return copy;
-    }
-
-    /**
-     * Formats ECI array for logging (only non-zero values).
-     */
-    private static String formatEciForLog(double[] eci) {
-        if (eci == null || eci.length == 0) return "(empty)";
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-        for (int i = 0; i < eci.length; i++) {
-            if (eci[i] != 0.0) {
-                if (!first) sb.append(", ");
-                sb.append("[").append(i).append("]=").append(String.format("%.4e", eci[i]));
-                first = false;
-            }
-        }
-        if (first) sb.append("(all zero)");
-        return sb.toString();
-    }
-
 }

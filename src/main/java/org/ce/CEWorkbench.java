@@ -26,16 +26,7 @@ public class CEWorkbench {
     public static void main(String[] args) {
 
         // Infrastructure
-        Workspace workspace = new Workspace();
-        ClusterDataStore  clusterStore      = new ClusterDataStore(workspace);
-        HamiltonianStore  hamiltonianStore  = new HamiltonianStore(workspace);
-        CECManagementWorkflow cecWorkflow   = new CECManagementWorkflow(hamiltonianStore, clusterStore);
-        CVMEngine         cvmEngine         = new CVMEngine();
-        MCSEngine         mcsEngine         = new MCSEngine();
-        ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                clusterStore, cecWorkflow, cvmEngine, mcsEngine
-        );
-        CalculationService service = new CalculationService(thermoWorkflow);
+        CEWorkbenchContext appCtx = new CEWorkbenchContext();
 
         // Launch GUI on EDT
         SwingUtilities.invokeLater(() -> {
@@ -43,7 +34,7 @@ public class CEWorkbench {
                 UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
             } catch (Exception ignored) {}
 
-            MainWindow window = new MainWindow(service, clusterStore, cecWorkflow);
+            MainWindow window = new MainWindow(appCtx);
             window.setVisible(true);
         });
     }

@@ -79,8 +79,7 @@ import java.util.logging.Logger;
  * mh             = ordClusData[[2]] / mhdis
  * </pre>
  *
- * @see NijTableCalculator
- * @see KikuchiBakerCalculator
+ * @see ClusterMath
  * @see ClusterIdentificationResult
  */
 public class ClusterIdentifier {
@@ -137,7 +136,7 @@ public class ClusterIdentifier {
         List<Cluster>       disClusList  = disClusterData.getClusCoordList().subList(0, tcdis);
         List<List<Cluster>> disOrbitList = disClusterData.getOrbitList().subList(0, tcdis);
 
-        int[][] nijTable = NijTableCalculator.compute(disClusList, disOrbitList);
+        int[][] nijTable = ClusterMath.computeNijTable(disClusList, disOrbitList);
 
         LOG.fine("ClusterIdentifier.identify — Stage 1a: Nij table computed (" + tcdis + "x" + tcdis + ")");
 
@@ -148,7 +147,7 @@ public class ClusterIdentifier {
             mhdis[t] = multiplicities.get(t);
         }
 
-        double[] kbCoefficients = KikuchiBakerCalculator.compute(mhdis, nijTable);
+        double[] kbCoefficients = ClusterMath.computeKikuchiBaker(mhdis, nijTable);
 
         LOG.fine("ClusterIdentifier.identify — Stage 1a: Kikuchi-Baker coefficients computed, kb[0]="
                 + String.format("%.4f", kbCoefficients[0]));
@@ -169,7 +168,7 @@ public class ClusterIdentifier {
         // 1b-2. Transform ordered cluster coordinates into HSP frame
         // Mathematica: clusCoordList = ordToDisordCoord[rotateMat, translateMat, clusCoordList]
         List<Cluster> transformedClusList =
-                OrderedToDisorderedTransformer.transform(
+                OrderedClusterOps.transformToDisordered(
                         rotateMat,
                         translateMat,
                         phaseClusterData.getClusCoordList());
@@ -181,7 +180,7 @@ public class ClusterIdentifier {
         ClusCoordListResult phaseDataNonEmpty   = ClusterUtils.trimToNonEmpty(phaseClusterData, tc);
 
         ClassifiedClusterResult ordClusterData =
-                OrderedClusterClassifier.classify(
+                OrderedClusterOps.classify(
                         disClusDataNonEmpty,
                         phaseDataNonEmpty,
                         transformedClusList.subList(0, tc));

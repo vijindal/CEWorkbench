@@ -54,7 +54,7 @@ public final class CvCfEvaluator {
      * Helper to build the basis value lookup table needed for measureCVsFromConfig.
      */
     public static double[][] buildBasisValues(int numComp) {
-        double[] sequence = org.ce.domain.cluster.RMatrixCalculator.buildBasis(numComp);
+        double[] sequence = org.ce.domain.cluster.ClusterMath.buildBasis(numComp);
         double[][] values = new double[numComp][numComp - 1];
         for (int occ = 0; occ < numComp; occ++) {
             for (int alpha = 1; alpha <= numComp - 1; alpha++) {

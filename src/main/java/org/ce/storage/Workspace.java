@@ -100,4 +100,67 @@ public class Workspace {
     public Path hamiltonianFile(String hamiltonianId) {
         return hamiltonianDir(hamiltonianId).resolve("hamiltonian.json");
     }
+
+    // =========================================================================
+    // System Identity & ID Derivation
+    // =========================================================================
+
+    /**
+     * Encapsulates the three-part system identity (elements, structure, model)
+     * and derives the storage IDs used by this Workspace.
+     */
+    public static class SystemId {
+
+        public final String elements;
+        public final String structure;
+        public final String model;
+
+        public SystemId(String elements, String structure, String model) {
+            this.elements = elements;
+            this.structure = structure;
+            this.model = model;
+        }
+
+        /**
+         * Cluster data ID (element-agnostic): {@code {structure}_{model}_{ncomp}}
+         * e.g. {@code BCC_A2_T_bin}
+         */
+        public String clusterId() {
+            String modelPart = model.trim();
+            if (modelPart.equalsIgnoreCase("CVCF") || modelPart.toUpperCase().endsWith("_CVCF")) {
+                return structure + "_CVCF_" + ncompSuffix();
+            }
+            return structure + "_" + model + "_" + ncompSuffix();
+        }
+
+        /**
+         * Hamiltonian ID (element-specific): {@code {elements}_{structure}_{model}}
+         * e.g. {@code Nb-Ti_BCC_A2_T}
+         */
+        public String hamiltonianId() {
+            return elements + "_" + structure + "_" + model;
+        }
+
+        /** Returns true only if all three fields are non-blank. */
+        public boolean isComplete() {
+            return !elements.isBlank() && !structure.isBlank() && !model.isBlank();
+        }
+
+        private String ncompSuffix() {
+            return ncompSuffix(elements.split("-").length);
+        }
+
+        /**
+         * Returns the canonical cluster-ID suffix for the given component count.
+         */
+        public static String ncompSuffix(int ncomp) {
+            return switch (ncomp) {
+                case 2 -> "bin";
+                case 3 -> "tern";
+                case 4 -> "quat";
+                default -> throw new IllegalArgumentException(
+                        "No ncomp suffix for " + ncomp + " components");
+            };
+        }
+    }
 }

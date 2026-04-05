@@ -7,7 +7,6 @@ import static org.ce.domain.cluster.ClusterResults.*;
 import static org.ce.domain.cluster.ClusterPrimitives.*;
 
 import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
@@ -45,7 +44,7 @@ public class MCSEngine implements ThermodynamicEngine {
         // Validate C-matrix dimensions match basis (same check as CVMEngine)
         String structurePhase = input.cec.structurePhase;
         int numComponents = input.composition.length;
-        var basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, numComponents);
+        var basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, numComponents);
 
         CMatrix.Result cmatResult = input.clusterData.getCMatrixResult();
         cmatResult.validateCols(

@@ -7,38 +7,38 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link CvCfBasisRegistry}.
+ * Unit tests for {@link CvCfBasis.Registry}.
  */
 class CvCfBasisRegistryTest {
 
     @Test
     void testIsSupportedBccA2Binary() {
-        assertTrue(CvCfBasisRegistry.INSTANCE.isSupported("BCC_A2", 2));
+        assertTrue(CvCfBasis.Registry.INSTANCE.isSupported("BCC_A2", 2));
     }
 
     @Test
     void testIsSupportedBccA2Ternary() {
-        assertTrue(CvCfBasisRegistry.INSTANCE.isSupported("BCC_A2", 3));
+        assertTrue(CvCfBasis.Registry.INSTANCE.isSupported("BCC_A2", 3));
     }
 
     @Test
     void testIsSupportedBccA2Quaternary() {
-        assertTrue(CvCfBasisRegistry.INSTANCE.isSupported("BCC_A2", 4));
+        assertTrue(CvCfBasis.Registry.INSTANCE.isSupported("BCC_A2", 4));
     }
 
     @Test
     void testIsSupportedUnregisteredStructure() {
-        assertFalse(CvCfBasisRegistry.INSTANCE.isSupported("FCC_L12", 2));
+        assertFalse(CvCfBasis.Registry.INSTANCE.isSupported("FCC_L12", 2));
     }
 
     @Test
     void testIsSupportedUnsupportedNumComponents() {
-        assertFalse(CvCfBasisRegistry.INSTANCE.isSupported("BCC_A2", 5));
+        assertFalse(CvCfBasis.Registry.INSTANCE.isSupported("BCC_A2", 5));
     }
 
     @Test
     void testGetBccA2Binary() {
-        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get("BCC_A2", 2);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get("BCC_A2", 2);
         assertNotNull(basis);
         assertEquals("BCC_A2", basis.structurePhase);
         assertEquals(2, basis.numComponents);
@@ -47,7 +47,7 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testGetBccA2Ternary() {
-        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get("BCC_A2", 3);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get("BCC_A2", 3);
         assertNotNull(basis);
         assertEquals("BCC_A2", basis.structurePhase);
         assertEquals(3, basis.numComponents);
@@ -56,7 +56,7 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testGetBccA2Quaternary() {
-        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get("BCC_A2", 4);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get("BCC_A2", 4);
         assertNotNull(basis);
         assertEquals("BCC_A2", basis.structurePhase);
         assertEquals(4, basis.numComponents);
@@ -67,7 +67,7 @@ class CvCfBasisRegistryTest {
     void testGetThrowsOnUnregisteredStructure() {
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> CvCfBasisRegistry.INSTANCE.get("FCC_L12", 2)
+                () -> CvCfBasis.Registry.INSTANCE.get("FCC_L12", 2)
         );
         assertTrue(ex.getMessage().contains("FCC_L12"));
         assertTrue(ex.getMessage().contains("Supported"));
@@ -77,7 +77,7 @@ class CvCfBasisRegistryTest {
     void testGetThrowsOnUnsupportedNumComponents() {
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> CvCfBasisRegistry.INSTANCE.get("BCC_A2", 5)
+                () -> CvCfBasis.Registry.INSTANCE.get("BCC_A2", 5)
         );
         assertTrue(ex.getMessage().contains("BCC_A2"));
         assertTrue(ex.getMessage().contains("5"));
@@ -85,7 +85,7 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testFindReturnsOptionalForValidKey() {
-        Optional<CvCfBasis> opt = CvCfBasisRegistry.INSTANCE.find("BCC_A2", 2);
+        Optional<CvCfBasis> opt = CvCfBasis.Registry.INSTANCE.find("BCC_A2", 2);
         assertTrue(opt.isPresent());
         assertEquals("BCC_A2", opt.get().structurePhase);
         assertEquals(2, opt.get().numComponents);
@@ -93,19 +93,19 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testFindReturnsEmptyForUnregisteredStructure() {
-        Optional<CvCfBasis> opt = CvCfBasisRegistry.INSTANCE.find("FCC_L12", 2);
+        Optional<CvCfBasis> opt = CvCfBasis.Registry.INSTANCE.find("FCC_L12", 2);
         assertTrue(opt.isEmpty());
     }
 
     @Test
     void testFindReturnsEmptyForUnsupportedNumComponents() {
-        Optional<CvCfBasis> opt = CvCfBasisRegistry.INSTANCE.find("BCC_A2", 5);
+        Optional<CvCfBasis> opt = CvCfBasis.Registry.INSTANCE.find("BCC_A2", 5);
         assertTrue(opt.isEmpty());
     }
 
     @Test
     void testSupportedSummaryContainsAllValidCombinations() {
-        String summary = CvCfBasisRegistry.INSTANCE.supportedSummary();
+        String summary = CvCfBasis.Registry.INSTANCE.supportedSummary();
         assertNotNull(summary);
 
         // Should list BCC_A2 with K=2, 3, 4
@@ -117,7 +117,7 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testSupportedSummaryDoesNotListUnsupportedKeys() {
-        String summary = CvCfBasisRegistry.INSTANCE.supportedSummary();
+        String summary = CvCfBasis.Registry.INSTANCE.supportedSummary();
 
         // Should not list unsupported K values
         assertFalse(summary.contains("K=1"));
@@ -126,7 +126,7 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testBasisTransformationMatricesNonNull() {
-        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get("BCC_A2", 2);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get("BCC_A2", 2);
         assertNotNull(basis.T);
         assertTrue(basis.T.length > 0);
         assertTrue(basis.T[0].length > 0);
@@ -134,7 +134,7 @@ class CvCfBasisRegistryTest {
 
     @Test
     void testBasisCfNamesNonEmpty() {
-        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get("BCC_A2", 3);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get("BCC_A2", 3);
         assertNotNull(basis.cfNames);
         assertEquals(basis.totalCfs(), basis.cfNames.size());
         assertTrue(basis.numNonPointCfs > 0);

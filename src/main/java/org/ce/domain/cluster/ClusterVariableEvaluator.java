@@ -24,7 +24,7 @@ import java.util.List;
  * <pre>
  *   âŸ¨s^kâŸ© = Î£_{i=0}^{K-1} x_i Â· t_i^k     for k = 1, â€¦, Kâˆ’1
  * </pre>
- * where {@code t_i} is the {@link RMatrixCalculator#buildBasis(int)} value
+ * where {@code t_i} is the {@link ClusterMath#buildBasis(int)} value
  * for component i.</p>
  *
  * <p>Corresponds to Mathematica {@code cvRules} evaluation.</p>
@@ -68,7 +68,7 @@ public final class ClusterVariableEvaluator {
             int tcf) {
 
         // Compute the Kâˆ’1 point CFs from composition
-        double[] basis = RMatrixCalculator.buildBasis(numElements);
+        double[] basis = ClusterMath.buildBasis(numElements);
         int nxcf = tcf - ncf;
         double[] pointCFs = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
@@ -122,7 +122,7 @@ public final class ClusterVariableEvaluator {
         System.arraycopy(u, 0, uFull, 0, ncf);
 
         // Pre-compute all Kâˆ’1 point CF values: pointCF[k] = âŸ¨Ïƒ^{k+1}âŸ©
-        double[] basis = RMatrixCalculator.buildBasis(numElements);
+        double[] basis = ClusterMath.buildBasis(numElements);
         int nxcf = tcf - ncf;
         double[] pointCFValues = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
@@ -339,7 +339,7 @@ public final class ClusterVariableEvaluator {
     private static double[] computeRandomCVCFsFallback(double[] x, CvCfBasis basis, int ncf, int tcf) {
         int tRows = basis.T.length;
         int nxcf = x.length - 1;
-        double[] basisVec = RMatrixCalculator.buildBasis(x.length);
+        double[] basisVec = ClusterMath.buildBasis(x.length);
         double[] pointCFs = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
             int power = k + 1;

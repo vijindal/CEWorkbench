@@ -30,7 +30,7 @@ public final class SubstituteRules {
      * Builds substitute rules with geometry augmentation.
      *
      * @param cfSiteOpList per-CF site-operator products from CF identification
-     * @param siteList     site positions (from {@link SiteListBuilder}); must
+     * @param siteList     site positions (from {@link ClusterBuilders#buildSiteList}); must
      *                     not be {@code null}
      * @return substitute rules mapping site-op products to CF indices
      */

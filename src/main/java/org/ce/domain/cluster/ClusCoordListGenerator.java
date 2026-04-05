@@ -43,8 +43,7 @@ import java.util.List;
  * @author  CVM Project
  * @version 1.0
  * @see     ClusCoordListResult
- * @see     SubClusterGenerator
- * @see     DecoratedSubClusterGenerator
+ * @see     SubClusterGenerators
  */
 public class ClusCoordListGenerator {
 
@@ -130,11 +129,11 @@ public class ClusCoordListGenerator {
 
             if (basisSymbolList == null) {
                 // Geometric (undecorated) sub-clusters
-                subClusCoord = SubClusterGenerator.generateSubClusters(
+                subClusCoord = SubClusterGenerators.generateSubClusters(
                         maxClusCoord.get(k));
             } else {
                 // Decorated sub-clusters for CFs
-                subClusCoord = DecoratedSubClusterGenerator.generate(
+                subClusCoord = SubClusterGenerators.generateDecorated(
                         maxClusCoord.get(k), basisSymbolList);
             }
 
@@ -150,7 +149,7 @@ public class ClusCoordListGenerator {
                 boolean isNew = true;
 
                 for (List<Cluster> orbit : subClusOrbitList) {
-                    if (OrbitUtils.isContained(orbit, candidate)) {
+                    if (ClusterUtils.isContained(orbit, candidate)) {
                         isNew = false;
                         break;
                     }
@@ -160,7 +159,7 @@ public class ClusCoordListGenerator {
                     clusCoordList.add(candidate);
 
                     List<Cluster> orbit =
-                            OrbitUtils.generateOrbit(candidate, spaceGroup);
+                            ClusterUtils.generateOrbit(candidate, spaceGroup);
 
                     subClusOrbitList.add(orbit);
                     subClusMList.add(orbit.size());

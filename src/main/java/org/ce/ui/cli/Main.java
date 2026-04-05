@@ -3,7 +3,7 @@ package org.ce.ui.cli;
 import static org.ce.domain.cluster.AllClusterData.ClusterData;
 
 import org.ce.domain.cluster.*;
-import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.engine.cvm.CVMFreeEnergy;
 import org.ce.domain.engine.mcs.MCSEngine;
@@ -11,7 +11,7 @@ import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.result.ThermodynamicResult;
 import org.ce.storage.ClusterDataStore;
-import org.ce.storage.SystemId;
+import org.ce.storage.Workspace.SystemId;
 import org.ce.storage.Workspace;
 import org.ce.storage.HamiltonianStore;
 import org.ce.storage.InputLoader;
@@ -160,10 +160,10 @@ public class Main {
         System.out.println("Cluster ID: " + CLUSTER_ID + "   Hamiltonian ID: " + HAMILTONIAN_ID);
 
         try {
-            Workspace workspace         = new Workspace();
-            ClusterDataStore clusterStore   = new ClusterDataStore(workspace);
-            HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
-            CECManagementWorkflow cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
+            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
+            ClusterDataStore clusterStore = appCtx.getClusterStore();
+            HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
+            CalculationService service = appCtx.getCalculationService();
 
             // ------------------------------------------------------------------
             // TYPE-1a: Cluster Identification + Save
@@ -172,9 +172,6 @@ public class Main {
 
                 System.out.println("\n=== TYPE-1a: Cluster Identification ===\n");
 
-                // Structure-aware Type-1a topology wiring.
-                // BCC_A2: disordered=ordered=A2
-                // BCC_B2: disordered=A2, ordered=B2
                 String disClusFile = "clus/BCC_A2-T.txt";
                 String disSymGroup = "BCC_A2-SG";
                 String ordClusFile = "clus/BCC_B2-T.txt";
@@ -184,7 +181,6 @@ public class Main {
                     ordSymGroup = "BCC_A2-SG";
                 }
 
-                // Transformation matrix and translation vector are automatically extracted from symmetry group files.
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
                         .disorderedClusterFile(disClusFile)
                         .orderedClusterFile(ordClusFile)
@@ -193,11 +189,9 @@ public class Main {
                         .numComponents(numComponents)
                         .build();
 
-                AllClusterData clusterData = ClusterIdentificationWorkflow.identify(config, System.out::println);
+                AllClusterData clusterData = appCtx.runType1a(CLUSTER_ID, config, System.out::println);
                 System.out.println("Identification complete: " + clusterData.getSummary());
-
-                clusterStore.save(CLUSTER_ID, clusterData);
-                System.out.println("Saved: ~/CEWorkbench/cluster-data/" + CLUSTER_ID + "/cluster_data.json");
+                System.out.println("Saved: " + appCtx.getWorkspace().clusterDataFile(CLUSTER_ID));
             }
 
             // ------------------------------------------------------------------
@@ -209,10 +203,10 @@ public class Main {
 
                 if (hamiltonianStore.exists(HAMILTONIAN_ID)) {
                     System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
-                    System.out.println("  Delete ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/ to re-scaffold.");
+                    System.out.println("  Delete " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID) + " to re-scaffold.");
                 } else {
-                    cecWorkflow.scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
-                    System.out.println("Saved: ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/hamiltonian.json");
+                    appCtx.runType1b(HAMILTONIAN_ID, elements, structure, model);
+                    System.out.println("Saved: " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID));
                     System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
                 }
             }
@@ -223,12 +217,6 @@ public class Main {
             if (mode.equals("type2") || mode.equals("all")) {
 
                 System.out.println("\n=== TYPE-2: Thermodynamic Calculation (CVM) ===\n");
-
-                CVMEngine cvmEngine = new CVMEngine();
-                ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                        clusterStore, cecWorkflow, cvmEngine, null
-                );
-                CalculationService service = new CalculationService(thermoWorkflow);
 
                 double[] composition = {0.5, 0.5};
                 if (numComponents > 2) {
@@ -249,8 +237,6 @@ public class Main {
                 List<ThermodynamicResult> results = service.runLineScanTemperature(
                         CLUSTER_ID, HAMILTONIAN_ID, composition, tStart, tEnd, tStep, "CVM"
                 );
-                // MCS single-point example (shows sweep progress on stdout):
-                // service.runSinglePoint(CLUSTER_ID, HAMILTONIAN_ID, 1000.0, composition, "MCS", System.out::println);
 
                 System.out.println(String.format("  %-8s  %-16s  %-16s",
                         "T (K)", "G (J/mol)", "H (J/mol)"));
@@ -271,21 +257,21 @@ public class Main {
     }
 
     private static void printSupportedCvcfStructures(PrintStream out) {
-        out.println(CvCfBasisRegistry.INSTANCE.supportedSummary());
+        out.println(CvCfBasis.Registry.INSTANCE.supportedSummary());
         out.println();
     }
 
     private static void scaffoldCecCvcf(String elements, String structure, String model) {
         int numComponents = elements.split("-").length;
 
-        if (!CvCfBasisRegistry.INSTANCE.isSupported(structure, numComponents)) {
+        if (!CvCfBasis.Registry.INSTANCE.isSupported(structure, numComponents)) {
             System.err.println("CVCF basis not registered for structure '" + structure + "' with " + numComponents + " components.");
             System.err.println();
             printSupportedCvcfStructures(System.err);
             System.exit(1);
         }
 
-        var basis = CvCfBasisRegistry.INSTANCE.get(structure, numComponents);
+        var basis = CvCfBasis.Registry.INSTANCE.get(structure, numComponents);
         System.out.println("Using CVCF basis for " + structure + " (" + numComponents + " components)");
         System.out.println("Clustering to CVCF transformation matrix (orthogonal->CVCF):");
         System.out.println(basis);
@@ -302,17 +288,15 @@ public class Main {
         System.out.println("  Hamiltonian ID: " + HAMILTONIAN_ID);
 
         try {
-            Workspace workspace = new Workspace();
-            ClusterDataStore clusterStore = new ClusterDataStore(workspace);
-            HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
-            CECManagementWorkflow cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
+            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
+            HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
 
             if (hamiltonianStore.exists(HAMILTONIAN_ID)) {
                 System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
-                System.out.println("  Delete ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/ to re-scaffold.");
+                System.out.println("  Delete " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID) + " to re-scaffold.");
             } else {
-                cecWorkflow.scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
-                System.out.println("Saved: ~/CEWorkbench/hamiltonians/" + HAMILTONIAN_ID + "/hamiltonian.json");
+                appCtx.runType1b(HAMILTONIAN_ID, elements, structure, model);
+                System.out.println("Saved: " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID));
                 System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
             }
         } catch (Exception e) {
@@ -333,17 +317,9 @@ public class Main {
 
     private static void runCalcMin(String elements, String structure, String model, double temp, double[] composition) {
         try {
-            // Set up infrastructure (same as GUI)
-            Workspace workspace = new Workspace();
-            ClusterDataStore clusterStore = new ClusterDataStore(workspace);
-            HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
-            CECManagementWorkflow cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
-            CVMEngine cvmEngine = new CVMEngine();
-            MCSEngine mcsEngine = new MCSEngine();
-            ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                    clusterStore, cecWorkflow, cvmEngine, mcsEngine
-            );
-            CalculationService service = new CalculationService(thermoWorkflow);
+            // Set up context (same as GUI)
+            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
+            CalculationService service = appCtx.getCalculationService();
 
             // Derive IDs from system
             SystemId system = new SystemId(elements, structure, model);
@@ -381,15 +357,17 @@ public class Main {
 
     private static void runCalcFixed(String elements, String structure, String model, double temp, double[] composition, double[] cfs) {
         try {
+            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             SystemId system = new SystemId(elements, structure, model);
             String CLUSTER_ID = system.clusterId();
             String rawId = system.hamiltonianId();
             String preferredId = rawId + "_CVCF";
-            HamiltonianStore _hs = new HamiltonianStore(new Workspace());
-            String HAMILTONIAN_ID = _hs.exists(preferredId) ? preferredId : rawId;
-            Workspace workspace = new Workspace();
-            ClusterDataStore clusterStore = new ClusterDataStore(workspace);
-            HamiltonianStore hamiltonianStore = new HamiltonianStore(workspace);
+            
+            HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
+            ClusterDataStore clusterStore = appCtx.getClusterStore();
+            
+            String HAMILTONIAN_ID = hamiltonianStore.exists(preferredId) ? preferredId : rawId;
+            
             AllClusterData allData = clusterStore.load(CLUSTER_ID);
             CECEntry entry = hamiltonianStore.load(HAMILTONIAN_ID);
             double[] eci = extractEciFromEntry(entry, temp);

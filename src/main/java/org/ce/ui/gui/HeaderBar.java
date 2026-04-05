@@ -1,6 +1,6 @@
 package org.ce.ui.gui;
 
-import org.ce.storage.SystemId;
+import org.ce.storage.Workspace.SystemId;
 
 import javax.swing.*;
 import java.awt.*;

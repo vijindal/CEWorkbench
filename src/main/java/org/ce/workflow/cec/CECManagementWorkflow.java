@@ -9,13 +9,12 @@ import static org.ce.domain.cluster.ClusterPrimitives.*;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.ClusterDataStore;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.hamiltonian.NumericalCECTransformer;
 import org.ce.storage.HamiltonianStore;
-import org.ce.storage.SystemId;
+import org.ce.storage.Workspace.SystemId;
 
 import java.io.IOException;
 import java.util.List;
@@ -168,11 +167,11 @@ public class CECManagementWorkflow {
         int numComponents = elements.split("-").length;
 
         // Validate CVCF basis is supported for this (structure, numComponents)
-        if (!CvCfBasisRegistry.INSTANCE.isSupported(structurePhase, numComponents)) {
+        if (!CvCfBasis.Registry.INSTANCE.isSupported(structurePhase, numComponents)) {
             String msg = "CVCF basis not supported for " + structurePhase
                     + " with " + numComponents + " components.\n"
                     + "Cannot scaffold CEC for unsupported basis.\n"
-                    + CvCfBasisRegistry.INSTANCE.supportedSummary();
+                    + CvCfBasis.Registry.INSTANCE.supportedSummary();
             throw new IllegalArgumentException(msg);
         }
 
@@ -196,7 +195,7 @@ public class CECManagementWorkflow {
 
         if (cfNames != null) {
             // CVCF basis - meaningful names from C-matrix: v4AB -> e4AB
-            CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, numComponents);
+            CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, numComponents);
             ncf = basis.numNonPointCfs;
             terms = new CECTerm[ncf];
             for (int i = 0; i < ncf; i++) {

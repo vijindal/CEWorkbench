@@ -3,7 +3,6 @@ package org.ce.ui.gui;
 import org.ce.domain.cluster.AllClusterData;
 import static org.ce.domain.cluster.ClusterPrimitives.*;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.ClusterDataStore;
 import org.ce.storage.Workspace;
 import org.ce.workflow.ClusterIdentificationRequest;
@@ -150,7 +149,7 @@ public class DataPreparationPanel extends JPanel {
 
         String suffix;
         try {
-            suffix = org.ce.storage.SystemId.ncompSuffix(numComp);
+            suffix = org.ce.storage.Workspace.SystemId.ncompSuffix(numComp);
         } catch (IllegalArgumentException e) {
             suffix = numComp + "comp";
         }
@@ -384,7 +383,7 @@ public class DataPreparationPanel extends JPanel {
                     logSink.accept("  eOList (orthogonal CEC symbols): " + result.getEOList());
                     // Print T matrix (Transformation matrix u = T.v)
                     String structure = parseStructureModel(systemId)[0];
-                    CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(structure, numComp);
+                    CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structure, numComp);
                     if (basis != null) {
                         logSink.accept("  Transformation Matrix T (u = T.v):");
                         double[][] tMat = basis.T;

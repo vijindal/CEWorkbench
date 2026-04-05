@@ -36,7 +36,7 @@ import java.util.logging.Logger;
  * <h2>Stage 2b â€" Phase CFs (n-component basis)</h2>
  * <p>Enumerate all distinct decorated clusters of the ordered phase using the
  * n-component basis.  Classify them into HSP cluster types.  Group the resulting
- * CFs using {@link CFGroupGenerator#groupCFData} so that each CF knows which
+ * CFs using {@link ClusterBuilders#groupCFData} so that each CF knows which
  * HSP cluster type it belongs to, and within that type, which ordered-phase
  * cluster group it belongs to.</p>
  *
@@ -62,7 +62,7 @@ import java.util.logging.Logger;
  * </p>
  *
  * @see CFIdentificationResult
- * @see CFGroupGenerator
+ * @see ClusterBuilders
  * @see org.ce.domain.identification.cluster.ClusterIdentifier
  */
 public class CFIdentifier {
@@ -126,7 +126,7 @@ public class CFIdentifier {
         // 2b-2. Transform phase CF coordinates to HSP frame
         // Mathematica: CFCoordList = ordToDisordCoord[rotateMat, translateMat, CFData[[1]]]
         List<Cluster> transformedCFList =
-                OrderedToDisorderedTransformer.transform(
+                OrderedClusterOps.transformToDisordered(
                         rotateMat,
                         translateMat,
                         phaseCFData.getClusCoordList());
@@ -137,7 +137,7 @@ public class CFIdentifier {
         ClusCoordListResult phaseCFNonEmpty = ClusterUtils.trimToNonEmpty(phaseCFData,  tcPhase);
 
         ClassifiedClusterResult ordCFData =
-                OrderedClusterClassifier.classify(
+                OrderedClusterOps.classify(
                         disCFNonEmpty,
                         phaseCFNonEmpty,
                         transformedCFList.subList(0, tcPhase));
@@ -152,7 +152,7 @@ public class CFIdentifier {
                 ClusterUtils.trimToNonEmpty(clusterResult.getDisClusterData(), tcdis);
 
         GroupedCFResult groupedCFData =
-                CFGroupGenerator.groupCFData(
+                ClusterBuilders.groupCFData(
                         disClusDataForGrouping,
                         disCFNonEmpty,
                         ordCFData,
@@ -263,6 +263,9 @@ public class CFIdentifier {
         return lcf;
     }
 }
+
+
+
 
 
 

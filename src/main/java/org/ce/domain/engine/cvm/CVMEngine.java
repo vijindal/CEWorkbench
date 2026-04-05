@@ -7,12 +7,12 @@ import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
 import org.ce.domain.engine.cvm.CVMPhaseModel.CVMInput;
-import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
+import org.ce.domain.engine.cvm.CVMPhaseModel.SolverResult;
+import org.ce.domain.engine.cvm.CVMPhaseModel.SolverResult.IterationSnapshot;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECEvaluator;
@@ -60,7 +60,7 @@ public class CVMEngine implements ThermodynamicEngine {
         LOG.info("  composition: [" + formatArray(composition) + "]");
         LOG.info("  numComponents: " + composition.length);
 
-        CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, composition.length);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, composition.length);
 
         /*
          * 1. Validate CMatrix exists
@@ -189,8 +189,8 @@ public class CVMEngine implements ThermodynamicEngine {
         if (input.eventSink != null) {
             LOG.fine("Emitting N-R iteration trace to eventSink...");
             input.eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
-            List<CVMSolverResult.IterationSnapshot> trace = model.getLastIterationTrace();
-            for (CVMSolverResult.IterationSnapshot snap : trace) {
+            List<SolverResult.IterationSnapshot> trace = model.getLastIterationTrace();
+            for (SolverResult.IterationSnapshot snap : trace) {
                 double[] ghs = model.computeGHS(snap.getCf());
                 input.eventSink.accept(new ProgressEvent.CvmIteration(
                         snap.getIteration(),

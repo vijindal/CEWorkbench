@@ -2,7 +2,7 @@ package org.ce.ui.gui;
 
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
-import org.ce.storage.SystemId;
+import org.ce.storage.Workspace.SystemId;
 import org.ce.workflow.CalculationService;
 import org.ce.workflow.thermo.ThermodynamicRequest;
 

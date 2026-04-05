@@ -86,7 +86,7 @@ public final class CMatrix {
                 throw new IllegalStateException("cfBasisIndices is null");
             }
 
-            double[] basis = RMatrixCalculator.buildBasis(numElements);
+            double[] basis = ClusterMath.buildBasis(numElements);
             int nxcf = numElements - 1;
             double[] pointCFs = new double[nxcf];
             for (int k = 0; k < nxcf; k++) {
@@ -135,11 +135,11 @@ public final class CMatrix {
 
         LOG.fine("CMatrix.build — ENTER");
 
-        List<Position> siteList = SiteListBuilder.buildSiteList(maxClusters);
-        PRules pRules = PRules.build(siteList.size(), numElements);
+        List<Position> siteList = ClusterBuilders.buildSiteList(maxClusters);
+        ClusterMath.PRules pRules = ClusterMath.PRules.build(siteList.size(), numElements);
 
         List<List<List<List<SiteOp>>>> cfSiteOpList =
-                CFSiteOpListBuilder.build(cfResult.getGroupedCFData(), siteList);
+                ClusterBuilders.buildCFSiteOpList(cfResult.getGroupedCFData(), siteList);
         SubstituteRules substituteRules = SubstituteRules.build(cfSiteOpList, siteList);
 
         int totalCfs = cfResult.getTcf();
@@ -296,7 +296,7 @@ public final class CMatrix {
     private static double[] computeCvRow(
             List<Integer> siteIndices,
             int[] config,
-            PRules pRules,
+            ClusterMath.PRules pRules,
             SubstituteRules substituteRules,
             Map<CFIndex, Integer> cfColumn,
             int totalCfs) {

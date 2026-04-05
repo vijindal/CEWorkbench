@@ -22,16 +22,32 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AllClusterData {
 
+    @JsonProperty("disorderedClusterResult")
     private final ClusterIdentificationResult disorderedClusterResult;
+
+    @JsonProperty("orderedClusterResult")
     private final ClusterIdentificationResult orderedClusterResult;
+
+    @JsonProperty("disorderedCFResult")
     private final CFIdentificationResult disorderedCFResult;
+
+    @JsonProperty("orderedCFResult")
     private final CFIdentificationResult orderedCFResult;
+
+    @JsonProperty("cMatrixResult")
     private final CMatrix.Result cMatrixResult;
 
     // Basis-specific symbol lists
+    @JsonProperty("uList")
     private final List<String> uList;  // Orthogonal CF symbols
+
+    @JsonProperty("vList")
     private final List<String> vList;  // CVCF CF symbols
+
+    @JsonProperty("eOList")
     private final List<String> eOList; // Orthogonal CEC symbols
+
+    @JsonProperty("eList")
     private final List<String> eList;  // CVCF CEC symbols
 
     /**
@@ -54,7 +70,7 @@ public class AllClusterData {
             @JsonProperty("orderedClusterResult")    ClusterIdentificationResult orderedClusterResult,
             @JsonProperty("disorderedCFResult")      CFIdentificationResult      disorderedCFResult,
             @JsonProperty("orderedCFResult")         CFIdentificationResult      orderedCFResult,
-            @JsonProperty("cMatrixResult") @JsonAlias({"cMatrixResult", "CMatrix.Result"}) CMatrix.Result cMatrixResult,
+            @JsonProperty("cMatrixResult") @JsonAlias({"cMatrixResult", "cmatrixResult", "CMatrix.Result"}) CMatrix.Result cMatrixResult,
             @JsonProperty("uList") @JsonAlias("ulist") List<String> uList,
             @JsonProperty("vList") @JsonAlias("vlist") List<String> vList,
             @JsonProperty("eOList") @JsonAlias("eolist") List<String> eOList,
@@ -71,51 +87,44 @@ public class AllClusterData {
         this.eList = eList;
     }
 
-    /**
-     * Default no-arg constructor for deserialization (e.g., JSON loading).
-     */
-    public AllClusterData() {
-        this.disorderedClusterResult = null;
-        this.orderedClusterResult = null;
-        this.disorderedCFResult = null;
-        this.orderedCFResult = null;
-        this.cMatrixResult = null;
-        this.uList = null;
-        this.vList = null;
-        this.eOList = null;
-        this.eList = null;
-    }
-
     // =========================================================================
     // Accessors
     // =========================================================================
 
+    @JsonProperty("disorderedClusterResult")
     public ClusterIdentificationResult getDisorderedClusterResult() {
         return disorderedClusterResult;
     }
 
+    @JsonProperty("orderedClusterResult")
     public ClusterIdentificationResult getOrderedClusterResult() {
         return orderedClusterResult;
     }
 
+    @JsonProperty("disorderedCFResult")
     public CFIdentificationResult getDisorderedCFResult() {
         return disorderedCFResult;
     }
 
+    @JsonProperty("orderedCFResult")
     public CFIdentificationResult getOrderedCFResult() {
         return orderedCFResult;
     }
 
+    @JsonProperty("cMatrixResult")
     public CMatrix.Result getCMatrixResult() {
         return cMatrixResult;
     }
 
     @JsonProperty("uList")
     public List<String> getUList()  { return uList; }
+
     @JsonProperty("vList")
     public List<String> getVList()  { return vList; }
+
     @JsonProperty("eOList")
     public List<String> getEOList() { return eOList; }
+
     @JsonProperty("eList")
     public List<String> getEList()  { return eList; }
 

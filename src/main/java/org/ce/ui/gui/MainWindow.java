@@ -40,9 +40,7 @@ public class MainWindow extends JFrame {
     private final ActivityBar   activityBar;
     private final ExplorerPanel explorerPanel;
 
-    public MainWindow(CalculationService calculationService,
-                      ClusterDataStore clusterStore,
-                      CECManagementWorkflow cecWorkflow) {
+    public MainWindow(org.ce.CEWorkbenchContext appCtx) {
 
         super("CE Thermodynamics Workbench");
         applyDarkTheme();
@@ -78,13 +76,13 @@ public class MainWindow extends JFrame {
 
         // ── parameter panels (go into the explorer) ───────────────────────────
         DataPreparationPanel dataPrepPanel = new DataPreparationPanel(
-                clusterStore, context, statusSink, logSink);
+                appCtx.getClusterStore(), context, statusSink, logSink);
 
         CECManagementPanel cecPanel = new CECManagementPanel(
-                cecWorkflow, context, statusSink, logSink, cecResultSink, cecEditApplySink);
+                appCtx.getCecWorkflow(), context, statusSink, logSink, cecResultSink, cecEditApplySink);
 
         CalculationPanel calcPanel = new CalculationPanel(
-                calculationService, context, statusSink, logSink, resultSink, chartSink);
+                appCtx.getCalculationService(), context, statusSink, logSink, resultSink, chartSink);
 
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();

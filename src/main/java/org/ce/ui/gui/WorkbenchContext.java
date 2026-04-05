@@ -1,6 +1,6 @@
 package org.ce.ui.gui;
 
-import org.ce.storage.SystemId;
+import org.ce.storage.Workspace.SystemId;
 
 import java.util.ArrayList;
 import java.util.List;
