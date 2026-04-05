@@ -1,6 +1,6 @@
 package org.ce.workflow;
 
-import org.ce.domain.cluster.Vector3D;
+import static org.ce.domain.cluster.ClusterPrimitives.*;
 import org.ce.domain.cluster.SpaceGroup;
 import org.ce.storage.InputLoader;
 

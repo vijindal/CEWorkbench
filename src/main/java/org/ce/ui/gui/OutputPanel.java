@@ -1,5 +1,7 @@
 package org.ce.ui.gui;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.engine.ProgressEvent;

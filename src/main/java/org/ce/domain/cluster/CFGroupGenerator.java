@@ -1,5 +1,9 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterResults.*;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import java.util.ArrayList;
 import java.util.List;
 

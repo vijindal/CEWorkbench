@@ -1,8 +1,13 @@
 package org.ce.workflow.cec;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
+import static org.ce.domain.cluster.ClusterResults.*;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.GroupedCFResult;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.ClusterDataStore;
@@ -182,8 +187,8 @@ public class CECManagementWorkflow {
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
-        // Extract CVCF labels or orthogonal labels from CMatrixResult (Fix 1) or uList.
-        org.ce.domain.cluster.CMatrixResult cmatResult = clusterData.getCMatrixResult();
+        // Extract CVCF labels or orthogonal labels from CMatrix.Result (Fix 1) or uList.
+        org.ce.domain.cluster.CMatrix.Result cmatResult = clusterData.getCMatrixResult();
         List<String> cfNames = (cmatResult != null) ? cmatResult.getCmatCfNames() : null;
 
         int ncf;

@@ -1,5 +1,7 @@
 package org.ce.domain.engine.mcs;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 /**
  * Orthogonal point-function basis for an n-component system.
  * Evaluates basis functions phi_alpha at a given site occupation.

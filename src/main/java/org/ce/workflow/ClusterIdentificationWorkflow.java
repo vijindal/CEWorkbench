@@ -1,9 +1,13 @@
 package org.ce.workflow;
 
+import static org.ce.domain.cluster.SpaceGroup.SymmetryOperation;
+
 import org.ce.domain.cluster.*;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.InputLoader;
+import org.ce.domain.cluster.AllClusterData;
+import org.ce.domain.cluster.CMatrix;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -159,12 +163,12 @@ public class ClusterIdentificationWorkflow {
                 emit(progressSink, "STAGE 3: Build C-matrix (orthogonal -> CVCF)");
 
                 // Use orderedClusters as maxClusters (full geometry reference)
-                CMatrixResult cMatrix = CMatrixBuilder.build(
+                CMatrix.Result cMatrix = CMatrix.build(
                                 clusterResult,
                                 cfResult,
                                 orderedClusters, // ✅ correct choice
-                                config.getNumComponents(),
-                                CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), config.getNumComponents()),
+                                numComponents,
+                                CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), numComponents),
                                 progressSink);
 
                 LOG.fine("C-Matrix built successfully");
@@ -177,7 +181,7 @@ public class ClusterIdentificationWorkflow {
                 // 6. Generate basis-specific symbol lists
                 // =====================================================================
                 LOG.fine("Retrieving symbolic lists for CFs and CECs from Stage 2 result...");
-                CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), config.getNumComponents());
+                CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(config.getStructurePhase(), numComponents);
 
                 List<String> uList  = cfResult.getUNames();
                 List<String> eOList = cfResult.getEONames();
@@ -193,7 +197,7 @@ public class ClusterIdentificationWorkflow {
                 // about the 4 distinct inputs (dis cluster file, dis symmetry, ord cluster
                 // file,
                 // ord symmetry), even though the results derive from a single analysis.
-                AllClusterData result = new AllClusterData(
+                AllClusterData finalResult = new AllClusterData(
                                 clusterResult, // disordered cluster result
                                 clusterResult, // ordered cluster result
                                 cfResult, // disordered CF result
@@ -201,10 +205,10 @@ public class ClusterIdentificationWorkflow {
                                 cMatrix // C-Matrix result
                                 , uList, vList, eOList, eList);
 
-                LOG.info("ClusterIdentificationWorkflow.identify — EXIT: " + result.getSummary());
-                emit(progressSink, "TYPE-1a DONE: " + result.getSummary());
+                LOG.info("ClusterIdentificationWorkflow.identify — EXIT: " + finalResult.getSummary());
+                emit(progressSink, "TYPE-1a DONE: " + finalResult.getSummary());
 
-                return result;
+                return finalResult;
         }
 
         private static void dump2DInt(String label, int[][] table, Consumer<String> sink) {

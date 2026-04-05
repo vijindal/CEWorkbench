@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 /**
  * Computes Kikuchi-Baker entropy coefficients for the CVM free energy functional.
  *

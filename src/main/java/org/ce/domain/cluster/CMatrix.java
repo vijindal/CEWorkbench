@@ -1,5 +1,10 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterKeys.*;
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.cvcf.CvCfBasisTransformer;
 
@@ -11,15 +16,103 @@ import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
- * Builds the C-matrix that relates CVs to CFs.
+ * High-level API for C-matrix operations: building and data container.
  */
-public final class CMatrixBuilder {
+public final class CMatrix {
 
-    private static final Logger LOG = Logger.getLogger(CMatrixBuilder.class.getName());
+    private static final Logger LOG = Logger.getLogger(CMatrix.class.getName());
 
-    private CMatrixBuilder() {}
+    private CMatrix() {
+        // Utility container
+    }
 
-    public static CMatrixResult build(
+    /**
+     * Holds C-matrix data: coefficients, counts, weights, and random CF generation.
+     */
+    public static final class Result {
+
+        private final List<List<double[][]>> cmat;
+        private final int[][] lcv;
+        private final List<List<int[]>> wcv;
+        private final int[][] cfBasisIndices;
+        private final List<String> cmatCfNames;
+
+        @JsonCreator
+        public Result(
+                @JsonProperty("cmat")            List<List<double[][]>> cmat,
+                @JsonProperty("lcv")             int[][]                lcv,
+                @JsonProperty("wcv")             List<List<int[]>>      wcv,
+                @JsonProperty("cfBasisIndices")  int[][]                cfBasisIndices,
+                @JsonProperty("cmatCfNames")     List<String>           cmatCfNames) {
+            this.cmat = cmat;
+            this.lcv = lcv;
+            this.wcv = wcv;
+            this.cfBasisIndices = cfBasisIndices;
+            this.cmatCfNames = cmatCfNames;
+        }
+
+        public Result() {
+            this.cmat = null;
+            this.lcv = null;
+            this.wcv = null;
+            this.cfBasisIndices = null;
+            this.cmatCfNames = null;
+        }
+
+        public List<List<double[][]>> getCmat() { return cmat; }
+        public int[][] getLcv() { return lcv; }
+        public List<List<int[]>> getWcv() { return wcv; }
+        public int[][] getCfBasisIndices() { return cfBasisIndices; }
+        public List<String> getCmatCfNames() { return cmatCfNames; }
+
+        public void validateCols(int expectedCols, String contextMsg) {
+            if (cmat == null || cmat.isEmpty()) return;
+            var firstType = cmat.get(0);
+            if (firstType == null || firstType.isEmpty()) return;
+            double[][] firstBlock = firstType.get(0);
+            if (firstBlock == null || firstBlock.length == 0) return;
+            int actual = firstBlock[0].length;
+            if (actual != expectedCols) {
+                throw new IllegalStateException(contextMsg
+                        + ": expected " + expectedCols + " columns, got " + actual);
+            }
+        }
+
+        public double[] evaluateRandomCFs(double[] moleFractions, int numElements) {
+            if (moleFractions == null || moleFractions.length != numElements) {
+                throw new IllegalArgumentException("Invalid moleFractions");
+            }
+            if (cfBasisIndices == null) {
+                throw new IllegalStateException("cfBasisIndices is null");
+            }
+
+            double[] basis = RMatrixCalculator.buildBasis(numElements);
+            int nxcf = numElements - 1;
+            double[] pointCFs = new double[nxcf];
+            for (int k = 0; k < nxcf; k++) {
+                int power = k + 1;
+                for (int i = 0; i < numElements; i++) {
+                    pointCFs[k] += moleFractions[i] * Math.pow(basis[i], power);
+                }
+            }
+
+            int ncf = cfBasisIndices.length - nxcf;
+            double[] uRandom = new double[ncf];
+            for (int icf = 0; icf < ncf; icf++) {
+                int[] indices = cfBasisIndices[icf];
+                double val = 1.0;
+                for (int b : indices) val *= pointCFs[b - 1];
+                uRandom[icf] = val;
+            }
+            return uRandom;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Builder logic (formerly CMatrixBuilder)
+    // -------------------------------------------------------------------------
+
+    public static Result build(
             ClusterIdentificationResult clusterResult,
             CFIdentificationResult cfResult,
             List<Cluster> maxClusters,
@@ -28,7 +121,7 @@ public final class CMatrixBuilder {
         return build(clusterResult, cfResult, maxClusters, numElements, basis, null);
     }
 
-    public static CMatrixResult build(
+    public static Result build(
             ClusterIdentificationResult clusterResult,
             CFIdentificationResult cfResult,
             List<Cluster> maxClusters,
@@ -36,16 +129,11 @@ public final class CMatrixBuilder {
             CvCfBasis basis,
             Consumer<String> progressSink) {
 
-        if (clusterResult == null || cfResult == null) {
-            throw new IllegalArgumentException("clusterResult and cfResult must not be null");
-        }
-        if (maxClusters == null) {
-            throw new IllegalArgumentException("maxClusters must not be null");
+        if (clusterResult == null || cfResult == null || maxClusters == null) {
+            throw new IllegalArgumentException("Inputs must not be null");
         }
 
-        LOG.fine("CMatrixBuilder.build — ENTER: tc=" + clusterResult.getTc()
-                + ", ncf=" + cfResult.getNcf() + ", tcf=" + cfResult.getTcf()
-                + ", numElements=" + numElements);
+        LOG.fine("CMatrix.build — ENTER");
 
         List<Position> siteList = SiteListBuilder.buildSiteList(maxClusters);
         PRules pRules = PRules.build(siteList.size(), numElements);
@@ -56,12 +144,9 @@ public final class CMatrixBuilder {
 
         int totalCfs = cfResult.getTcf();
         int[][] lcf = cfResult.getLcf();
-
         Map<CFIndex, Integer> cfColumn = buildCfColumnMap(lcf);
 
-        // Extract per-CF basis-index decoration patterns (Mathematica: uRandRules)
         int[][] cfBasisIndices = extractCfBasisIndices(cfSiteOpList, cfColumn, totalCfs);
-
         List<List<Cluster>> ordClustersByType = clusterResult.getOrdClusterData().getCoordList();
 
         List<List<double[][]>> cmat = new ArrayList<>();
@@ -98,28 +183,19 @@ public final class CMatrixBuilder {
 
                 int idx = 0;
                 for (Map.Entry<PolynomialKey, Integer> entry : countMap.entrySet()) {
-                    PolynomialKey key = entry.getKey();
-                    double[] row = rowMap.get(key);
-                    cmatGroup[idx] = row;
+                    cmatGroup[idx] = rowMap.get(entry.getKey());
                     wcvGroup[idx] = entry.getValue();
                     idx++;
                 }
-
                 cmatType.add(cmatGroup);
                 wcvType.add(wcvGroup);
             }
-
             cmat.add(cmatType);
             wcv.add(wcvType);
         }
 
-        // Count total CVs for logging
-        int totalCVs = 0;
-        for (int[] row : lcv) for (int v : row) totalCVs += v;
-        LOG.fine("CMatrixBuilder.build — EXIT: totalCVs=" + totalCVs + ", lcv.length=" + lcv.length);
-
-        CMatrixResult orthResult = new CMatrixResult(cmat, lcv, wcv, cfBasisIndices, null);
-        CMatrixResult cvcfResult = CvCfBasisTransformer.transform(orthResult, basis);
+        Result orthResult = new Result(cmat, lcv, wcv, cfBasisIndices, null);
+        Result cvcfResult = CvCfBasisTransformer.transform(orthResult, basis);
 
         if (progressSink != null) {
             emit(progressSink, "  FULL orthogonal c-matrix blocks:");
@@ -131,7 +207,7 @@ public final class CMatrixBuilder {
         return cvcfResult;
     }
 
-    private static void dumpCmat(String label, CMatrixResult result, Consumer<String> sink) {
+    private static void dumpCmat(String label, Result result, Consumer<String> sink) {
         List<List<double[][]>> cmat = result.getCmat();
         for (int t = 0; t < cmat.size(); t++) {
             List<double[][]> groups = cmat.get(t);
@@ -148,25 +224,11 @@ public final class CMatrixBuilder {
         sink.accept(line);
     }
 
-    /**
-     * Extracts per-CF basis-index decoration patterns from cfSiteOpList.
-     *
-     * <p>For each CF column, stores the array of basis indices (1-based)
-     * that decorate the CF's sites.  This enables computation of
-     * random-state CF values as products of point CFs.</p>
-     *
-     * @param cfSiteOpList  site-operator lists: [t][j][k] â†’ List&lt;SiteOp&gt;
-     * @param cfColumn      mapping from (t,j,k) â†’ column index
-     * @param totalCfs      total number of CFs
-     * @return cfBasisIndices[col] = basis indices for CF at that column
-     */
     private static int[][] extractCfBasisIndices(
             List<List<List<List<SiteOp>>>> cfSiteOpList,
             Map<CFIndex, Integer> cfColumn,
             int totalCfs) {
-
         int[][] result = new int[totalCfs][];
-
         for (int t = 0; t < cfSiteOpList.size(); t++) {
             List<List<List<SiteOp>>> typeGroups = cfSiteOpList.get(t);
             for (int j = 0; j < typeGroups.size(); j++) {
@@ -181,7 +243,6 @@ public final class CMatrixBuilder {
                 }
             }
         }
-
         return result;
     }
 
@@ -203,10 +264,7 @@ public final class CMatrixBuilder {
         for (Sublattice sub : cluster.getSublattices()) {
             for (Site site : sub.getSites()) {
                 int idx = indexOf(siteList, site.getPosition());
-                if (idx < 0) {
-                    throw new IllegalStateException("Site position not found in site list: "
-                            + site.getPosition());
-                }
+                if (idx < 0) throw new IllegalStateException("Site position not found");
                 indices.add(idx);
             }
         }
@@ -215,9 +273,7 @@ public final class CMatrixBuilder {
 
     private static int indexOf(List<Position> siteList, Position pos) {
         for (int i = 0; i < siteList.size(); i++) {
-            if (siteList.get(i).equals(pos)) {
-                return i;
-            }
+            if (siteList.get(i).equals(pos)) return i;
         }
         return -1;
     }
@@ -257,16 +313,11 @@ public final class CMatrixBuilder {
             for (Map.Entry<SiteOpProductKey, Double> entry : poly.entrySet()) {
                 List<SiteOp> baseOps = entry.getKey().getOps();
                 double baseCoeff = entry.getValue();
-
                 for (int a = 0; a < coeffs.length; a++) {
                     double c = coeffs[a];
-                    if (Math.abs(c) < 1e-12) {
-                        continue;
-                    }
+                    if (Math.abs(c) < 1e-12) continue;
                     List<SiteOp> newOps = new ArrayList<>(baseOps);
-                    if (a > 0) {
-                        newOps.add(new SiteOp(siteIndex, a));
-                    }
+                    if (a > 0) newOps.add(new SiteOp(siteIndex, a));
                     SiteOpProductKey key = new SiteOpProductKey(newOps);
                     next.put(key, next.getOrDefault(key, 0.0) + baseCoeff * c);
                 }
@@ -284,22 +335,11 @@ public final class CMatrixBuilder {
                 continue;
             }
             CFIndex cfIndex = substituteRules.lookup(ops);
-            if (cfIndex == null) {
-                throw new IllegalStateException(
-                        "[CMatrixBuilder] No CF mapping for site-op product: " + key
-                                + " (coeff=" + coeff + "). "
-                                + "SubstituteRules may be missing geometry-equivalent entries.");
-            }
+            if (cfIndex == null) throw new IllegalStateException("No CF mapping for " + key);
             Integer col = cfColumn.get(cfIndex);
-            if (col == null) {
-                throw new IllegalStateException("No CF column for index: " + cfIndex);
-            }
+            if (col == null) throw new IllegalStateException("No CF column for " + cfIndex);
             row[col] += coeff;
         }
-
         return row;
     }
 }
-
-
-

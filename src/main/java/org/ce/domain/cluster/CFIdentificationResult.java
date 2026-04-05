@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterResults.*;
+
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;

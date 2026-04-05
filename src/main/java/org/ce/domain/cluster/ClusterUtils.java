@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterResults.*;
+
 import java.util.List;
 
 /**

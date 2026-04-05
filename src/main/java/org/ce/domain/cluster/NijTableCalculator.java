@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.SubClusterGenerator;
 import org.ce.domain.cluster.OrbitUtils;

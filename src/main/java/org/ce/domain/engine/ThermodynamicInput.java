@@ -1,5 +1,7 @@
 package org.ce.domain.engine;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.hamiltonian.CECEntry;
 

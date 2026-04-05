@@ -1,13 +1,13 @@
 package org.ce.domain.cluster.cvcf;
 
-import org.ce.domain.cluster.CMatrixResult;
+import org.ce.domain.cluster.CMatrix;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
 /**
- * Transforms an old orthogonal-basis {@link CMatrixResult} to the CVCF basis.
+ * Transforms an old orthogonal-basis {@link CMatrix.Result} to the CVCF basis.
  *
  * <p>Given the relationship {@code u_old[i] = Σ_j T[i][j] · v_new[j]},
  * the cluster variable evaluation:
@@ -101,13 +101,13 @@ public final class CvCfBasisTransformer {
     private CvCfBasisTransformer() {}
 
     /**
-     * Transforms a CMatrixResult from the old orthogonal basis to the CVCF basis.
+     * Transforms a CMatrix.Result from the old orthogonal basis to the CVCF basis.
      *
-     * @param oldResult  the CMatrixResult in the old orthogonal basis
+     * @param oldResult  the CMatrix.Result in the old orthogonal basis
      * @param basis      the CVCF basis description, including T matrix and CF names
-     * @return a new CMatrixResult in the CVCF basis
+     * @return a new CMatrix.Result in the CVCF basis
      */
-    public static CMatrixResult transform(CMatrixResult oldResult, CvCfBasis basis) {
+    public static CMatrix.Result transform(CMatrix.Result oldResult, CvCfBasis basis) {
         if (oldResult == null) {
             throw new IllegalArgumentException("oldResult must not be null");
         }
@@ -238,7 +238,7 @@ public final class CvCfBasisTransformer {
 
         // Preserve orthogonal-basis decoration metadata for exact random-state
         // initialization (orthogonal random CFs -> CVCF via T^{-1}).
-        return new CMatrixResult(newCmat, oldLcv, wcv, oldResult.getCfBasisIndices(), basis.cfNames);
+        return new CMatrix.Result(newCmat, oldLcv, wcv, oldResult.getCfBasisIndices(), basis.cfNames);
     }
 
     private static boolean isBinaryBccA2(CvCfBasis basis) {

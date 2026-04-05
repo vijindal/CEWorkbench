@@ -1,5 +1,9 @@
 package org.ce.domain.engine.mcs;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import java.util.Arrays;
 

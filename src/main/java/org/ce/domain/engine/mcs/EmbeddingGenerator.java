@@ -1,10 +1,12 @@
 package org.ce.domain.engine.mcs;
 
-import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.ClusCoordListResult;
-import org.ce.domain.cluster.Site;
-import org.ce.domain.cluster.Vector3D;
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
 
+import static org.ce.domain.cluster.ClusterResults.*;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
+import org.ce.domain.cluster.Cluster;
 import java.util.*;
 import java.util.logging.Logger;
 
@@ -118,7 +120,7 @@ public class EmbeddingGenerator {
         return templates;
     }
 
-    private static Vector3D toVector3D(org.ce.domain.cluster.Position p) {
+    private static Vector3D toVector3D(Position p) {
         return new Vector3D(p.getX(), p.getY(), p.getZ());
     }
 

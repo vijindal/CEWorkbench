@@ -1,7 +1,7 @@
 package org.ce.domain.engine.cvm;
 
 import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.CMatrixResult;
+import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
@@ -70,7 +70,7 @@ public class CVMPhaseModel {
 
         private final ClusterIdentificationResult stage1;
         private final CFIdentificationResult stage2;
-        private final CMatrixResult stage3;
+        private final CMatrix.Result stage3;
         private final String systemId;
         private final String systemName;
         private final int numComponents;
@@ -79,7 +79,7 @@ public class CVMPhaseModel {
         public CVMInput(
                 ClusterIdentificationResult stage1,
                 CFIdentificationResult stage2,
-                CMatrixResult stage3,
+                CMatrix.Result stage3,
                 String systemId,
                 String systemName,
                 int numComponents,
@@ -107,7 +107,7 @@ public class CVMPhaseModel {
 
         public ClusterIdentificationResult getStage1()  { return stage1; }
         public CFIdentificationResult      getStage2()  { return stage2; }
-        public CMatrixResult               getStage3()  { return stage3; }
+        public CMatrix.Result               getStage3()  { return stage3; }
         public String                      getSystemId()      { return systemId; }
         public String                      getSystemName()    { return systemName; }
         public int                         getNumComponents() { return numComponents; }
@@ -264,8 +264,8 @@ public class CVMPhaseModel {
         this.mh = stage1.getMh();
         this.lc = stage1.getLc();
 
-        // Extract Stage 3: C-Matrix (CVCF basis — already transformed by CMatrixBuilder)
-        CMatrixResult stage3 = input.getStage3();
+        // Extract Stage 3: C-Matrix (CVCF basis — already transformed by CMatrix)
+        CMatrix.Result stage3 = input.getStage3();
         this.cmat = stage3.getCmat();
         this.lcv = stage3.getLcv();
         this.wcv = stage3.getWcv();

@@ -1,5 +1,7 @@
 package org.ce.domain.engine.mcs;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import java.util.Arrays;
 
 /** Immutable result from a completed Monte Carlo simulation. */

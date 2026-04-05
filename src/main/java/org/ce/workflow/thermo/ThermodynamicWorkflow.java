@@ -1,8 +1,11 @@
 package org.ce.workflow.thermo;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
+import static org.ce.domain.cluster.ClusterResults.*;
+
 import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.CMatrixResult;
-import org.ce.domain.cluster.ClusCoordListResult;
+import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.cvcf.BccA2TModelCvCfTransformations;
@@ -261,11 +264,11 @@ public class ThermodynamicWorkflow {
      */
     private void logFirstNnPairCMatrix(AllClusterData clusterData, Consumer<String> progressSink) {
         if (clusterData == null || clusterData.getCMatrixResult() == null) {
-            emit(progressSink, "  STAGE 3b.2: First-NN pair c-matrix: unavailable (missing cMatrixResult)");
+            emit(progressSink, "  STAGE 3b.2: First-NN pair c-matrix: unavailable (missing CMatrix.Result)");
             return;
         }
 
-        CMatrixResult cm = clusterData.getCMatrixResult();
+        CMatrix.Result cm = clusterData.getCMatrixResult();
         List<List<double[][]>> cmat = cm.getCmat();
         if (cmat == null || cmat.isEmpty()) {
             emit(progressSink, "  STAGE 3b.2: First-NN pair c-matrix: unavailable (empty cmat)");
@@ -353,7 +356,7 @@ public class ThermodynamicWorkflow {
             return;
         }
 
-        CMatrixResult cm = clusterData.getCMatrixResult();
+        CMatrix.Result cm = clusterData.getCMatrixResult();
         List<List<double[][]>> cvcf = cm.getCmat();
         if (cvcf == null || cvcf.isEmpty()) {
             return;

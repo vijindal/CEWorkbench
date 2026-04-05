@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 /**
  * Builds the Inden (1992) R-matrix used to convert site-occupation operators
  * to site-operator basis functions.

@@ -2,7 +2,7 @@ package org.ce.workflow;
 
 import org.ce.workflow.ClusterIdentificationWorkflow;
 import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.domain.cluster.Vector3D;
+import static org.ce.domain.cluster.ClusterPrimitives.*;
 import org.ce.domain.cluster.AllClusterData;
 import org.junit.jupiter.api.Test;
 

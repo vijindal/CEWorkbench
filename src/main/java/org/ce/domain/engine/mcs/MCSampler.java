@@ -1,5 +1,7 @@
 package org.ce.domain.engine.mcs;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 

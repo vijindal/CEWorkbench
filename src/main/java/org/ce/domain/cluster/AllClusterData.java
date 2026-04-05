@@ -26,7 +26,7 @@ public class AllClusterData {
     private final ClusterIdentificationResult orderedClusterResult;
     private final CFIdentificationResult disorderedCFResult;
     private final CFIdentificationResult orderedCFResult;
-    private final CMatrixResult cMatrixResult;
+    private final CMatrix.Result cMatrixResult;
 
     // Basis-specific symbol lists
     private final List<String> uList;  // Orthogonal CF symbols
@@ -54,7 +54,7 @@ public class AllClusterData {
             @JsonProperty("orderedClusterResult")    ClusterIdentificationResult orderedClusterResult,
             @JsonProperty("disorderedCFResult")      CFIdentificationResult      disorderedCFResult,
             @JsonProperty("orderedCFResult")         CFIdentificationResult      orderedCFResult,
-            @JsonProperty("cMatrixResult") @JsonAlias("cmatrixResult") CMatrixResult cMatrixResult,
+            @JsonProperty("cMatrixResult") @JsonAlias({"cMatrixResult", "CMatrix.Result"}) CMatrix.Result cMatrixResult,
             @JsonProperty("uList") @JsonAlias("ulist") List<String> uList,
             @JsonProperty("vList") @JsonAlias("vlist") List<String> vList,
             @JsonProperty("eOList") @JsonAlias("eolist") List<String> eOList,
@@ -106,7 +106,7 @@ public class AllClusterData {
         return orderedCFResult;
     }
 
-    public CMatrixResult getCMatrixResult() {
+    public CMatrix.Result getCMatrixResult() {
         return cMatrixResult;
     }
 
@@ -192,5 +192,83 @@ public class AllClusterData {
                 orderedClusterResult != null ? orderedClusterResult.getTcdis() : 0,
                 orderedClusterResult != null ? orderedClusterResult.getTc() : 0
         );
+    }
+
+    /**
+     * Immutable bundle of cluster identification and correlation function identification results
+     * for a single phase.
+     */
+    public static class ClusterData {
+
+        private final ClusterIdentificationResult clusterResult;
+        private final CFIdentificationResult cfResult;
+
+        public ClusterData(
+                ClusterIdentificationResult clusterResult,
+                CFIdentificationResult cfResult) {
+            this.clusterResult = clusterResult;
+            this.cfResult = cfResult;
+        }
+
+        public ClusterIdentificationResult getClusterResult() { return clusterResult; }
+        public CFIdentificationResult getCfResult() { return cfResult; }
+
+        public void printResults() {
+            printClusterResults();
+            System.out.println();
+            printCFResults();
+        }
+
+        public void printClusterResults() {
+            if (clusterResult != null) {
+                clusterResult.printDebug();
+            } else {
+                System.out.println("Cluster result is null");
+            }
+        }
+
+        public void printCFResults() {
+            if (cfResult == null) {
+                System.out.println("CF result is null");
+                return;
+            }
+
+            System.out.println("================================================================================");
+            System.out.println("                   CORRELATION FUNCTION IDENTIFICATION RESULT");
+            System.out.println("================================================================================");
+
+            System.out.println("\n------ Stage 2a: HSP CFs ------");
+            System.out.println("  tcfdis = " + cfResult.getTcfdis() + "  (HSP CF types, excl. empty)");
+
+            System.out.println("\n------ Stage 2b: Phase CFs (classified) ------");
+            System.out.println("  tcf   = " + cfResult.getTcf() + "  (total CF types)");
+            System.out.println("  nxcf  = " + cfResult.getNxcf() + "  (point-cluster CFs)");
+            System.out.println("  ncf   = " + cfResult.getNcf() + "  (non-point CFs)");
+
+            System.out.println("\n------ lcf array (CFs per HSP cluster type) ------");
+            if (cfResult.getLcf() != null) {
+                int[][] lcf = cfResult.getLcf();
+                for (int t = 0; t < lcf.length; t++) {
+                    System.out.printf("  t=%-4d lcf=", t);
+                    for (int j = 0; j < lcf[t].length; j++) {
+                        System.out.printf("%d ", lcf[t][j]);
+                    }
+                    System.out.println();
+                }
+            }
+            System.out.println("================================================================================");
+        }
+
+        public String getSummary() {
+            if (clusterResult == null) {
+                return "Cluster result: null";
+            }
+            return String.format(
+                    "Cluster Results: tcdis=%d, tc=%d, nxcf=%d",
+                    clusterResult.getTcdis(),
+                    clusterResult.getTc(),
+                    cfResult != null ? cfResult.getNxcf() : 0
+            );
+        }
     }
 }

@@ -1,9 +1,13 @@
 package org.ce.domain.engine.mcs;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
+import static org.ce.domain.cluster.ClusterResults.*;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.ClusCoordListResult;
-import org.ce.domain.cluster.CMatrixResult;
-import org.ce.domain.cluster.Vector3D;
+import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 
 import java.util.ArrayList;
@@ -32,7 +36,7 @@ public class MCSRunner {
     private final Consumer<MCSUpdate> updateListener;
     private final BooleanSupplier     cancellationCheck;
     private final CvCfBasis           basis;
-    private final CMatrixResult       cmatResult;
+    private final CMatrix.Result       cmatResult;
 
     private MCSRunner(Builder b) {
         this.clusterData       = b.clusterData;
@@ -167,7 +171,7 @@ public class MCSRunner {
         private Consumer<MCSUpdate> updateListener    = null;
         private BooleanSupplier     cancellationCheck = null;
         private CvCfBasis           basis             = null;
-        private CMatrixResult       cmatResult        = null;
+        private CMatrix.Result       cmatResult        = null;
 
         private Builder() {}
 
@@ -186,7 +190,7 @@ public class MCSRunner {
         public Builder updateListener(Consumer<MCSUpdate> l)    { this.updateListener = l;     return this; }
         public Builder cancellationCheck(BooleanSupplier check) { this.cancellationCheck = check; return this; }
         public Builder basis(CvCfBasis b)                       { this.basis = b;              return this; }
-        public Builder cmatResult(CMatrixResult r)              { this.cmatResult = r;         return this; }
+        public Builder cmatResult(CMatrix.Result r)              { this.cmatResult = r;         return this; }
 
         public MCSRunner build() {
             if (clusterData == null) throw new IllegalStateException("clusterData required");

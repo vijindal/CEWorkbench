@@ -1,5 +1,7 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 
 import java.util.Arrays;
@@ -52,7 +54,7 @@ public final class ClusterVariableEvaluator {
      *
      * @param moleFractions   mole fractions (length K, Î£ = 1)
      * @param numElements     number of components K
-     * @param cfBasisIndices  decoration patterns from CMatrixResult:
+     * @param cfBasisIndices  decoration patterns from CMatrix.Result:
      *                        cfBasisIndices[col] = basis indices for CF col
      * @param ncf             number of non-point (independent) CFs
      * @param tcf             total number of CFs
@@ -108,7 +110,7 @@ public final class ClusterVariableEvaluator {
      * @param u              non-point CF values (length ncf)
      * @param moleFractions  mole fractions of all K components (length K, Î£ = 1)
      * @param numElements    number of chemical components K (â‰¥ 2)
-     * @param cfBasisIndices per-CF basis-index decorations from CMatrixResult
+     * @param cfBasisIndices per-CF basis-index decorations from CMatrix.Result
      * @param ncf            number of non-point CFs
      * @param tcf            total number of CFs
      * @return full CF vector (length tcf)
@@ -145,7 +147,7 @@ public final class ClusterVariableEvaluator {
      *
      * @param u           non-point CF values (length ncf)
      * @param composition mole fraction of component B (0 â‰¤ xB â‰¤ 1)
-     * @param cfBasisIndices per-CF basis-index decorations from CMatrixResult
+     * @param cfBasisIndices per-CF basis-index decorations from CMatrix.Result
      * @param ncf         number of non-point CFs
      * @param tcf         total number of CFs
      * @return full CF vector (length tcf)

@@ -1,7 +1,12 @@
 package org.ce.domain.engine.mcs;
 
-import org.ce.domain.cluster.ClusCoordListResult;
-import org.ce.domain.cluster.CMatrixResult;
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
+import static org.ce.domain.cluster.ClusterResults.*;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
+import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
@@ -42,7 +47,7 @@ public class MCSEngine implements ThermodynamicEngine {
         int numComponents = input.composition.length;
         var basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, numComponents);
 
-        CMatrixResult cmatResult = input.clusterData.getCMatrixResult();
+        CMatrix.Result cmatResult = input.clusterData.getCMatrixResult();
         cmatResult.validateCols(
                 basis.totalCfs(),
                 "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs

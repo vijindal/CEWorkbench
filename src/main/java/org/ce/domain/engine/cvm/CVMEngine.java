@@ -1,9 +1,11 @@
 package org.ce.domain.engine.cvm;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.CMatrixResult;
+import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.ProgressEvent;
@@ -74,7 +76,7 @@ public class CVMEngine implements ThermodynamicEngine {
         LOG.fine("✓ C-Matrix found");
 
         // Validate C-matrix dimensions match basis
-        CMatrixResult cmatResult = clusterData.getCMatrixResult();
+        CMatrix.Result cmatResult = clusterData.getCMatrixResult();
         cmatResult.validateCols(
                 basis.totalCfs(),
                 "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
@@ -133,7 +135,7 @@ public class CVMEngine implements ThermodynamicEngine {
         LOG.fine("  ✓ lcf array, CF basis indices loaded");
 
         LOG.fine("STAGE 4c: Extract Stage 3 (C-Matrix - CVCF basis)...");
-        org.ce.domain.cluster.CMatrixResult clusterCMatrix = clusterData.getCMatrixResult();
+        org.ce.domain.cluster.CMatrix.Result clusterCMatrix = clusterData.getCMatrixResult();
         LOG.fine("  ✓ cmat[t][j][v][k] transformation matrix loaded");
         LOG.fine("  ✓ lcv (CV counts), wcv (CV weights) loaded");
         LOG.fine("  ✓ cfBasisIndices: " + (clusterCMatrix.getCfBasisIndices() == null ? "null (CVCF)" : "present"));
@@ -217,7 +219,7 @@ public class CVMEngine implements ThermodynamicEngine {
         return result;
     }
 
-    private static void validateCmatEciConsistency(CMatrixResult cmat, CvCfBasis basis) {
+    private static void validateCmatEciConsistency(CMatrix.Result cmat, CvCfBasis basis) {
         List<String> cmatNames = cmat.getCmatCfNames();
         if (cmatNames == null) return; // orthogonal path, skip
 

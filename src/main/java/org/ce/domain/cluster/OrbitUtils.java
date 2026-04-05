@@ -1,5 +1,9 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.SpaceGroup.SymmetryOperation;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;

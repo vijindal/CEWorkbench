@@ -1,12 +1,10 @@
 package org.ce.storage;
 
-import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.Position;
-import org.ce.domain.cluster.Site;
-import org.ce.domain.cluster.SpaceGroup;
-import org.ce.domain.cluster.Sublattice;
-import org.ce.domain.cluster.SymmetryOperation;
+import static org.ce.domain.cluster.SpaceGroup.SymmetryOperation;
 
+import org.ce.domain.cluster.Cluster;
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+import org.ce.domain.cluster.SpaceGroup;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;

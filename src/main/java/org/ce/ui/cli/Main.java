@@ -1,5 +1,7 @@
 package org.ce.ui.cli;
 
+import static org.ce.domain.cluster.AllClusterData.ClusterData;
+
 import org.ce.domain.cluster.*;
 import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.domain.engine.cvm.CVMEngine;
@@ -395,7 +397,7 @@ public class Main {
             // Extract CVM parameters from AllClusterData
             ClusterIdentificationResult disResult = allData.getDisorderedClusterResult();
             CFIdentificationResult cfResult = allData.getDisorderedCFResult();
-            CMatrixResult cmatResult = allData.getCMatrixResult();
+            CMatrix.Result cmatResult = allData.getCMatrixResult();
 
             List<Double> mhdis = disResult.getDisClusterData().getMultiplicities();
             double[] kb = disResult.getKbCoefficients();

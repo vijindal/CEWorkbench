@@ -1,5 +1,7 @@
 package org.ce.workflow.thermo;
 
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.result.ThermodynamicResult;
 

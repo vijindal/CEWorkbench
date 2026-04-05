@@ -14,7 +14,7 @@ public final class CVMModelInput {
 
     private final ClusterIdentificationResult stage1;
     private final CFIdentificationResult stage2;
-    private final CMatrixResult stage3;
+    private final CMatrix.Result stage3;
 
     public CVMModelInput(
             String systemId,
@@ -22,7 +22,7 @@ public final class CVMModelInput {
             int numComponents,
             ClusterIdentificationResult stage1,
             CFIdentificationResult stage2,
-            CMatrixResult stage3) {
+            CMatrix.Result stage3) {
 
         if (systemId == null || systemId.isBlank()) {
             throw new IllegalArgumentException("systemId must not be blank");
@@ -73,7 +73,7 @@ public final class CVMModelInput {
         return stage2;
     }
 
-    public CMatrixResult getStage3() {
+    public CMatrix.Result getStage3() {
         return stage3;
     }
 }

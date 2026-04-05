@@ -1,10 +1,10 @@
 package org.ce.domain.cluster;
 
+import static org.ce.domain.cluster.ClusterResults.*;
+
+import static org.ce.domain.cluster.ClusterPrimitives.*;
+
 import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.Site;
-import org.ce.domain.cluster.Sublattice;
-import org.ce.domain.cluster.ClassifiedClusterResult;
-import org.ce.domain.cluster.ClusCoordListResult;
 import org.ce.domain.cluster.OrbitUtils;
 
 import java.util.ArrayList;
