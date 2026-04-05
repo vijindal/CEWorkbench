@@ -174,20 +174,35 @@ public final class NewtonRaphsonSolverSimple {
         int tcf = data.tcf;
 
         double xold[] = getURand(data);//Initializing with random values (full-sized tcf)
+        double[][][] cvInit = updateCV(data, xold);
+
+        // Diagnostic: Print Random State Cluster Variables (CVs)
+        System.out.println("DEBUG: Initial Cluster Variables (CVs) from random CFs:");
+        for (int t = 0; t < data.tcdis; t++) {
+            for (int j = 0; j < data.lc[t]; j++) {
+                System.out.print("    Type " + t + " Cluster " + j + ": [");
+                for (int v = 0; v < data.lcv[t][j]; v++) {
+                    System.out.printf("%.6f", cvInit[t][j][v]);
+                    if (v < data.lcv[t][j] - 1) System.out.print(", ");
+                }
+                System.out.println("]");
+            }
+        }
+
         double xTrial[] = new double[tcf];
         double[] fvec = new double[n];//Gradient vector
         double[][] fjac = new double[n][n];
 
         System.arraycopy(xold, 0, xTrial, 0, tcf);
 
-        // Diagnostic: Print Random State Thermodynamics (x=[0.33, 0.33, 0.34], T=temperature K)
+        // Diagnostic: Print Random State Thermodynamics
         CVMFreeEnergy.EvalResult result = CVMFreeEnergy.evaluate(
                 xold, data.moleFractions, data.temperature, data.eci,
                 data.mhdis, data.kb, data.mh, data.lc,
                 data.cmat, data.lcv, data.wcv,
                 data.tcdis, data.tcf, data.ncf);
         
-        System.out.println("DEBUG: Random State Thermodynamics (x=[0.33, 0.33, 0.34], T=" + data.temperature + "K)");
+        System.out.println("DEBUG: Random State Thermodynamics (x=" + Arrays.toString(data.moleFractions) + ", T=" + data.temperature + "K)");
         System.out.println("  H: " + result.H + " J/mol");
         System.out.println("  S: " + result.S + " J/mol-K");
         System.out.println("  G: " + result.G + " J/mol");

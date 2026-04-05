@@ -13,9 +13,8 @@ import org.ce.domain.engine.cvm.CVMPhaseModel.CVMInput;
 import org.ce.domain.engine.cvm.NewtonRaphsonSolverSimple.CVMSolverResult;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECTerm;
+import org.ce.domain.hamiltonian.CECEvaluator;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -82,6 +81,9 @@ public class CVMEngine implements ThermodynamicEngine {
                 + " + " + basis.numComponents + " point variables)"
         );
         LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
+        
+        // Fix 4: Structural consistency check (labels vs basis)
+        validateCmatEciConsistency(cmatResult, basis);
 
         /*
          * 2. Validate composition
@@ -158,7 +160,7 @@ public class CVMEngine implements ThermodynamicEngine {
          *    Missing terms default to 0 (direct inheritance property of CVCF basis).
         */
         LOG.fine("Evaluating ECI at T=" + temperature + " K...");
-        double[] eci = evaluateECI(cec, temperature, basis);
+        double[] eci = CECEvaluator.evaluate(cec, temperature, basis, "CVM");
         LOG.fine("✓ ECI evaluated (" + eci.length + " non-point terms)");
 
         /*
@@ -215,92 +217,22 @@ public class CVMEngine implements ThermodynamicEngine {
         return result;
     }
 
-    /**
-     * Evaluates ECI at given temperature using CVCF CF names.
-     *
-     * <p>Each term in the CEC entry has a name like {@code e4AB}, {@code e22AB}.
-     * The leading {@code e} is replaced by {@code v} to get the CF name ({@code v4AB},
-     * {@code v22AB}), which is looked up in the registry to find the column index.
-     * Missing terms default to 0 — this is the direct-inheritance property of the
-     * CVCF basis.</p>
-     *
-     * @param cec         CEC entry with named CVCF terms
-     * @param temperature temperature in Kelvin
-     * @param basis       CVCF basis defining ncf and CF name order
-     * @return eci[ncf] array; entry l corresponds to CF basis.cfNames.get(l)
-     */
-    private double[] evaluateECI(CECEntry cec, double temperature, CvCfBasis basis) {
+    private static void validateCmatEciConsistency(CMatrixResult cmat, CvCfBasis basis) {
+        List<String> cmatNames = cmat.getCmatCfNames();
+        if (cmatNames == null) return; // orthogonal path, skip
+
         int ncf = basis.numNonPointCfs;
-        double[] eci = new double[ncf];
-        boolean[] mapped = new boolean[ncf];
-        List<String> unmatchedCecs = new ArrayList<>();
-
-        LOG.info("  Mapping CEC terms to CVCF basis (ncf=" + ncf + ")...");
-
-        if (cec.cecTerms == null || cec.cecTerms.length == 0) {
-            LOG.warning("  No CEC terms provided — all interactions will be zero!");
-            return eci;
-        }
-
-        for (CECTerm term : cec.cecTerms) {
-            String cecName = term.name;
-            int idx = findCfIndex(cecName, basis);
-
-            if (idx >= 0 && idx < ncf) {
-                double value = term.a + term.b * temperature;
-                eci[idx] = value;
-                mapped[idx] = true;
-                LOG.finer("    Matched: " + cecName + " -> index " + idx + " (" + basis.cfNames.get(idx) + ")");
-            } else {
-                unmatchedCecs.add(cecName);
+        for (int i = 0; i < ncf; i++) {
+            String cmatLabel = cmatNames.get(i);
+            String basisLabel = basis.cfNames.get(i);
+            if (!cmatLabel.equals(basisLabel)) {
+                throw new IllegalStateException(
+                        "C-matrix column " + i + " is labelled '" + cmatLabel
+                                + "' but basis expects '" + basisLabel
+                                + "'. The cluster_data.json and CVCF basis are out of sync. "
+                                + "Re-run type1a to regenerate cluster_data.json.");
             }
         }
-
-        // --- Diagnostic Report ---
-        List<String> unmappedCfs = new ArrayList<>();
-        for (int i = 0; i < ncf; i++) {
-            if (!mapped[i]) unmappedCfs.add(basis.cfNames.get(i));
-        }
-
-        if (!unmappedCfs.isEmpty()) {
-            LOG.warning("  [CEC-CF Mismatch] Unmapped CFs (missing from Hamiltonian): " + unmappedCfs);
-        }
-        if (!unmatchedCecs.isEmpty()) {
-            LOG.warning("  [CEC-CF Mismatch] Unmatched CECs (not found in Basis): " + unmatchedCecs);
-        }
-        if (unmappedCfs.isEmpty() && unmatchedCecs.isEmpty()) {
-            LOG.info("  ✓ Perfect 1-to-1 mapping achieved between CECs and CFs.");
-        }
-
-        return eci;
-    }
-
-    /**
-     * Flexible CF name matcher. Handles e -> v, case-insensitivity, and common suffixes.
-     */
-    private int findCfIndex(String cecName, CvCfBasis basis) {
-        if (cecName == null) return -1;
-
-        // 1. Direct match
-        int idx = basis.indexOfCf(cecName);
-        if (idx >= 0) return idx;
-
-        // 2. e -> v translation (common in C++ models)
-        if (cecName.startsWith("e")) {
-            String vName = "v" + cecName.substring(1);
-            idx = basis.indexOfCf(vName);
-            if (idx >= 0) return idx;
-        }
-        
-        // 3. Fallback: case-insensitive search
-        for (int i = 0; i < basis.numNonPointCfs; i++) {
-            String bName = basis.cfNames.get(i);
-            if (bName.equalsIgnoreCase(cecName)) return i;
-            if (cecName.startsWith("e") && bName.equalsIgnoreCase("v" + cecName.substring(1))) return i;
-            if (cecName.startsWith("v") && bName.equalsIgnoreCase("e" + cecName.substring(1))) return i;
-        }
-
-        return -1;
     }
 
     /**

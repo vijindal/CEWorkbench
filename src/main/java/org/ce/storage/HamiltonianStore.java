@@ -36,6 +36,7 @@ public class HamiltonianStore {
     public CECEntry load(String hamiltonianId) throws IOException {
 
         Path file = getHamiltonianFile(hamiltonianId);
+        System.out.println("  [STORAGE] Loading Hamiltonian from: " + file.toAbsolutePath());
 
         if (!Files.exists(file)) {
             throw new IOException("Hamiltonian not found: " + file);

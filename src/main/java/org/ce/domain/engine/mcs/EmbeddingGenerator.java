@@ -178,4 +178,56 @@ public class EmbeddingGenerator {
         Vector3D[] getRelativeVectors()  { return relativeVectors; }
         int        getAnchorIndex()      { return anchorIndex; }
     }
+
+    /**
+     * Generates a list of embeddings for each global CVCF CF index.
+     * For each CF index l, we find the embeddings of its underlying cluster type
+     * and decorate them with the specific alpha indices from cfBasisIndices[l].
+     */
+    public static List<List<Embedding>> generateCfEmbeddings(
+            List<Embedding> baseEmbeddings, // All deduped embeddings from generateEmbeddings
+            ClusCoordListResult clusterData,
+            int[][] cfBasisIndices) {
+
+        if (cfBasisIndices == null || baseEmbeddings == null) return null;
+
+        int ncf = cfBasisIndices.length;
+        List<List<Embedding>> cfEmbeddings = new ArrayList<>(ncf);
+
+        // Build a map: (clusterType, member) -> List<Embedding>
+        // But since we want to enforce new decorations, we just need the site indices.
+        Map<Integer, List<Embedding>> typeMap = new HashMap<>();
+        for (Embedding e : baseEmbeddings) {
+            typeMap.computeIfAbsent(e.getClusterType(), k -> new ArrayList<>()).add(e);
+        }
+
+        // For each CF l, use its cfBasisIndices[l] to find a matching cluster type t.
+        for (int l = 0; l < ncf; l++) {
+            int[] alphas = cfBasisIndices[l];
+            int clusterSize = (alphas == null) ? 0 : alphas.length;
+            List<Embedding> matched = new ArrayList<>();
+
+            if (clusterSize < 2) {
+                cfEmbeddings.add(matched);
+                continue;
+            }
+
+            // Heuristic for BCC_A2: cluster size identifies the type
+            for (int t = 0; t < clusterData.getOrbitList().size(); t++) {
+                List<Cluster> orbit = clusterData.getOrbitList().get(t);
+                if (!orbit.isEmpty() && orbit.get(0).getAllSites().size() == clusterSize) {
+                    List<Embedding> typeEmbs = typeMap.get(t);
+                    if (typeEmbs != null) {
+                        for (Embedding base : typeEmbs) {
+                            matched.add(new Embedding(t, base.getOrbitMemberIndex(), base.getSiteIndices().clone(), alphas.clone()));
+                        }
+                    }
+                    break;
+                }
+            }
+            cfEmbeddings.add(matched);
+        }
+
+        return cfEmbeddings;
+    }
 }

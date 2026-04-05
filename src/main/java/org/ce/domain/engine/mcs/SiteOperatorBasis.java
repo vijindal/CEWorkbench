@@ -39,37 +39,15 @@ public class SiteOperatorBasis {
     }
 
     private static double[][] buildBasis(int n) {
+        // SiteOperatorBasis uses phi_alpha(sigma) = sigma^alpha
+        // where sigma is the symmetric integer sequence from RMatrixCalculator.
+        // This is the Inden (1992) basis, matching the T-matrix transform.
+        double[] sequence = org.ce.domain.cluster.RMatrixCalculator.buildBasis(n);
         double[][] basis = new double[n - 1][n];
-        double[][] ortho = new double[n][n];
-
-        for (int s = 0; s < n; s++) ortho[0][s] = 1.0 / Math.sqrt(n);
-
-        for (int k = 1; k < n; k++) {
-            double[] vk = new double[n];
-            for (int s = 0; s < n; s++) vk[s] = Math.pow(s, k);
-
-            double[][] prev = new double[k][];
-            for (int j = 0; j < k; j++) prev[j] = ortho[j];
-
-            for (int j = 0; j < k; j++) {
-                double ip    = 0.0;
-                for (int s = 0; s < n; s++) ip += vk[s] * prev[j][s];
-                ip /= n;
-                double norm2 = 0.0;
-                for (int s = 0; s < n; s++) norm2 += prev[j][s] * prev[j][s];
-                norm2 /= n;
-                for (int s = 0; s < n; s++) vk[s] -= (ip / norm2) * prev[j][s];
+        for (int alpha = 1; alpha <= n - 1; alpha++) {
+            for (int s = 0; s < n; s++) {
+                basis[alpha - 1][s] = Math.pow(sequence[s], alpha);
             }
-
-            double norm = 0.0;
-            for (int s = 0; s < n; s++) norm += vk[s] * vk[s];
-            norm = Math.sqrt(norm / n);
-            if (norm < 1e-14)
-                throw new IllegalStateException("Near-zero norm at k=" + k);
-            for (int s = 0; s < n; s++) vk[s] /= norm;
-
-            ortho[k]     = vk;
-            basis[k - 1] = vk;
         }
         return basis;
     }

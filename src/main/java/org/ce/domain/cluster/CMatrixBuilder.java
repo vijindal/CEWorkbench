@@ -118,7 +118,7 @@ public final class CMatrixBuilder {
         for (int[] row : lcv) for (int v : row) totalCVs += v;
         LOG.fine("CMatrixBuilder.build — EXIT: totalCVs=" + totalCVs + ", lcv.length=" + lcv.length);
 
-        CMatrixResult orthResult = new CMatrixResult(cmat, lcv, wcv, cfBasisIndices);
+        CMatrixResult orthResult = new CMatrixResult(cmat, lcv, wcv, cfBasisIndices, null);
         CMatrixResult cvcfResult = CvCfBasisTransformer.transform(orthResult, basis);
 
         if (progressSink != null) {

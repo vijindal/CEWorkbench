@@ -2,6 +2,7 @@ package org.ce.domain.engine.mcs;
 
 import org.ce.domain.cluster.Cluster;
 import org.ce.domain.cluster.ClusCoordListResult;
+import org.ce.domain.cluster.CMatrixResult;
 import org.ce.domain.cluster.Vector3D;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 
@@ -31,6 +32,7 @@ public class MCSRunner {
     private final Consumer<MCSUpdate> updateListener;
     private final BooleanSupplier     cancellationCheck;
     private final CvCfBasis           basis;
+    private final CMatrixResult       cmatResult;
 
     private MCSRunner(Builder b) {
         this.clusterData       = b.clusterData;
@@ -47,6 +49,7 @@ public class MCSRunner {
         this.updateListener    = b.updateListener;
         this.cancellationCheck = b.cancellationCheck;
         this.basis             = b.basis;
+        this.cmatResult        = b.cmatResult;
     }
 
     public MCResult run() {
@@ -67,7 +70,17 @@ public class MCSRunner {
         for (int t = 0; t < tc; t++) orbitSizes[t] = orbits.get(t).size();
 
         int[]    multiSiteEmbedCounts = emb.multiSiteEmbedCountsPerType(tc);
-        MCSampler sampler = new MCSampler(N, orbitSizes, orbits, R, eci, multiSiteEmbedCounts, basis);
+
+        // New Direct Measurement Structures
+        List<List<Embedding>> cfEmbeddings = null;
+        double[][] basisMatrix = null;
+        if (basis != null && cmatResult != null) {
+            cfEmbeddings = EmbeddingGenerator.generateCfEmbeddings(emb.getAllEmbeddings(), clusterData, cmatResult.getCfBasisIndices());
+            basisMatrix  = CvCfEvaluator.buildBasisValues(numComp);
+        }
+
+        MCSampler sampler = new MCSampler(N, orbitSizes, orbits, R, eci, multiSiteEmbedCounts, basis, 
+                                         cfEmbeddings, basisMatrix);
 
         // Build orbit-type-indexed ECI array for MCEngine/LocalEnergyCalc.
         // eci[] is CVCF-ordered (eci[l] = ECI for basis.cfNames[l]).
@@ -76,6 +89,9 @@ public class MCSRunner {
         // This is the effective orthogonal-basis ECI for orbit type t, assuming
         // orbit type t corresponds to T-matrix row t (confirmed for binary BCC_A2).
         double[] eciOrth = buildEciByOrbitType(eci, tc, basis);
+
+        // [DEBUG] Diagnostic print of Hamiltonian terms and orbit multiplicities
+        mcsDebugData.printEciInfo(eci, eciOrth, basis, N, orbitSizes);
 
         MCEngine engine = new MCEngine(emb, eciOrth, orbits, numComp, T, nEquil, nAvg, R, rng);
         if (updateListener    != null) engine.setUpdateListener(updateListener);
@@ -151,6 +167,7 @@ public class MCSRunner {
         private Consumer<MCSUpdate> updateListener    = null;
         private BooleanSupplier     cancellationCheck = null;
         private CvCfBasis           basis             = null;
+        private CMatrixResult       cmatResult        = null;
 
         private Builder() {}
 
@@ -169,6 +186,7 @@ public class MCSRunner {
         public Builder updateListener(Consumer<MCSUpdate> l)    { this.updateListener = l;     return this; }
         public Builder cancellationCheck(BooleanSupplier check) { this.cancellationCheck = check; return this; }
         public Builder basis(CvCfBasis b)                       { this.basis = b;              return this; }
+        public Builder cmatResult(CMatrixResult r)              { this.cmatResult = r;         return this; }
 
         public MCSRunner build() {
             if (clusterData == null) throw new IllegalStateException("clusterData required");

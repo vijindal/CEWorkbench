@@ -1,6 +1,7 @@
 package org.ce.domain.cluster.cvcf;
 
 import java.util.List;
+import java.util.Map;
 import org.ce.domain.cluster.LinearAlgebra;
 
 /**
@@ -92,11 +93,11 @@ public final class BccA2TModelCvCfTransformations {
     //   u[6][1][1]     (1 row)
     //
     // New CFs (cols, 21 total):
-    //   v21AB  v21BC  v21AC  v22AB  v22BC  v22AC  v3AB  v3BC  v3AC
-    //   col 0    1      2      3      4      5      6     7     8
+    //   v4AB    v4AC    v4BC    v4ABC1  v4ABC2  v4ABC3  v3AB    v3AC    v3BC
+    //   col 0    1       2       3       4       5       6       7       8
     //
-    //   v3ABC1  v3ABC2  v3ABC3  v4AB  v4BC  v4AC  v4ABC1  v4ABC2  v4ABC3  xA  xB  xC
-    //   col 9    10      11     12    13    14     15      16      17     18  19  20
+    //   v3ABC1  v3ABC2  v3ABC3  v22AB   v22AC   v22BC   v21AB   v21AC   v21BC   xA  xB  xC
+    //   col 9    10      11      12      13      14      15      16      17     18  19  20
     //
     // Transformation rules (from user-provided Mathematica expressions):
     //   u[1][1][1] -> -2 v21AB - 2 v21BC + v3AB - 2 v3ABC2 - v3BC
@@ -224,19 +225,13 @@ public final class BccA2TModelCvCfTransformations {
     //   u[6][1][1]      (1 row)
     //
     // New CFs (cols, 55 total):
-    //   I-pair:   v21AB, v21AC, v21AD, v21BC, v21BD, v21CD
-    //   II-pair:  v22AB, v22AC, v22AD, v22BC, v22BD, v22CD
-    //   Tri-bin:  v3AB,  v3AC,  v3AD,  v3BC,  v3BD,  v3CD
-    //   Tri-ter1: v3ABC1, v3ABC2, v3ABC3
-    //   Tri-ter2: v3ABD1, v3ABD2, v3ABD3
-    //   Tri-ter3: v3ACD1, v3ACD2, v3ACD3
-    //   Tri-ter4: v3BCD1, v3BCD2, v3BCD3
     //   Tetra-bin: v4AB,  v4AC,  v4AD,  v4BC,  v4BD,  v4CD
-    //   Tetra-ter1: v4ABC1, v4ABC2, v4ABC3
-    //   Tetra-ter2: v4ABD1, v4ABD2, v4ABD3
-    //   Tetra-ter3: v4ACD1, v4ACD2, v4ACD3
-    //   Tetra-ter4: v4BCD1, v4BCD2, v4BCD3
-    //   Tetra-quat: v4ABCD1, v4ABCD2, v4ABCD3
+    //   Tetra-ter: v4ABC1...v4BCD3 (12 cols)
+    //   Tetra-quat: v4ABCD1...v4ABCD3 (3 cols)
+    //   Tri-bin:   v3AB,  v3AC,  v3AD,  v3BC,  v3BD,  v3CD
+    //   Tri-ter:   v3ABC1...v3BCD3 (12 cols)
+    //   II-pair:   v22AB...v22CD (6 cols)
+    //   I-pair:    v21AB...v21CD (6 cols)
     //   Point vars: xA, xB, xC, xD
     // =========================================================================
 
@@ -405,9 +400,23 @@ public final class BccA2TModelCvCfTransformations {
     public static final double[][] QUATERNARY_T_INV = LinearAlgebra.invert(QUATERNARY_T);
 
     static {
-        assertIdentity(BINARY_T,     BINARY_T_INV,     "BINARY");
-        assertIdentity(TERNARY_T,    TERNARY_T_INV,    "TERNARY");
+        assertIdentity(BINARY_T, BINARY_T_INV, "BINARY");
+        assertColumnSemantics(BINARY_T, BINARY_CF_NAMES,
+            // row 0 = u[1][1][1] rule: coefficient map
+            Map.of("v4AB", 16.0, "v3AB", 0.0, "v22AB", 8.0, "v21AB", -16.0, "xA", 1.0, "xB", 1.0)
+        );
+
+        assertIdentity(TERNARY_T, TERNARY_T_INV, "TERNARY");
+        assertColumnSemantics(TERNARY_T, TERNARY_CF_NAMES,
+            Map.of("v4AB", 1.0, "v4BC", 1.0, "v4ABC2", 2.0, "v3AB", 1.0, "v3BC", -1.0,
+                   "v3ABC2", -2.0, "v21AB", -2.0, "v21BC", -2.0, "xA", 1.0, "xC", 1.0)
+        );
+
         assertIdentity(QUATERNARY_T, QUATERNARY_T_INV, "QUATERNARY");
+        assertColumnSemantics(QUATERNARY_T, QUATERNARY_CF_NAMES,
+            Map.of("v4AB", 2401.0, "v4AC", 6561.0, "v4AD", 65536.0, "v4BC", 16.0, "v4BD", 6561.0,
+                   "v4CD", 2401.0, "xA", 4096.0, "xB", 1.0, "xC", 1.0) // skip xD to stay within 10-arg Map.of
+        );
     }
 
     // =========================================================================
@@ -448,6 +457,25 @@ public final class BccA2TModelCvCfTransformations {
                     throw new AssertionError(label + " T @ Tinv[" + i + "][" + j + "] = "
                             + sum + ", expected " + expected);
                 }
+            }
+        }
+    }
+
+    /**
+     * Verifies that the T matrix columns correspond to the expected CF names.
+     * Checks row 0 (orthogonal cluster variable u[1][1][1]) against expected map.
+     */
+    private static void assertColumnSemantics(double[][] T, List<String> cfNames,
+                                              Map<String, Double> expectedRow0) {
+        for (int col = 0; col < cfNames.size(); col++) {
+            String name = cfNames.get(col);
+            if (!expectedRow0.containsKey(name)) continue;
+
+            double expected = expectedRow0.get(name);
+            if (Math.abs(T[0][col] - expected) > 1e-10) {
+                throw new AssertionError(
+                        "T column mismatch at col=" + col + " (" + name + "): "
+                                + "T[0][col]=" + T[0][col] + ", expected=" + expected);
             }
         }
     }

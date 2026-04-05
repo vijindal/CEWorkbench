@@ -12,6 +12,7 @@ import org.ce.domain.engine.mcs.MCSUpdate;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
+import org.ce.domain.hamiltonian.CECEvaluator;
 import org.ce.domain.result.EquilibriumState;
 
 import java.util.logging.Logger;
@@ -49,7 +50,9 @@ public class MCSEngine implements ThermodynamicEngine {
         );
         LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
 
-        double[] eci = extractEci(input.cec, input.temperature, basis);
+        // 4. Evaluate ECI at temperature using unified CECEvaluator.
+        // Extraction is logged at INFO level to assist in debugging scaling/basis issues.
+        double[] eci = CECEvaluator.evaluate(input.cec, input.temperature, basis, "MCS");
 
         int L           = input.mcsL;
         int nEquil      = input.mcsNEquil;
@@ -69,6 +72,7 @@ public class MCSEngine implements ThermodynamicEngine {
                 .seed(System.currentTimeMillis())
                 .R(GAS_CONSTANT)
                 .basis(basis)
+                .cmatResult(cmatResult)
                 .cancellationCheck(Thread.currentThread()::isInterrupted);
 
         Consumer<String> strSink = input.progressSink;
@@ -105,6 +109,9 @@ public class MCSEngine implements ThermodynamicEngine {
         }
 
         MCResult result = builder.build().run();
+
+        // [DEBUG] Temporary post-run diagnostic print
+        mcsDebugData.printMcsSummary(result);
 
         // Post-run statistics summary
         if (strSink != null) {
@@ -231,28 +238,6 @@ public class MCSEngine implements ThermodynamicEngine {
         if (!anyIssue) {
             sink.accept("  ✓  Statistical parameters look sufficient (n_eff ≥ 100, nEquil ≥ 20·τ_int)");
         }
-    }
-
-    /**
-     * Extracts temperature-dependent ECI by CF name, matching CVMEngine.evaluateECI().
-     *
-     * <p>Each term name (e.g. {@code e4AB}) is converted to its CF name ({@code v4AB})
-     * and looked up in {@code basis.cfNames}. The returned array is indexed by CF position
-     * (0..numNonPointCfs−1); missing terms default to 0.</p>
-     */
-    private static double[] extractEci(CECEntry cec, double temperature, CvCfBasis basis) {
-        int ncf = basis.numNonPointCfs;
-        double[] eci = new double[ncf];   // defaults to 0
-        if (cec.cecTerms == null) return eci;
-        for (CECTerm term : cec.cecTerms) {
-            if (term.name == null || !term.name.startsWith("e")) continue;
-            String cfName = "v" + term.name.substring(1);   // e4AB → v4AB
-            int idx = basis.indexOfCf(cfName);
-            if (idx >= 0 && idx < ncf) {
-                eci[idx] = term.a + term.b * temperature;
-            }
-        }
-        return eci;
     }
 
     /** Helper: returns 0 if value is NaN, otherwise returns the value. */

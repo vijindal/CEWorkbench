@@ -238,7 +238,7 @@ public final class CvCfBasisTransformer {
 
         // Preserve orthogonal-basis decoration metadata for exact random-state
         // initialization (orthogonal random CFs -> CVCF via T^{-1}).
-        return new CMatrixResult(newCmat, oldLcv, wcv, oldResult.getCfBasisIndices());
+        return new CMatrixResult(newCmat, oldLcv, wcv, oldResult.getCfBasisIndices(), basis.cfNames);
     }
 
     private static boolean isBinaryBccA2(CvCfBasis basis) {

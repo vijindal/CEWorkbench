@@ -3,6 +3,7 @@ package org.ce.workflow.cec;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.GroupedCFResult;
+import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.cvcf.CvCfBasisRegistry;
 import org.ce.storage.ClusterDataStore;
 import org.ce.domain.hamiltonian.CECEntry;
@@ -158,7 +159,7 @@ public class CECManagementWorkflow {
             String structurePhase,
             String model) throws Exception {
 
-        // Determine numComponents from elements (e.g. "A-B" → 2, "A-B-C" → 3)
+        // Determine numComponents from elements (e.g. "A-B" -> 2, "A-B-C" -> 3)
         int numComponents = elements.split("-").length;
 
         // Validate CVCF basis is supported for this (structure, numComponents)
@@ -179,12 +180,61 @@ public class CECManagementWorkflow {
 
         AllClusterData clusterData = clusterStore.load(clusterId);
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
-        int ncf = cfResult.getNcf();
-
-        // Extract CF metadata to enrich CECTerms
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
-        return createAndSaveCEC(hamiltonianId, elements, structurePhase, model, ncf, cfMetadata);
+        // Extract CVCF labels or orthogonal labels from CMatrixResult (Fix 1) or uList.
+        org.ce.domain.cluster.CMatrixResult cmatResult = clusterData.getCMatrixResult();
+        List<String> cfNames = (cmatResult != null) ? cmatResult.getCmatCfNames() : null;
+
+        int ncf;
+        CECTerm[] terms;
+
+        if (cfNames != null) {
+            // CVCF basis - meaningful names from C-matrix: v4AB -> e4AB
+            CvCfBasis basis = CvCfBasisRegistry.INSTANCE.get(structurePhase, numComponents);
+            ncf = basis.numNonPointCfs;
+            terms = new CECTerm[ncf];
+            for (int i = 0; i < ncf; i++) {
+                terms[i] = createScaffoldedTerm(cfNames.get(i).replace("v", "e"), i, cfMetadata);
+            }
+        } else {
+            // Orthogonal basis - try eoNames (e.g. e[1][1][1]) or fallback to CF_i
+            List<String> eoNames = cfResult.getEONames();
+            ncf = cfResult.getNcf();
+            terms = new CECTerm[ncf];
+            for (int i = 0; i < ncf; i++) {
+                String name = (eoNames != null && i < eoNames.size())
+                        ? eoNames.get(i)
+                        : "CF_" + i;
+                terms[i] = createScaffoldedTerm(name, i, cfMetadata);
+            }
+        }
+
+        CECEntry entry = new CECEntry();
+        entry.elements = elements;
+        entry.structurePhase = structurePhase;
+        entry.model = model;
+        entry.cecTerms = terms;
+        entry.cecUnits = "J/mol";
+        entry.reference = "";
+        entry.notes = "Scaffolded from cluster data (" + (cfNames != null ? "CVCF" : "Orthogonal") + ")";
+        entry.ncf = ncf;
+
+        store.save(hamiltonianId, entry);
+        return entry;
+    }
+
+    private CECTerm createScaffoldedTerm(String name, int i, CFMetadata[] metadata) {
+        CECTerm term = new CECTerm();
+        term.name = name;
+        term.a = 0.0;
+        term.b = 0.0;
+        if (metadata != null && i < metadata.length && metadata[i] != null) {
+            term.numSites = metadata[i].numSites;
+            term.multiplicity = metadata[i].multiplicity;
+            term.description = metadata[i].description;
+        }
+        return term;
     }
 
     /**

@@ -61,7 +61,9 @@ public final class LocalEnergyCalc {
             if (alphaI < 0) continue;
             double phiOld = basis.evaluate(alphaI, oldOcc);
             double phiNew = basis.evaluate(alphaI, newOcc);
-            dE += eci[t] * (phiNew - phiOld) * restProduct;
+            int size = e.size();
+            double energyCont = eci[t] * (phiNew - phiOld) * restProduct;
+            dE += (size > 0) ? (energyCont / size) : energyCont;
         }
         return dE;
     }

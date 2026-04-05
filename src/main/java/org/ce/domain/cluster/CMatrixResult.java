@@ -37,16 +37,26 @@ public final class CMatrixResult {
      */
     private final int[][] cfBasisIndices;
 
+    /**
+     * Names of the CVCF CF corresponding to each column index 0..totalCfs-1.
+     *
+     * <p>Populated by CvCfBasisTransformer after the transform;
+     * null for orthogonal results.</p>
+     */
+    private final List<String> cmatCfNames;
+
     @JsonCreator
     public CMatrixResult(
             @JsonProperty("cmat")            List<List<double[][]>> cmat,
             @JsonProperty("lcv")             int[][]                lcv,
             @JsonProperty("wcv")             List<List<int[]>>      wcv,
-            @JsonProperty("cfBasisIndices")  int[][]                cfBasisIndices) {
+            @JsonProperty("cfBasisIndices")  int[][]                cfBasisIndices,
+            @JsonProperty("cmatCfNames")     List<String>           cmatCfNames) {
         this.cmat = cmat;
         this.lcv = lcv;
         this.wcv = wcv;
         this.cfBasisIndices = cfBasisIndices;
+        this.cmatCfNames = cmatCfNames;
     }
 
     /**
@@ -57,6 +67,7 @@ public final class CMatrixResult {
         this.lcv = null;
         this.wcv = null;
         this.cfBasisIndices = null;
+        this.cmatCfNames = null;
     }
 
     public List<List<double[][]>> getCmat() {
@@ -79,6 +90,16 @@ public final class CMatrixResult {
      */
     public int[][] getCfBasisIndices() {
         return cfBasisIndices;
+    }
+
+    /**
+     * Returns the names of the CVCF CF corresponding to each column index.
+     * Null for C-matrices in the orthogonal basis.
+     *
+     * @return list of CF names, length = basis.totalCfs()
+     */
+    public List<String> getCmatCfNames() {
+        return cmatCfNames;
     }
 
     // =========================================================================
