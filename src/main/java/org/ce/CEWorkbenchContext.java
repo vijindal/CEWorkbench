@@ -31,6 +31,7 @@ public class CEWorkbenchContext {
     private final CalculationService calculationService;
     private final CVMEngine cvmEngine;
     private final MCSEngine mcsEngine;
+    private Consumer<String> logSink = System.out::println;
 
     /**
      * Initializes a new context with the default workspace location.
@@ -80,23 +81,41 @@ public class CEWorkbenchContext {
         return calculationService;
     }
 
+    /**
+     * Sets the sink for log messages. This allows the GUI to route output
+     * to its output panel while still allowing CLI output.
+     */
+    public void setLogSink(Consumer<String> logSink) {
+        this.logSink = logSink;
+    }
+
+    /**
+     * Unified print API for the entire application.
+     * Routes message to the registered log sink.
+     */
+    public void log(String message) {
+        if (logSink != null) {
+            logSink.accept(message);
+        }
+    }
+
     // =========================================================================
     // High-level API (Shared between CLI and GUI)
     // =========================================================================
 
     /**
-     * Runs Type-1a: Cluster identification and saves the results.
+     * Runs Type-1a: Cluster identification.
+     * Does NOT save results automatically.
      */
-    public AllClusterData runType1a(String clusterId, ClusterIdentificationRequest request, Consumer<String> progressSink) throws IOException {
-        AllClusterData data = ClusterIdentificationWorkflow.identify(request, progressSink);
-        clusterStore.save(clusterId, data);
-        return data;
+    public AllClusterData identifyClusters(ClusterIdentificationRequest request, Consumer<String> progressSink) throws IOException {
+        return ClusterIdentificationWorkflow.identify(request, progressSink);
     }
 
     /**
-     * Runs Type-1b: Scaffolds a Hamiltonian from existing cluster data.
+     * Saves AllClusterData to the storage.
      */
-    public void runType1b(String hamiltonianId, String elements, String structure, String model) throws Exception {
-        cecWorkflow.scaffoldFromClusterData(hamiltonianId, elements, structure, model);
+    public void saveClusterData(String clusterId, AllClusterData data) throws IOException {
+        clusterStore.save(clusterId, data);
     }
 }
+

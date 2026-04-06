@@ -31,10 +31,10 @@ public class CalculationPanel extends JPanel {
     private static final Color LABEL_FG = new Color(0xCCCCCC);
     private static final Color ID_FG    = new Color(0x4EC9B0);   // teal
 
+    private final org.ce.CEWorkbenchContext appCtx;
     private final CalculationService            service;
     private final WorkbenchContext              context;
     private final Consumer<String>              statusSink;
-    private final Consumer<String>              logSink;
     private final Consumer<ThermodynamicResult> resultSink;
     private final Consumer<ProgressEvent>       chartSink;
 
@@ -65,16 +65,15 @@ public class CalculationPanel extends JPanel {
 
     private boolean updatingFromContext = false;
 
-    public CalculationPanel(CalculationService service,
+    public CalculationPanel(org.ce.CEWorkbenchContext appCtx,
                             WorkbenchContext context,
                             Consumer<String> statusSink,
-                            Consumer<String> logSink,
                             Consumer<ThermodynamicResult> resultSink,
                             Consumer<ProgressEvent> chartSink) {
-        this.service    = service;
+        this.appCtx     = appCtx;
+        this.service    = appCtx.getCalculationService();
         this.context    = context;
         this.statusSink = statusSink;
-        this.logSink    = logSink;
         this.resultSink = resultSink;
         this.chartSink  = chartSink;
 
@@ -286,7 +285,7 @@ public class CalculationPanel extends JPanel {
         String clusterId     = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
         if (clusterId.isBlank() || hamiltonianId.isBlank()) {
-            logSink.accept("Fill in Elements, Structure, and Model first.");
+            appCtx.log("Fill in Elements, Structure, and Model first.");
             return;
         }
 
@@ -295,7 +294,7 @@ public class CalculationPanel extends JPanel {
         try {
             composition = parseComposition(compositionField.getText().trim(), elementsField.getText().trim());
         } catch (IllegalArgumentException ex) {
-            logSink.accept("Invalid composition: " + ex.getMessage());
+            appCtx.log("Invalid composition: " + ex.getMessage());
             statusSink.accept("Error: Invalid composition");
             return;
         }
@@ -305,11 +304,11 @@ public class CalculationPanel extends JPanel {
         calcButton.setEnabled(false);
         prodButton.setEnabled(false);
         abortButton.setEnabled(true);
-        logSink.accept("Production Run (FSS): L=12, 16, 24 — MCS with 1/N extrapolation");
-        logSink.accept("  Cluster     : " + clusterId);
-        logSink.accept("  Hamiltonian : " + hamiltonianId);
-        logSink.accept("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
-        logSink.accept("  nEquil=" + mcsNEquil + "  nAvg=" + mcsNAvg + " per L-value");
+        appCtx.log("Production Run (FSS): L=12, 16, 24 — MCS with 1/N extrapolation");
+        appCtx.log("  Cluster     : " + clusterId);
+        appCtx.log("  Hamiltonian : " + hamiltonianId);
+        appCtx.log("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
+        appCtx.log("  nEquil=" + mcsNEquil + "  nAvg=" + mcsNAvg + " per L-value");
         statusSink.accept("Production Run at T=" + temperature + " K…");
 
         SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<ThermodynamicResult, Object>() {
@@ -325,7 +324,7 @@ public class CalculationPanel extends JPanel {
             @Override
             protected void process(List<Object> chunks) {
                 for (Object obj : chunks) {
-                    if (obj instanceof String)        logSink.accept((String) obj);
+                    if (obj instanceof String)        appCtx.log((String) obj);
                     else if (obj instanceof ProgressEvent) chartSink.accept((ProgressEvent) obj);
                 }
             }
@@ -337,21 +336,21 @@ public class CalculationPanel extends JPanel {
                 abortButton.setEnabled(false);
                 activeWorker = null;
                 if (isCancelled()) {
-                    logSink.accept("Production run aborted.");
+                    appCtx.log("Production run aborted.");
                     statusSink.accept("Aborted.");
                     return;
                 }
                 try {
                     ThermodynamicResult result = get();
-                    logSink.accept("\nProduction run complete — extrapolated (∞-limit) values:");
-                    logSink.accept("  H(∞) = " + String.format("%+.6f", result.enthalpy)
+                    appCtx.log("\nProduction run complete — extrapolated (∞-limit) values:");
+                    appCtx.log("  H(∞) = " + String.format("%+.6f", result.enthalpy)
                         + " ± " + String.format("%.6f", result.stdEnthalpy) + " J/mol");
                     statusSink.accept("Production done — H(∞) = "
                         + String.format("%+.4f", result.enthalpy) + " J/mol");
                     resultSink.accept(result);
                 } catch (Exception ex) {
                     String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-                    logSink.accept("Error: " + msg);
+                    appCtx.log("Error: " + msg);
                     statusSink.accept("Error: " + msg);
                 }
             }
@@ -364,7 +363,7 @@ public class CalculationPanel extends JPanel {
         String clusterId     = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
         if (clusterId.isBlank() || hamiltonianId.isBlank()) {
-            logSink.accept("Fill in Elements, Structure, and Model first.");
+            appCtx.log("Fill in Elements, Structure, and Model first.");
             return;
         }
 
@@ -379,12 +378,12 @@ public class CalculationPanel extends JPanel {
 
         calcButton.setEnabled(false);
         abortButton.setEnabled(true);
-        logSink.accept("Running " + engineType + " calculation...");
-        logSink.accept("  Cluster     : " + clusterId);
-        logSink.accept("  Hamiltonian : " + hamiltonianId);
-        logSink.accept("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
+        appCtx.log("Running " + engineType + " calculation...");
+        appCtx.log("  Cluster     : " + clusterId);
+        appCtx.log("  Hamiltonian : " + hamiltonianId);
+        appCtx.log("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
         if ("CVM".equals(engineType)) {
-            logSink.accept("  CVM Basis   : " + cvmBasisMode);
+            appCtx.log("  CVM Basis   : " + cvmBasisMode);
         }
         statusSink.accept("Running " + engineType + " at T=" + temperature + " K...");
 
@@ -403,7 +402,7 @@ public class CalculationPanel extends JPanel {
             protected void process(List<Object> chunks) {
                 for (Object obj : chunks) {
                     if (obj instanceof String) {
-                        logSink.accept((String) obj);
+                        appCtx.log((String) obj);
                     } else if (obj instanceof ProgressEvent) {
                         chartSink.accept((ProgressEvent) obj);
                     }
@@ -416,20 +415,20 @@ public class CalculationPanel extends JPanel {
                 abortButton.setEnabled(false);
                 activeWorker = null;
                 if (isCancelled()) {
-                    logSink.accept("Calculation aborted.");
+                    appCtx.log("Calculation aborted.");
                     statusSink.accept("Aborted.");
                     return;
                 }
                 try {
                     ThermodynamicResult result = get();
-                    logSink.accept("Calculation complete.");
-                    logSink.accept("  G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
-                    logSink.accept("  H = " + String.format("%.4f", result.enthalpy) + " J/mol");
+                    appCtx.log("Calculation complete.");
+                    appCtx.log("  G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
+                    appCtx.log("  H = " + String.format("%.4f", result.enthalpy) + " J/mol");
                     statusSink.accept("Done — G = " + String.format("%.4f", result.gibbsEnergy) + " J/mol");
                     resultSink.accept(result);
                 } catch (Exception ex) {
                     String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-                    logSink.accept("Error: " + msg);
+                    appCtx.log("Error: " + msg);
                     statusSink.accept("Error: " + msg);
                 }
             }

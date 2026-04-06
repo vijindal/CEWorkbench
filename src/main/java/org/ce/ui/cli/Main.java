@@ -189,7 +189,8 @@ public class Main {
                         .numComponents(numComponents)
                         .build();
 
-                AllClusterData clusterData = appCtx.runType1a(CLUSTER_ID, config, System.out::println);
+                AllClusterData clusterData = appCtx.identifyClusters(config, System.out::println);
+                appCtx.saveClusterData(CLUSTER_ID, clusterData);
                 System.out.println("Identification complete: " + clusterData.getSummary());
                 System.out.println("Saved: " + appCtx.getWorkspace().clusterDataFile(CLUSTER_ID));
             }
@@ -205,7 +206,7 @@ public class Main {
                     System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
                     System.out.println("  Delete " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID) + " to re-scaffold.");
                 } else {
-                    appCtx.runType1b(HAMILTONIAN_ID, elements, structure, model);
+                    appCtx.getCecWorkflow().scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
                     System.out.println("Saved: " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID));
                     System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
                 }
@@ -295,7 +296,7 @@ public class Main {
                 System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
                 System.out.println("  Delete " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID) + " to re-scaffold.");
             } else {
-                appCtx.runType1b(HAMILTONIAN_ID, elements, structure, model);
+                appCtx.getCecWorkflow().scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
                 System.out.println("Saved: " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID));
                 System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
             }

@@ -1,6 +1,7 @@
 package org.ce.workflow;
 
 import static org.ce.domain.cluster.SpaceGroup.SymmetryOperation;
+import static org.ce.domain.cluster.ClusterResults.*;
 
 import org.ce.domain.cluster.*;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
@@ -55,11 +56,20 @@ public class ClusterIdentificationWorkflow {
         public static AllClusterData identify(ClusterIdentificationRequest config, Consumer<String> progressSink) {
                 LOG.info("ClusterIdentificationWorkflow.identify — START");
                 emit(progressSink, "TYPE-1a START");
-                emit(progressSink, "  orderedClusterFile    : " + config.getOrderedClusterFile());
-                emit(progressSink, "  orderedSymmetryGroup  : " + config.getOrderedSymmetryGroup());
-                emit(progressSink, "  disorderedClusterFile : " + config.getDisorderedClusterFile());
-                emit(progressSink, "  disorderedSymmetryGroup: " + config.getDisorderedSymmetryGroup());
-                emit(progressSink, "  numComponents         : " + config.getNumComponents());
+
+                // Derive a basic System ID for display
+                String compSuffix = config.getNumComponents() == 2 ? "bin" :
+                                   config.getNumComponents() == 3 ? "tern" :
+                                   config.getNumComponents() == 4 ? "quat" : "K" + config.getNumComponents();
+                String systemId = config.getStructurePhase() + "_" + compSuffix;
+
+                emit(progressSink, "  System ID             : " + systemId);
+                emit(progressSink, "  Number of Components  : " + config.getNumComponents());
+                emit(progressSink, "  Input Configuration:");
+                emit(progressSink, "    disorderedClusterFile : " + config.getDisorderedClusterFile());
+                emit(progressSink, "    disorderedSymmetryGroup: " + config.getDisorderedSymmetryGroup());
+                emit(progressSink, "    orderedClusterFile    : " + config.getOrderedClusterFile());
+                emit(progressSink, "    orderedSymmetryGroup  : " + config.getOrderedSymmetryGroup());
 
                 // Validate CVCF basis is supported for this (structure, numComponents)
                 String structurePhase = config.getStructurePhase();
@@ -81,14 +91,12 @@ public class ClusterIdentificationWorkflow {
                 emit(progressSink, "STAGE 1a: Load disordered phase geometry/symmetry");
 
                 List<Cluster> disorderedClusters = InputLoader.parseClusterFile(config.getDisorderedClusterFile());
-
                 SpaceGroup disorderedSpaceGroup = InputLoader.parseSpaceGroup(config.getDisorderedSymmetryGroup());
-
                 List<SymmetryOperation> disorderedSymOps = disorderedSpaceGroup.getOperations();
 
                 LOG.fine("Disordered clusters loaded: " + disorderedClusters.size());
-                emit(progressSink, "  disordered max clusters: " + disorderedClusters.size());
-                emit(progressSink, "  disordered sym ops     : " + disorderedSymOps.size());
+                emit(progressSink, "    [Metadata] disordered max clusters: " + disorderedClusters.size());
+                emit(progressSink, "    [Metadata] disordered sym ops     : " + disorderedSymOps.size());
 
                 // =====================================================================
                 // 2. Load ordered phase data
@@ -97,20 +105,18 @@ public class ClusterIdentificationWorkflow {
                 emit(progressSink, "STAGE 1b: Load ordered phase geometry/symmetry");
 
                 List<Cluster> orderedClusters = InputLoader.parseClusterFile(config.getOrderedClusterFile());
-
                 SpaceGroup orderedSpaceGroup = InputLoader.parseSpaceGroup(config.getOrderedSymmetryGroup());
-
                 List<SymmetryOperation> orderedSymOps = orderedSpaceGroup.getOperations();
 
                 LOG.fine("Ordered clusters loaded: " + orderedClusters.size());
-                emit(progressSink, "  ordered max clusters   : " + orderedClusters.size());
-                emit(progressSink, "  ordered sym ops        : " + orderedSymOps.size());
+                emit(progressSink, "    [Metadata] ordered max clusters   : " + orderedClusters.size());
+                emit(progressSink, "    [Metadata] ordered sym ops        : " + orderedSymOps.size());
 
                 // =====================================================================
                 // 3. Identify clusters (both disordered and ordered phases)
                 // =====================================================================
                 LOG.fine("Identifying clusters for both phases...");
-                emit(progressSink, "STAGE 1c: Cluster identification");
+                emit(progressSink, "STAGE 1c: Cluster identification (HSP and phase analysis)");
 
                 ClusterIdentificationResult clusterResult = ClusterIdentifier.identify(
                                 disorderedClusters,
@@ -123,11 +129,37 @@ public class ClusterIdentificationWorkflow {
                                                 config.getTranslationVector().getZ() });
 
                 LOG.fine("Clusters identified: tcdis=" + clusterResult.getTcdis() + ", tc=" + clusterResult.getTc());
-                emit(progressSink, "  cluster result: tcdis=" + clusterResult.getTcdis()
-                                + ", tc=" + clusterResult.getTc() + ", nxcdis=" + clusterResult.getNxcdis()
-                                + ", nxc=" + clusterResult.getNxc());
-                emit(progressSink, "  lc            : " + Arrays.toString(clusterResult.getLc()));
-                emit(progressSink, "  kb            : " + Arrays.toString(clusterResult.getKbCoefficients()));
+                emit(progressSink, "  STAGE 1 diagnostic results:");
+                
+                // Stage 1a: HSP (Disordered) Clusters
+                emit(progressSink, "    [Stage 1a] HSP Clusters (Disordered Phase):");
+                emit(progressSink, "      tcdis  = " + clusterResult.getTcdis());
+                emit(progressSink, "      nxcdis = " + clusterResult.getNxcdis());
+                List<Double> mhdis = clusterResult.getDisClusterData().getMultiplicities();
+                List<List<Integer>> rcdis = clusterResult.getDisClusterData().getRcList();
+                List<Cluster> clusdis = clusterResult.getDisClusterData().getClusCoordList();
+                for (int t = 0; t < clusterResult.getTcdis(); t++) {
+                    int nc = clusdis.get(t).getAllSites().size();
+                    emit(progressSink, String.format("        t=%-4d nc=%-2d rc=%s mhdis=%.4f kbdis=%.8f", 
+                        t, nc, rcdis.get(t), mhdis.get(t), clusterResult.getKbCoefficients()[t]));
+                }
+
+                // Stage 1b: Phase (Ordered) Clusters
+                emit(progressSink, "    [Stage 1b] Ordered Phase Clusters:");
+                emit(progressSink, "      tc     = " + clusterResult.getTc());
+                emit(progressSink, "      nxc    = " + clusterResult.getNxc());
+                emit(progressSink, "      lc     = " + Arrays.toString(clusterResult.getLc()));
+                
+                ClassifiedClusterResult ordData = clusterResult.getOrdClusterData();
+                double[][] mh = clusterResult.getMh();
+                for (int t = 0; t < clusterResult.getTcdis(); t++) {
+                    for (int j = 0; j < clusterResult.getLc()[t]; j++) {
+                        int nc = ordData.getCoordList().get(t).get(j).getAllSites().size();
+                        List<Integer> rc = ordData.getRcList().get(t).get(j);
+                        emit(progressSink, String.format("        t=%-4d j=%-4d nc=%-2d rc=%s mh=%.4f", 
+                            t, j, nc, rc, mh[t][j]));
+                    }
+                }
 
                 // =====================================================================
                 // 4. Identify CFs (both disordered and ordered phases)

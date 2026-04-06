@@ -26,10 +26,10 @@ public class CECManagementPanel extends JPanel {
     private static final Color LABEL_FG  = new Color(0xCCCCCC);
     private static final Color ID_FG     = new Color(0x4EC9B0);   // teal
 
+    private final org.ce.CEWorkbenchContext appCtx;
     private final CECManagementWorkflow cecWorkflow;
     private final WorkbenchContext      context;
     private final Consumer<String>      statusSink;
-    private final Consumer<String>      logSink;
     private final BiConsumer<CECEntry, CECEntry> resultSink;
     private final Function<CECEntry, Boolean> applyEditsSink;
 
@@ -54,16 +54,15 @@ public class CECManagementPanel extends JPanel {
     private CECEntry currentEntry         = null;
     private String   currentHamiltonianId = null;
 
-    public CECManagementPanel(CECManagementWorkflow cecWorkflow,
+    public CECManagementPanel(org.ce.CEWorkbenchContext appCtx,
                               WorkbenchContext context,
                               Consumer<String> statusSink,
-                              Consumer<String> logSink,
                               BiConsumer<CECEntry, CECEntry> resultSink,
                               Function<CECEntry, Boolean> applyEditsSink) {
-        this.cecWorkflow = cecWorkflow;
+        this.appCtx      = appCtx;
+        this.cecWorkflow = appCtx.getCecWorkflow();
         this.context     = context;
         this.statusSink  = statusSink;
-        this.logSink     = logSink;
         this.resultSink  = resultSink;
         this.applyEditsSink = applyEditsSink;
 
@@ -249,7 +248,7 @@ public class CECManagementPanel extends JPanel {
         String model         = modelField.getText().trim();
         if (hamiltonianId.isBlank()) return;
 
-        logSink.accept("Scaffolding Hamiltonian for " + hamiltonianId + "...");
+        appCtx.log("Scaffolding Hamiltonian for " + hamiltonianId + "...");
         statusSink.accept("Scaffolding " + hamiltonianId + "...");
 
         SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
@@ -265,11 +264,11 @@ public class CECManagementPanel extends JPanel {
                     currentEntry = entry;
                     currentHamiltonianId = hamiltonianId;
                     resultSink.accept(entry, tryLoadCvcfSibling(clusterId, hamiltonianId));
-                    logSink.accept("Scaffolded " + entry.ncf + " terms. Saved to hamiltonians/" + hamiltonianId + "/hamiltonian.json");
-                    logSink.accept("Edit a and b values in the table, then click Save.");
+                    appCtx.log("Scaffolded " + entry.ncf + " terms. Saved to hamiltonians/" + hamiltonianId + "/hamiltonian.json");
+                    appCtx.log("Edit a and b values in the table, then click Save.");
                     statusSink.accept("Scaffolded " + hamiltonianId + "  (" + entry.ncf + " terms)");
                 } catch (Exception ex) {
-                    logSink.accept("Error: " + ex.getMessage());
+                    appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
                 }
             }
@@ -282,7 +281,7 @@ public class CECManagementPanel extends JPanel {
         String hamiltonianId = hamiltonianIdField.getText().trim();
         if (hamiltonianId.isBlank()) return;
 
-        logSink.accept("Loading Hamiltonian " + hamiltonianId + "...");
+        appCtx.log("Loading Hamiltonian " + hamiltonianId + "...");
         statusSink.accept("Loading " + hamiltonianId + "...");
 
         SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
@@ -309,14 +308,14 @@ public class CECManagementPanel extends JPanel {
                         currentHamiltonianId = hamiltonianId;
                     }
                     resultSink.accept(orthEntry, cvcfEntry);
-                    logSink.accept("Loaded " + entry.ncf + " terms.");
-                    logSink.accept("Elements: " + entry.elements
+                    appCtx.log("Loaded " + entry.ncf + " terms.");
+                    appCtx.log("Elements: " + entry.elements
                             + "  Structure: " + entry.structurePhase
                             + "  Units: " + entry.cecUnits);
-                    logSink.accept("Edit a and b values in the table, then click Save.");
+                    appCtx.log("Edit a and b values in the table, then click Save.");
                     statusSink.accept("Loaded " + hamiltonianId + "  (" + entry.ncf + " terms)");
                 } catch (Exception ex) {
-                    logSink.accept("Error: " + ex.getMessage());
+                    appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
                 }
             }
@@ -326,18 +325,18 @@ public class CECManagementPanel extends JPanel {
 
     private void saveCEC() {
         if (currentEntry == null || currentHamiltonianId == null) {
-            logSink.accept("Nothing loaded. Scaffold or Load a Hamiltonian first.");
+            appCtx.log("Nothing loaded. Scaffold or Load a Hamiltonian first.");
             return;
         }
 
         if (applyEditsSink == null || !applyEditsSink.apply(currentEntry)) {
-            logSink.accept("Unable to apply CEC edits from Results panel.");
+            appCtx.log("Unable to apply CEC edits from Results panel.");
             return;
         }
 
         String id    = currentHamiltonianId;
         CECEntry ent = currentEntry;
-        logSink.accept("Saving Hamiltonian " + id + "...");
+        appCtx.log("Saving Hamiltonian " + id + "...");
         statusSink.accept("Saving " + id + "...");
 
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
@@ -351,10 +350,10 @@ public class CECManagementPanel extends JPanel {
             protected void done() {
                 try {
                     get();
-                    logSink.accept("Saved to hamiltonians/" + id + "/hamiltonian.json");
+                    appCtx.log("Saved to hamiltonians/" + id + "/hamiltonian.json");
                     statusSink.accept("Saved " + id);
                 } catch (Exception ex) {
-                    logSink.accept("Error: " + ex.getMessage());
+                    appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
                 }
             }
@@ -409,14 +408,14 @@ public class CECManagementPanel extends JPanel {
     private void transformFromBinary() {
         String ternaryId = hamiltonianIdField.getText().trim();
         if (ternaryId.isBlank()) {
-            logSink.accept("Please set target Hamiltonian ID first");
+            appCtx.log("Please set target Hamiltonian ID first");
             statusSink.accept("Error: target Hamiltonian ID required");
             return;
         }
 
         String ternaryElements = elementsField.getText().trim();
         if (ternaryElements.isBlank() || ternaryElements.split("-").length != 3) {
-            logSink.accept("Please set Ternary elements (e.g., Nb-Ti-V)");
+            appCtx.log("Please set Ternary elements (e.g., Nb-Ti-V)");
             statusSink.accept("Error: invalid ternary element string");
             return;
         }
@@ -430,7 +429,7 @@ public class CECManagementPanel extends JPanel {
 
         if (binaryId == null || binaryId.isBlank()) return;
 
-        logSink.accept("Transforming " + binaryId + " → " + ternaryId + "...");
+        appCtx.log("Transforming " + binaryId + " → " + ternaryId + "...");
         statusSink.accept("Transforming " + binaryId + " to ternary basis...");
 
         SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
@@ -479,12 +478,12 @@ public class CECManagementPanel extends JPanel {
                     currentEntry = entry;
                     currentHamiltonianId = ternaryId;
                     resultSink.accept(entry, tryLoadCvcfSibling(clusterIdField.getText().trim(), ternaryId));
-                    logSink.accept("Transformed " + entry.ncf + " terms to ternary basis");
-                    logSink.accept("Saved to hamiltonians/" + ternaryId + "/hamiltonian.json");
-                    logSink.accept("Review the transformed values and click Save if satisfied.");
+                    appCtx.log("Transformed " + entry.ncf + " terms to ternary basis");
+                    appCtx.log("Saved to hamiltonians/" + ternaryId + "/hamiltonian.json");
+                    appCtx.log("Review the transformed values and click Save if satisfied.");
                     statusSink.accept("Transformed " + ternaryId);
                 } catch (Exception ex) {
-                    logSink.accept("Error: " + ex.getMessage());
+                    appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
                 }
             }

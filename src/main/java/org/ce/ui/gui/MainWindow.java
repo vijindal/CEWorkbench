@@ -66,7 +66,13 @@ public class MainWindow extends JFrame {
         OutputPanel outputPanel = new OutputPanel(context);
 
         // ── sinks wired to the output panel ───────────────────────────────────
-        java.util.function.Consumer<String> logSink    = outputPanel::appendLog;
+        // Unified log sink: GUI output box + CLI terminal
+        java.util.function.Consumer<String> logSink = msg -> {
+            outputPanel.appendLog(msg);
+            System.out.println(msg);
+        };
+        appCtx.setLogSink(logSink);
+
         java.util.function.Consumer<String> statusSink = this::postStatus;
         java.util.function.BiConsumer<CECEntry, CECEntry> cecResultSink = outputPanel::showCECResult;
         java.util.function.Function<CECEntry, Boolean> cecEditApplySink = outputPanel::applyCECEdits;
@@ -76,13 +82,13 @@ public class MainWindow extends JFrame {
 
         // ── parameter panels (go into the explorer) ───────────────────────────
         DataPreparationPanel dataPrepPanel = new DataPreparationPanel(
-                appCtx.getClusterStore(), context, statusSink, logSink);
+                appCtx, context, statusSink);
 
         CECManagementPanel cecPanel = new CECManagementPanel(
-                appCtx.getCecWorkflow(), context, statusSink, logSink, cecResultSink, cecEditApplySink);
+                appCtx, context, statusSink, cecResultSink, cecEditApplySink);
 
         CalculationPanel calcPanel = new CalculationPanel(
-                appCtx.getCalculationService(), context, statusSink, logSink, resultSink, chartSink);
+                appCtx, context, statusSink, resultSink, chartSink);
 
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();

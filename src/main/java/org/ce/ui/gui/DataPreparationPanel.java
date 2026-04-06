@@ -32,7 +32,7 @@ import java.util.function.Consumer;
  * </ol>
  *
  * <p>
- * Log output is routed to {@code logSink} (displayed in {@link OutputPanel}).
+ * Log output is routed via the unified {@link org.ce.CEWorkbenchContext#log(String)} API.
  * One-line status updates go to {@code statusSink} (displayed in
  * {@link StatusBar}).
  * </p>
@@ -46,11 +46,10 @@ public class DataPreparationPanel extends JPanel {
     private static final Color DIS_HDR = new Color(0xCE9178); // VS Code string orange
     private static final Color SYS_ID_FG = new Color(0x4EC9B0); // teal
 
-    private final ClusterDataStore clusterStore;
+    private final org.ce.CEWorkbenchContext appCtx;
     private final Path inputsDir;
     private final WorkbenchContext context;
     private final Consumer<String> statusSink;
-    private final Consumer<String> logSink;
 
     // Ordered phase (target) — determines system ID
     private final JComboBox<String> orderedClusterCombo;
@@ -63,15 +62,17 @@ public class DataPreparationPanel extends JPanel {
     private final JSpinner numCompSpinner = new JSpinner(new SpinnerNumberModel(2, 2, 20, 1));
     private final JTextField systemIdField = new JTextField(24);
 
-    public DataPreparationPanel(ClusterDataStore clusterStore,
+    private AllClusterData lastResult = null;
+    private final JButton runBtn;
+    private final JButton saveBtn;
+
+    public DataPreparationPanel(org.ce.CEWorkbenchContext appCtx,
             WorkbenchContext context,
-            Consumer<String> statusSink,
-            Consumer<String> logSink) {
-        this.clusterStore = clusterStore;
+            Consumer<String> statusSink) {
+        this.appCtx = appCtx;
         this.inputsDir = new Workspace().inputsDir();
         this.context = context;
         this.statusSink = statusSink;
-        this.logSink = logSink;
 
         setBackground(BG);
 
@@ -90,6 +91,10 @@ public class DataPreparationPanel extends JPanel {
         orderedClusterCombo.addActionListener(e -> refreshSystemId());
         numCompSpinner.addChangeListener(e -> refreshSystemId());
         refreshSystemId();
+
+        runBtn = new JButton("Run Identification");
+        saveBtn = new JButton("Save Result");
+        saveBtn.setEnabled(false);
 
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
@@ -265,16 +270,21 @@ public class DataPreparationPanel extends JPanel {
         fc.gridy = row++;
         form.add(systemIdField, fc);
 
-        // Run button
+        // Buttons row
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        btnRow.setBackground(BG);
+        runBtn.addActionListener(e -> runIdentification());
+        saveBtn.addActionListener(e -> saveResult());
+        btnRow.add(runBtn);
+        btnRow.add(saveBtn);
+
         GridBagConstraints rbc = new GridBagConstraints();
         rbc.gridx = 0;
         rbc.gridy = row;
         rbc.gridwidth = 2;
         rbc.anchor = GridBagConstraints.WEST;
         rbc.insets = new Insets(10, 6, 4, 6);
-        JButton runBtn = new JButton("Run Identification & Save");
-        runBtn.addActionListener(e -> runIdentification());
-        form.add(runBtn, rbc);
+        form.add(btnRow, rbc);
 
         return form;
     }
@@ -332,13 +342,16 @@ public class DataPreparationPanel extends JPanel {
         int numComp = (int) numCompSpinner.getValue();
         String systemId = systemIdField.getText().trim();
 
-        logSink.accept("System ID      : " + systemId);
-        logSink.accept("Ordered cluster: " + ordClus);
-        logSink.accept("Ordered sym    : " + ordSym);
-        logSink.accept("Disordered clus: " + disClus + "  (parent — determines ncf)");
-        logSink.accept("Disordered sym : " + disSym);
-        logSink.accept("Components     : " + numComp);
+        appCtx.log("System ID      : " + systemId);
+        appCtx.log("Ordered cluster: " + ordClus);
+        appCtx.log("Ordered sym    : " + ordSym);
+        appCtx.log("Disordered clus: " + disClus + "  (parent — determines ncf)");
+        appCtx.log("Disordered sym : " + disSym);
+        appCtx.log("Components     : " + numComp);
         statusSink.accept("Running cluster identification for " + systemId + "...");
+
+        runBtn.setEnabled(false);
+        saveBtn.setEnabled(false);
 
         SwingWorker<AllClusterData, String> worker = new SwingWorker<>() {
             @Override
@@ -355,37 +368,36 @@ public class DataPreparationPanel extends JPanel {
                         .numComponents(numComp)
                         .build();
 
-                AllClusterData full = ClusterIdentificationWorkflow.identify(config, this::publish);
-
-                publish("Saving AllClusterData...");
-                clusterStore.save(systemId, full);
-                return full;
+                return appCtx.identifyClusters(config, this::publish);
             }
 
             @Override
             protected void process(List<String> chunks) {
                 for (String msg : chunks)
-                    logSink.accept(msg);
+                    appCtx.log(msg);
             }
 
             @Override
             protected void done() {
+                runBtn.setEnabled(true);
                 try {
                     AllClusterData result = get();
-                    logSink.accept("Done!  " + result.getSummary());
-                    logSink.accept("Saved to ~/CEWorkbench/cluster-data/" + systemId + "/cluster_data.json");
-                    logSink.accept("  disorderedCFResult ncf = "
+                    lastResult = result;
+                    saveBtn.setEnabled(true);
+
+                    appCtx.log("Done!  " + result.getSummary());
+                    appCtx.log("  disorderedCFResult ncf = "
                             + result.getDisorderedCFResult().getNcf() + "  (from " + disClus + ")");
-                    logSink.accept("  orderedCFResult    ncf = "
+                    appCtx.log("  orderedCFResult    ncf = "
                             + result.getOrderedCFResult().getNcf() + "  (from " + ordClus + ")");
-                    logSink.accept("  uList (orthogonal CF symbols): " + result.getUList());
-                    logSink.accept("  vList (CVCF basis CF symbols): " + result.getVList());
-                    logSink.accept("  eOList (orthogonal CEC symbols): " + result.getEOList());
+                    appCtx.log("  uList (orthogonal CF symbols): " + result.getUList());
+                    appCtx.log("  vList (CVCF basis CF symbols): " + result.getVList());
+                    appCtx.log("  eOList (orthogonal CEC symbols): " + result.getEOList());
                     // Print T matrix (Transformation matrix u = T.v)
                     String structure = parseStructureModel(systemId)[0];
                     CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structure, numComp);
                     if (basis != null) {
-                        logSink.accept("  Transformation Matrix T (u = T.v):");
+                        appCtx.log("  Transformation Matrix T (u = T.v):");
                         double[][] tMat = basis.T;
                         List<String> uNames = result.getUList();
                         List<String> vNames = result.getVList();
@@ -395,8 +407,8 @@ public class DataPreparationPanel extends JPanel {
                         if (vNames != null) {
                             for (String vName : vNames) headSb.append(" %8s".formatted(vName));
                         }
-                        logSink.accept(headSb.toString());
-                        logSink.accept("    " + "-".repeat(headSb.length() - 4));
+                        appCtx.log(headSb.toString());
+                        appCtx.log("    " + "-".repeat(headSb.length() - 4));
 
                         for (int i = 0; i < tMat.length; i++) {
                             StringBuilder rowSb = new StringBuilder();
@@ -405,16 +417,32 @@ public class DataPreparationPanel extends JPanel {
                             for (int k = 0; k < tMat[i].length; k++) {
                                 rowSb.append(String.format(" %8.2f", tMat[i][k]));
                             }
-                            logSink.accept(rowSb.toString());
+                            appCtx.log(rowSb.toString());
                         }
                     }
+                    appCtx.log("\nReview the identification results. Click 'Save Result' to persist to database.");
+                    statusSink.accept("Cluster identification complete.");
                 } catch (Exception ex) {
-                    logSink.accept("Error: " + ex.getMessage());
+                    appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
                 }
             }
         };
 
         worker.execute();
+    }
+
+    private void saveResult() {
+        if (lastResult == null) return;
+        String systemId = systemIdField.getText().trim();
+        try {
+            appCtx.saveClusterData(systemId, lastResult);
+            appCtx.log("Saved to ~/CEWorkbench/cluster-data/" + systemId + "/cluster_data.json");
+            statusSink.accept("Saved cluster data for " + systemId);
+            saveBtn.setEnabled(false);
+        } catch (Exception ex) {
+            appCtx.log("Error saving: " + ex.getMessage());
+            statusSink.accept("Error: " + ex.getMessage());
+        }
     }
 }
