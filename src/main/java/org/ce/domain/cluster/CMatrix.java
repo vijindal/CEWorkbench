@@ -129,11 +129,37 @@ public final class CMatrix {
             CvCfBasis basis,
             Consumer<String> progressSink) {
 
+        Result orthResult = buildOrthogonal(clusterResult, cfResult, maxClusters, numElements);
+
+        if (progressSink != null) {
+            emit(progressSink, "  [Orthogonal Basis C-Matrix Data]");
+            dumpCmat("ORTHO", orthResult, progressSink);
+        }
+
+        Result cvcfResult = CvCfBasisTransformer.transform(orthResult, basis);
+
+        if (progressSink != null) {
+            emit(progressSink, "  [CVCF Basis C-Matrix Data]");
+            dumpCmat("CVCF", cvcfResult, progressSink);
+        }
+
+        return cvcfResult;
+    }
+
+    /**
+     * Internal logic for building the raw orthogonal C-matrix.
+     */
+    public static Result buildOrthogonal(
+            ClusterIdentificationResult clusterResult,
+            CFIdentificationResult cfResult,
+            List<Cluster> maxClusters,
+            int numElements) {
+
         if (clusterResult == null || cfResult == null || maxClusters == null) {
             throw new IllegalArgumentException("Inputs must not be null");
         }
 
-        LOG.fine("CMatrix.build — ENTER");
+        LOG.fine("CMatrix.buildOrthogonal — ENTER");
 
         List<Position> siteList = ClusterBuilders.buildSiteList(maxClusters);
         ClusterMath.PRules pRules = ClusterMath.PRules.build(siteList.size(), numElements);
@@ -194,17 +220,7 @@ public final class CMatrix {
             wcv.add(wcvType);
         }
 
-        Result orthResult = new Result(cmat, lcv, wcv, cfBasisIndices, null);
-        Result cvcfResult = CvCfBasisTransformer.transform(orthResult, basis);
-
-        if (progressSink != null) {
-            emit(progressSink, "  FULL orthogonal c-matrix blocks:");
-            dumpCmat("ORTHO", orthResult, progressSink);
-            emit(progressSink, "  FULL CVCF c-matrix blocks:");
-            dumpCmat("CVCF", cvcfResult, progressSink);
-        }
-
-        return cvcfResult;
+        return new Result(cmat, lcv, wcv, cfBasisIndices, null);
     }
 
     private static void dumpCmat(String label, Result result, Consumer<String> sink) {

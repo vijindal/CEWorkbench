@@ -385,41 +385,6 @@ public class DataPreparationPanel extends JPanel {
                     lastResult = result;
                     saveBtn.setEnabled(true);
 
-                    appCtx.log("Done!  " + result.getSummary());
-                    appCtx.log("  disorderedCFResult ncf = "
-                            + result.getDisorderedCFResult().getNcf() + "  (from " + disClus + ")");
-                    appCtx.log("  orderedCFResult    ncf = "
-                            + result.getOrderedCFResult().getNcf() + "  (from " + ordClus + ")");
-                    appCtx.log("  uList (orthogonal CF symbols): " + result.getUList());
-                    appCtx.log("  vList (CVCF basis CF symbols): " + result.getVList());
-                    appCtx.log("  eOList (orthogonal CEC symbols): " + result.getEOList());
-                    // Print T matrix (Transformation matrix u = T.v)
-                    String structure = parseStructureModel(systemId)[0];
-                    CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structure, numComp);
-                    if (basis != null) {
-                        appCtx.log("  Transformation Matrix T (u = T.v):");
-                        double[][] tMat = basis.T;
-                        List<String> uNames = result.getUList();
-                        List<String> vNames = result.getVList();
-
-                        // Header row (vNames)
-                        StringBuilder headSb = new StringBuilder("    %-12s |".formatted("row / col"));
-                        if (vNames != null) {
-                            for (String vName : vNames) headSb.append(" %8s".formatted(vName));
-                        }
-                        appCtx.log(headSb.toString());
-                        appCtx.log("    " + "-".repeat(headSb.length() - 4));
-
-                        for (int i = 0; i < tMat.length; i++) {
-                            StringBuilder rowSb = new StringBuilder();
-                            String uName = (uNames != null && i < uNames.size()) ? uNames.get(i) : ("u[" + (i+1) + "]");
-                            rowSb.append("    %-12s |".formatted(uName));
-                            for (int k = 0; k < tMat[i].length; k++) {
-                                rowSb.append(String.format(" %8.2f", tMat[i][k]));
-                            }
-                            appCtx.log(rowSb.toString());
-                        }
-                    }
                     appCtx.log("\nReview the identification results. Click 'Save Result' to persist to database.");
                     statusSink.accept("Cluster identification complete.");
                 } catch (Exception ex) {
