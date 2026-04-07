@@ -198,10 +198,16 @@ public class CECManagementPanel extends JPanel {
         // Buttons
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         btnPanel.setBackground(BG);
-        JButton scaffoldBtn = new JButton("Scaffold");
-        JButton loadBtn     = new JButton("Load");
-        JButton saveBtn     = new JButton("Save");
+        JButton scaffoldBtn = new JButton("Scaffold New");
+        JButton loadBtn     = new JButton("Read File");
+        JButton saveBtn     = new JButton("Write File");
         JButton transformBtn = new JButton("Transform from Binary");
+        
+        scaffoldBtn.setToolTipText("Create a new hamiltonian.json template with Zero ECIs from Type-1a cluster data.");
+        loadBtn.setToolTipText("Load existing ECIs from disk into the editor table.");
+        saveBtn.setToolTipText("Overwrite the current hamiltonian.json on disk with the values in the table.");
+        transformBtn.setToolTipText("Project binary CVCF ECIs into a ternary structure.");
+
         scaffoldBtn.addActionListener(e -> scaffoldCEC());
         loadBtn.addActionListener(e -> loadCEC());
         saveBtn.addActionListener(e -> saveCEC());
@@ -241,13 +247,13 @@ public class CECManagementPanel extends JPanel {
     // =========================================================================
 
     private void scaffoldCEC() {
-        String clusterId = clusterIdField.getText().trim();
         String hamiltonianId = hamiltonianIdField.getText().trim();
         String elements      = elementsField.getText().trim();
         String structure     = structureField.getText().trim();
         String model         = modelField.getText().trim();
         if (hamiltonianId.isBlank()) return;
 
+        appCtx.clearLog();
         appCtx.log("Scaffolding Hamiltonian for " + hamiltonianId + "...");
         statusSink.accept("Scaffolding " + hamiltonianId + "...");
 
@@ -263,10 +269,11 @@ public class CECManagementPanel extends JPanel {
                     CECEntry entry = get();
                     currentEntry = entry;
                     currentHamiltonianId = hamiltonianId;
-                    resultSink.accept(entry, tryLoadCvcfSibling(clusterId, hamiltonianId));
+                    // ResultSink takes (orth, cvcf). In pure CVCF mode, we pass null for orth.
+                    resultSink.accept(null, entry);
                     appCtx.log("Scaffolded " + entry.ncf + " terms. Saved to hamiltonians/" + hamiltonianId + "/hamiltonian.json");
-                    appCtx.log("Edit a and b values in the table, then click Save.");
-                    statusSink.accept("Scaffolded " + hamiltonianId + "  (" + entry.ncf + " terms)");
+                    appCtx.log("Edit a and b values in the table, then click 'Write File'.");
+                    statusSink.accept("Scaffolded " + hamiltonianId + " (" + entry.ncf + " terms)");
                 } catch (Exception ex) {
                     appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
@@ -281,6 +288,7 @@ public class CECManagementPanel extends JPanel {
         String hamiltonianId = hamiltonianIdField.getText().trim();
         if (hamiltonianId.isBlank()) return;
 
+        appCtx.clearLog();
         appCtx.log("Loading Hamiltonian " + hamiltonianId + "...");
         statusSink.accept("Loading " + hamiltonianId + "...");
 
@@ -294,26 +302,18 @@ public class CECManagementPanel extends JPanel {
             protected void done() {
                 try {
                     CECEntry entry = get();
-                    CECEntry orthEntry;
-                    CECEntry cvcfEntry;
-                    if (isCvcfId(hamiltonianId)) {
-                        cvcfEntry = entry;
-                        orthEntry = tryLoadOrthSibling(clusterId, hamiltonianId);
-                        currentEntry = cvcfEntry;
-                        currentHamiltonianId = hamiltonianId;
-                    } else {
-                        orthEntry = entry;
-                        cvcfEntry = tryLoadCvcfSibling(clusterId, hamiltonianId);
-                        currentEntry = orthEntry;
-                        currentHamiltonianId = hamiltonianId;
-                    }
-                    resultSink.accept(orthEntry, cvcfEntry);
+                    currentEntry = entry;
+                    currentHamiltonianId = hamiltonianId;
+                    
+                    // Pure CVCF management — pass null for orthogonal entry.
+                    resultSink.accept(null, entry);
+                    
                     appCtx.log("Loaded " + entry.ncf + " terms.");
                     appCtx.log("Elements: " + entry.elements
-                            + "  Structure: " + entry.structurePhase
-                            + "  Units: " + entry.cecUnits);
-                    appCtx.log("Edit a and b values in the table, then click Save.");
-                    statusSink.accept("Loaded " + hamiltonianId + "  (" + entry.ncf + " terms)");
+                            + " | Structure: " + entry.structurePhase
+                            + " | Model: " + entry.model);
+                    appCtx.log("Edit a and b values in the table, then click 'Write File'.");
+                    statusSink.accept("Loaded " + hamiltonianId + " (" + entry.ncf + " terms)");
                 } catch (Exception ex) {
                     appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
@@ -325,7 +325,7 @@ public class CECManagementPanel extends JPanel {
 
     private void saveCEC() {
         if (currentEntry == null || currentHamiltonianId == null) {
-            appCtx.log("Nothing loaded. Scaffold or Load a Hamiltonian first.");
+            appCtx.log("Nothing loaded. Use 'Scaffold New' or 'Read File' first.");
             return;
         }
 
@@ -361,50 +361,6 @@ public class CECManagementPanel extends JPanel {
         worker.execute();
     }
 
-    private static boolean isCvcfId(String id) {
-        return id != null && id.toLowerCase().endsWith("_cvcf");
-    }
-
-    private CECEntry tryLoadOrthSibling(String clusterId, String cvcfId) {
-        if (cvcfId == null || !isCvcfId(cvcfId)) return null;
-        String base = cvcfId.substring(0, cvcfId.length() - "_cvcf".length());
-        try {
-            if (cecWorkflow.hamiltonianExists(base)) {
-                return cecWorkflow.loadAndValidateCEC(clusterId, base);
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
-    private CECEntry tryLoadCvcfSibling(String clusterId, String baseId) {
-        if (baseId == null || baseId.isBlank()) return null;
-        String replaceLastWithCvcf = null;
-        int last = baseId.lastIndexOf('_');
-        if (last > 0) {
-            replaceLastWithCvcf = baseId.substring(0, last) + "_CVCF";
-        }
-        String[] candidates = new String[]{
-                baseId.toLowerCase().endsWith("_cvcf") ? baseId : baseId + "_cvcf",
-                baseId.toLowerCase().endsWith("_cvcf") ? null : baseId + "_CVCF",
-                replaceLastWithCvcf
-        };
-        for (String id : candidates) {
-            if (id == null) continue;
-            try {
-                if (cecWorkflow.hamiltonianExists(id)) {
-                    return cecWorkflow.loadAndValidateCEC(clusterId, id);
-                }
-            } catch (Exception ignored) {
-                // Keep trying fallback IDs.
-            }
-        }
-        return null;
-    }
-
-    // =========================================================================
-    // Basis Transformation: Binary → Ternary
-    // =========================================================================
-
     private void transformFromBinary() {
         String ternaryId = hamiltonianIdField.getText().trim();
         if (ternaryId.isBlank()) {
@@ -423,14 +379,15 @@ public class CECManagementPanel extends JPanel {
         // Show input dialog for binary Hamiltonian ID
         String binaryId = JOptionPane.showInputDialog(
             this,
-            "Enter source binary Hamiltonian ID\n(e.g., Nb-Ti_BCC_A2_T):",
+            "Enter source binary CVCF Hamiltonian ID\n(e.g., Nb-Ti_BCC_A2_T):",
             "Nb-Ti_BCC_A2_T"
         );
 
         if (binaryId == null || binaryId.isBlank()) return;
 
+        appCtx.clearLog();
         appCtx.log("Transforming " + binaryId + " → " + ternaryId + "...");
-        statusSink.accept("Transforming " + binaryId + " to ternary basis...");
+        statusSink.accept("Transforming " + binaryId + " to ternary CVCF basis...");
 
         SwingWorker<CECEntry, Void> worker = new SwingWorker<>() {
             @Override
@@ -477,10 +434,11 @@ public class CECManagementPanel extends JPanel {
                     CECEntry entry = get();
                     currentEntry = entry;
                     currentHamiltonianId = ternaryId;
-                    resultSink.accept(entry, tryLoadCvcfSibling(clusterIdField.getText().trim(), ternaryId));
-                    appCtx.log("Transformed " + entry.ncf + " terms to ternary basis");
+                    // ResultSink takes (orth, cvcf). In pure CVCF mode, we pass null for orth.
+                    resultSink.accept(null, entry);
+                    appCtx.log("Transformed " + entry.ncf + " terms to ternary CVCF basis");
                     appCtx.log("Saved to hamiltonians/" + ternaryId + "/hamiltonian.json");
-                    appCtx.log("Review the transformed values and click Save if satisfied.");
+                    appCtx.log("Review the transformed values and click 'Write File' if satisfied.");
                     statusSink.accept("Transformed " + ternaryId);
                 } catch (Exception ex) {
                     appCtx.log("Error: " + ex.getMessage());

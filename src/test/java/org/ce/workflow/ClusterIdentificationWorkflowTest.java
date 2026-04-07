@@ -30,6 +30,7 @@ public class ClusterIdentificationWorkflowTest {
                 .translationVector(new Vector3D(0,0,0))    // No translation
                 .numComponents(2)                           // Binary system
                 .structurePhase("BCC_A2")                   // Use BCC_A2 structure (supported basis)
+                .model("T")
                 .build();
 
         // Run the identification workflow

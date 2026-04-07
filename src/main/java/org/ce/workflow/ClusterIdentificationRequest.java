@@ -21,6 +21,7 @@ public class ClusterIdentificationRequest {
     private final Vector3D translationVector;
     private final int numComponents;
     private final String structurePhase;
+    private final String model;
 
     private ClusterIdentificationRequest(Builder builder) {
         this.disorderedClusterFile = builder.disorderedClusterFile;
@@ -31,6 +32,7 @@ public class ClusterIdentificationRequest {
         this.translationVector = builder.translationVector;
         this.numComponents = builder.numComponents;
         this.structurePhase = builder.structurePhase;
+        this.model = builder.model;
     }
 
     // =========================================================================
@@ -69,6 +71,10 @@ public class ClusterIdentificationRequest {
         return structurePhase;
     }
 
+    public String getModel() {
+        return model;
+    }
+
     // =========================================================================
     // Builder
     // =========================================================================
@@ -89,6 +95,7 @@ public class ClusterIdentificationRequest {
         private Vector3D translationVector;
         private int numComponents;
         private String structurePhase = "BCC_A2";
+        private String model = "T";
 
         public Builder disorderedClusterFile(String file) {
             this.disorderedClusterFile = file;
@@ -127,6 +134,11 @@ public class ClusterIdentificationRequest {
 
         public Builder structurePhase(String sp) {
             this.structurePhase = sp;
+            return this;
+        }
+
+        public Builder model(String m) {
+            this.model = m;
             return this;
         }
 

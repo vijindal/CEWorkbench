@@ -425,19 +425,22 @@ public final class BccA2TModelCvCfTransformations {
 
     /** Returns the {@link CvCfBasis} for binary BCC_A2 (includes Tinv). */
     public static CvCfBasis binaryBasis() {
-        return new CvCfBasis("BCC_A2", 2, BINARY_CF_NAMES, BINARY_ECI_NAMES, BINARY_NUM_NON_POINT_CFS,
+        return new CvCfBasis("BCC_A2", "T", 2,
+                BINARY_CF_NAMES, BINARY_ECI_NAMES, BINARY_NUM_NON_POINT_CFS,
                 BINARY_T, BINARY_T_INV);
     }
 
     /** Returns the {@link CvCfBasis} for ternary BCC_A2 (includes Tinv). */
     public static CvCfBasis ternaryBasis() {
-        return new CvCfBasis("BCC_A2", 3, TERNARY_CF_NAMES, TERNARY_ECI_NAMES, TERNARY_NUM_NON_POINT_CFS,
+        return new CvCfBasis("BCC_A2", "T", 3,
+                TERNARY_CF_NAMES, TERNARY_ECI_NAMES, TERNARY_NUM_NON_POINT_CFS,
                 TERNARY_T, TERNARY_T_INV);
     }
 
     /** Returns the {@link CvCfBasis} for quaternary BCC_A2 (includes Tinv). */
     public static CvCfBasis quaternaryBasis() {
-        return new CvCfBasis("BCC_A2", 4, QUATERNARY_CF_NAMES, QUATERNARY_ECI_NAMES, QUATERNARY_NUM_NON_POINT_CFS,
+        return new CvCfBasis("BCC_A2", "T", 4,
+                QUATERNARY_CF_NAMES, QUATERNARY_ECI_NAMES, QUATERNARY_NUM_NON_POINT_CFS,
                 QUATERNARY_T, QUATERNARY_T_INV);
     }
 
@@ -496,4 +499,5 @@ public final class BccA2TModelCvCfTransformations {
                     "Unsupported BCC_A2 component count: " + numComponents + " (supported: 2, 3, 4)");
         };
     }
+
 }

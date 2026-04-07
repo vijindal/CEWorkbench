@@ -5,7 +5,9 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.Arrays;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Complete bundle of cluster and correlation function identification results
@@ -34,6 +36,9 @@ public class AllClusterData {
     @JsonProperty("orderedCFResult")
     private final CFIdentificationResult orderedCFResult;
 
+    @JsonProperty("orthogonalCMatrixResult")
+    private final CMatrix.Result orthogonalCMatrixResult;
+
     @JsonProperty("cMatrixResult")
     private final CMatrix.Result cMatrixResult;
 
@@ -50,6 +55,9 @@ public class AllClusterData {
     @JsonProperty("eList")
     private final List<String> eList;  // CVCF CEC symbols
 
+    @JsonProperty("equiatomicCVCF")
+    private final double[] equiatomicCVCF; // Random state in CVCF basis
+
     /**
      * Creates AllClusterData from identification results for both phases.
      *
@@ -63,6 +71,7 @@ public class AllClusterData {
      * @param disorderedCFResult correlation function identification for disordered phase
      * @param orderedCFResult correlation function identification for ordered phase
      * @param cMatrixResult C-matrix identification result
+     * @param equiatomicCVCF random state in CVCF basis at x=1/K
      */
     @JsonCreator
     public AllClusterData(
@@ -70,21 +79,25 @@ public class AllClusterData {
             @JsonProperty("orderedClusterResult")    ClusterIdentificationResult orderedClusterResult,
             @JsonProperty("disorderedCFResult")      CFIdentificationResult      disorderedCFResult,
             @JsonProperty("orderedCFResult")         CFIdentificationResult      orderedCFResult,
+            @JsonProperty("orthogonalCMatrixResult") CMatrix.Result              orthogonalCMatrixResult,
             @JsonProperty("cMatrixResult") @JsonAlias({"cMatrixResult", "cmatrixResult", "CMatrix.Result"}) CMatrix.Result cMatrixResult,
             @JsonProperty("uList") @JsonAlias("ulist") List<String> uList,
             @JsonProperty("vList") @JsonAlias("vlist") List<String> vList,
             @JsonProperty("eOList") @JsonAlias("eolist") List<String> eOList,
-            @JsonProperty("eList") @JsonAlias("elist") List<String> eList) {
+            @JsonProperty("eList") @JsonAlias("elist") List<String> eList,
+            @JsonProperty("equiatomicCVCF") double[] equiatomicCVCF) {
 
         this.disorderedClusterResult = disorderedClusterResult;
         this.orderedClusterResult = orderedClusterResult;
         this.disorderedCFResult = disorderedCFResult;
         this.orderedCFResult = orderedCFResult;
+        this.orthogonalCMatrixResult = orthogonalCMatrixResult;
         this.cMatrixResult = cMatrixResult;
         this.uList = uList;
         this.vList = vList;
         this.eOList = eOList;
         this.eList = eList;
+        this.equiatomicCVCF = equiatomicCVCF;
     }
 
     // =========================================================================
@@ -111,6 +124,20 @@ public class AllClusterData {
         return orderedCFResult;
     }
 
+    /**
+     * Returns true if this data bundle includes the Stage 3 orthogonal foundation.
+     * Legacy cluster_data.json files may lack this information.
+     */
+    @JsonIgnore
+    public boolean hasOrthogonalFoundation() {
+        return orthogonalCMatrixResult != null;
+    }
+
+    @JsonProperty("orthogonalCMatrixResult")
+    public CMatrix.Result getOrthogonalCMatrixResult() {
+        return orthogonalCMatrixResult;
+    }
+
     @JsonProperty("cMatrixResult")
     public CMatrix.Result getCMatrixResult() {
         return cMatrixResult;
@@ -128,6 +155,9 @@ public class AllClusterData {
     @JsonProperty("eList")
     public List<String> getEList()  { return eList; }
 
+    @JsonProperty("equiatomicCVCF")
+    public double[] getEquiatomicCVCF() { return equiatomicCVCF; }
+
     // =========================================================================
     // Print Methods
     // =========================================================================
@@ -135,58 +165,40 @@ public class AllClusterData {
     /**
      * Prints a detailed summary of all identification results.
      */
-    public void printResults() {
-        System.out.println("\n================================================================================");
-        System.out.println("                     CLUSTER IDENTIFICATION RESULTS");
-        System.out.println("================================================================================");
+    public void printSummary(java.util.function.Consumer<String> sink) {
+        sink.accept("================================================================================");
+        sink.accept("                     ALL CLUSTER IDENTIFICATION DATA");
+        sink.accept("================================================================================");
 
-        System.out.println("\n──── DISORDERED PHASE (HSP) ────");
         if (disorderedClusterResult != null) {
-            disorderedClusterResult.printDebug();
+            disorderedClusterResult.printSummary(sink);
         }
 
-        System.out.println("\n──── ORDERED PHASE ────");
-        if (orderedClusterResult != null) {
-            orderedClusterResult.printDebug();
+        if (disorderedCFResult != null) {
+            disorderedCFResult.printSummary(sink);
         }
 
-        System.out.println("\n================================================================================");
-        System.out.println("                  CORRELATION FUNCTION IDENTIFICATION RESULTS");
-        System.out.println("================================================================================");
+        if (orthogonalCMatrixResult != null) {
+            orthogonalCMatrixResult.printSummary("Orthogonal Basis (Structural Foundation)", sink);
+            printStage3Diagnostics(sink);
+        }
 
-        System.out.println("\n──── DISORDERED PHASE CFs ────");
-        printCFSummary(disorderedCFResult);
+        if (cMatrixResult != null) {
+            cMatrixResult.printSummary("Final CVCF Result (Minimized Hamiltonian Basis)", sink);
+        }
 
-        System.out.println("\n──── ORDERED PHASE CFs ────");
-        printCFSummary(orderedCFResult);
+        printStage4Diagnostics(sink);
+
+        sink.accept("\nSummary of Basis Specific Symbol Lists:");
+        sink.accept("  - uList (OrthCFs): " + uList);
+        sink.accept("  - vList (CVCFs):   " + vList);
+        sink.accept("  - eOList (OrthCECs):" + eOList);
+        sink.accept("  - eList (CVCFs):   " + eList);
+        sink.accept("================================================================================");
     }
 
-    /**
-     * Prints a summary of CF results.
-     */
-    private void printCFSummary(CFIdentificationResult cfResult) {
-        if (cfResult == null) {
-            System.out.println("CF result is null");
-            return;
-        }
-
-        System.out.println("  tcfdis = " + cfResult.getTcfdis() + "  (CF types, excl. empty)");
-        System.out.println("  tcf    = " + cfResult.getTcf() + "  (total CF types)");
-        System.out.println("  nxcf   = " + cfResult.getNxcf() + "  (point-cluster CFs)");
-        System.out.println("  ncf    = " + cfResult.getNcf() + "  (non-point CFs)");
-
-        if (cfResult.getLcf() != null) {
-            System.out.println("  lcf array:");
-            int[][] lcf = cfResult.getLcf();
-            for (int t = 0; t < lcf.length; t++) {
-                System.out.printf("    t=%-4d lcf=[", t);
-                for (int j = 0; j < lcf[t].length; j++) {
-                    System.out.printf("%d", lcf[t][j]);
-                    if (j < lcf[t].length - 1) System.out.print(", ");
-                }
-                System.out.println("]");
-            }
-        }
+    public void printResults() {
+        printSummary(System.out::println);
     }
 
     /**
@@ -205,79 +217,90 @@ public class AllClusterData {
 
     /**
      * Immutable bundle of cluster identification and correlation function identification results
-     * for a single phase.
+     * for a single phase. Primarily used for legacy compatibility in MCS engine.
      */
     public static class ClusterData {
-
         private final ClusterIdentificationResult clusterResult;
         private final CFIdentificationResult cfResult;
-
-        public ClusterData(
-                ClusterIdentificationResult clusterResult,
-                CFIdentificationResult cfResult) {
+        public ClusterData(ClusterIdentificationResult clusterResult, CFIdentificationResult cfResult) {
             this.clusterResult = clusterResult;
             this.cfResult = cfResult;
         }
-
         public ClusterIdentificationResult getClusterResult() { return clusterResult; }
         public CFIdentificationResult getCfResult() { return cfResult; }
+    }
 
-        public void printResults() {
-            printClusterResults();
-            System.out.println();
-            printCFResults();
+    private void printStage3Diagnostics(Consumer<String> sink) {
+        if (sink == null || orthogonalCMatrixResult == null || orderedCFResult == null || disorderedClusterResult == null) {
+            return;
         }
 
-        public void printClusterResults() {
-            if (clusterResult != null) {
-                clusterResult.printDebug();
-            } else {
-                System.out.println("Cluster result is null");
-            }
+        sink.accept("\n  [STAGE 3 DIAGNOSTICS: Random state at equiatomic composition]");
+        
+        int numComponents = orderedCFResult.getNxcf() + 1;
+        
+        // 1. Equiatomic mole fractions
+        double[] x = new double[numComponents];
+        Arrays.fill(x, 1.0 / numComponents);
+        sink.accept(String.format("    Composition: x = %s", Arrays.toString(x)));
+
+        // 2. Random CFs (uRand)
+        double[] uRand = ClusterVariableEvaluator.computeRandomCFs(
+                x, numComponents, orthogonalCMatrixResult.getCfBasisIndices(), 
+                orderedCFResult.getNcf(), orderedCFResult.getTcf());
+        
+        sink.accept("    Random CFs (u):");
+        for (int i = 0; i < uRand.length; i++) {
+            sink.accept(String.format("      u%-3d = %11.4e", i, uRand[i]));
         }
 
-        public void printCFResults() {
-            if (cfResult == null) {
-                System.out.println("CF result is null");
-                return;
+        // 3. Full CF vector (including point CFs)
+        double[] uFull = ClusterVariableEvaluator.buildFullCFVector(
+                uRand, x, numComponents, orthogonalCMatrixResult.getCfBasisIndices(), 
+                orderedCFResult.getNcf(), orderedCFResult.getTcf());
+
+        // 4. Evaluate CVs (C * uFull)
+        double[][][] cv = ClusterVariableEvaluator.evaluate(
+                uFull, orthogonalCMatrixResult.getCmat(), orthogonalCMatrixResult.getLcv(), 
+                disorderedClusterResult.getTcdis(), disorderedClusterResult.getLc());
+
+        sink.accept("    Resulting CVs (Cluster Variables):");
+        for (int t = 0; t < cv.length; t++) {
+            for (int j = 0; j < cv[t].length; j++) {
+                sink.accept(String.format("      Block (t=%d, j=%d): %s", t, j, Arrays.toString(cv[t][j])));
             }
+        }
+    }
 
-            System.out.println("================================================================================");
-            System.out.println("                   CORRELATION FUNCTION IDENTIFICATION RESULT");
-            System.out.println("================================================================================");
-
-            System.out.println("\n------ Stage 2a: HSP CFs ------");
-            System.out.println("  tcfdis = " + cfResult.getTcfdis() + "  (HSP CF types, excl. empty)");
-
-            System.out.println("\n------ Stage 2b: Phase CFs (classified) ------");
-            System.out.println("  tcf   = " + cfResult.getTcf() + "  (total CF types)");
-            System.out.println("  nxcf  = " + cfResult.getNxcf() + "  (point-cluster CFs)");
-            System.out.println("  ncf   = " + cfResult.getNcf() + "  (non-point CFs)");
-
-            System.out.println("\n------ lcf array (CFs per HSP cluster type) ------");
-            if (cfResult.getLcf() != null) {
-                int[][] lcf = cfResult.getLcf();
-                for (int t = 0; t < lcf.length; t++) {
-                    System.out.printf("  t=%-4d lcf=", t);
-                    for (int j = 0; j < lcf[t].length; j++) {
-                        System.out.printf("%d ", lcf[t][j]);
-                    }
-                    System.out.println();
-                }
-            }
-            System.out.println("================================================================================");
+    private void printStage4Diagnostics(Consumer<String> sink) {
+        if (sink == null || equiatomicCVCF == null || cMatrixResult == null || orderedCFResult == null || disorderedClusterResult == null) {
+            return;
         }
 
-        public String getSummary() {
-            if (clusterResult == null) {
-                return "Cluster result: null";
+        sink.accept("\n  [STAGE 4 DIAGNOSTICS: Random state at equiatomic composition (CVCF Basis)]");
+        int numComponents = orderedCFResult.getNxcf() + 1;
+        double[] x = new double[numComponents];
+        Arrays.fill(x, 1.0 / numComponents);
+        sink.accept(String.format("    Composition: x = %s", Arrays.toString(x)));
+
+        // Random CFs in CVCF basis (v)
+        sink.accept("    Random CFs (v):");
+        for (int i = 0; i < equiatomicCVCF.length; i++) {
+            sink.accept(String.format("      v%-3d = %11.4e", i, equiatomicCVCF[i]));
+        }
+
+        // Evaluate CVs (C * v)
+        // Since equiatomicCVCF already includes point variables (x_i), 
+        // we use it as the full vector.
+        double[][][] cv = ClusterVariableEvaluator.evaluate(
+                equiatomicCVCF, cMatrixResult.getCmat(), cMatrixResult.getLcv(), 
+                disorderedClusterResult.getTcdis(), disorderedClusterResult.getLc());
+
+        sink.accept("    Resulting CVs (Cluster Variables):");
+        for (int t = 0; t < cv.length; t++) {
+            for (int j = 0; j < cv[t].length; j++) {
+                sink.accept(String.format("      Block (t=%d, j=%d): %s", t, j, Arrays.toString(cv[t][j])));
             }
-            return String.format(
-                    "Cluster Results: tcdis=%d, tc=%d, nxcf=%d",
-                    clusterResult.getTcdis(),
-                    clusterResult.getTc(),
-                    cfResult != null ? cfResult.getNxcf() : 0
-            );
         }
     }
 }

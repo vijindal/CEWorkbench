@@ -82,20 +82,14 @@ public class ThermodynamicWorkflow {
         emit(progressSink, "  Loaded Hamiltonian: " + hamiltonianId);
         LOG.fine("  ✓ Loaded " + hamiltonianId);
 
-        // Extract and log CEC data
+        // Extract and log CEC data (detailed info moved to logs to avoid UI clutter)
         if (cec != null) {
             LOG.fine("    elements: " + cec.elements);
             LOG.fine("    structurePhase: " + cec.structurePhase);
-            emit(progressSink, "  elements: " + cec.elements + " | structure: " + cec.structurePhase);
             if (cec.cecTerms != null && cec.cecTerms.length > 0) {
                 LOG.fine("    ECI terms: " + cec.cecTerms.length + " (format: a + b*T)");
-                emit(progressSink, "  ECI terms: " + cec.cecTerms.length + " (format: a + b*T)");
-                logFullCecTable(cec, progressSink);
-                logFirstNnPairCMatrix(clusterData, progressSink);
-                logFullCmatForVerification(clusterData, cec, progressSink);
-            } else {
-                LOG.fine("    ECI terms: none");
-                emit(progressSink, "  ECI terms: none");
+                logFirstNnPairCMatrix(clusterData, null); // Log to system log only
+                logFullCecTable(cec, null);               // Log to system log only
             }
         }
 

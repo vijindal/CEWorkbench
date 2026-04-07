@@ -166,52 +166,42 @@ public class CECManagementWorkflow {
         // Determine numComponents from elements (e.g. "A-B" -> 2, "A-B-C" -> 3)
         int numComponents = elements.split("-").length;
 
-        // Validate CVCF basis is supported for this (structure, numComponents)
-        if (!CvCfBasis.Registry.INSTANCE.isSupported(structurePhase, numComponents)) {
+        // Validate CVCF basis is supported for this (structure, model, numComponents)
+        if (!CvCfBasis.Registry.INSTANCE.isSupported(structurePhase, model, numComponents)) {
             String msg = "CVCF basis not supported for " + structurePhase
-                    + " with " + numComponents + " components.\n"
+                    + " with model=" + model + " and " + numComponents + " components.\n"
                     + "Cannot scaffold CEC for unsupported basis.\n"
                     + CvCfBasis.Registry.INSTANCE.supportedSummary();
             throw new IllegalArgumentException(msg);
         }
 
         String clusterId = deriveClusterId(hamiltonianId);
-
         if (!clusterStore.exists(clusterId)) {
             throw new IllegalStateException(
-                "Cluster data '" + clusterId + "' not found. Run type1a first to generate cluster_data.json.");
+                "Cluster data '" + clusterId + "' not found. Run type1a first (Stage 4) to generate CVCF cluster_data.json.");
         }
 
         AllClusterData clusterData = clusterStore.load(clusterId);
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
-        // Extract CVCF labels or orthogonal labels from CMatrix.Result (Fix 1) or uList.
-        org.ce.domain.cluster.CMatrix.Result cmatResult = clusterData.getCMatrixResult();
-        List<String> cfNames = (cmatResult != null) ? cmatResult.getCmatCfNames() : null;
+        // Single source of truth: CVCF basis from the Registry
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, model, numComponents);
+        int ncf = basis.numNonPointCfs;
+        List<String> eciNames = basis.eciNames;
 
-        int ncf;
-        CECTerm[] terms;
-
-        if (cfNames != null) {
-            // CVCF basis - meaningful names from C-matrix: v4AB -> e4AB
-            CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, numComponents);
-            ncf = basis.numNonPointCfs;
-            terms = new CECTerm[ncf];
-            for (int i = 0; i < ncf; i++) {
-                terms[i] = createScaffoldedTerm(cfNames.get(i).replace("v", "e"), i, cfMetadata);
+        CECTerm[] terms = new CECTerm[ncf];
+        for (int i = 0; i < ncf; i++) {
+            CECTerm term = new CECTerm();
+            term.name = eciNames.get(i);
+            term.a = 0.0;
+            term.b = 0.0;
+            if (cfMetadata != null && i < cfMetadata.length && cfMetadata[i] != null) {
+                term.numSites = cfMetadata[i].numSites;
+                term.multiplicity = cfMetadata[i].multiplicity;
+                term.description = cfMetadata[i].description;
             }
-        } else {
-            // Orthogonal basis - try eoNames (e.g. e[1][1][1]) or fallback to CF_i
-            List<String> eoNames = cfResult.getEONames();
-            ncf = cfResult.getNcf();
-            terms = new CECTerm[ncf];
-            for (int i = 0; i < ncf; i++) {
-                String name = (eoNames != null && i < eoNames.size())
-                        ? eoNames.get(i)
-                        : "CF_" + i;
-                terms[i] = createScaffoldedTerm(name, i, cfMetadata);
-            }
+            terms[i] = term;
         }
 
         CECEntry entry = new CECEntry();
@@ -221,31 +211,18 @@ public class CECManagementWorkflow {
         entry.cecTerms = terms;
         entry.cecUnits = "J/mol";
         entry.reference = "";
-        entry.notes = "Scaffolded from cluster data (" + (cfNames != null ? "CVCF" : "Orthogonal") + ")";
+        entry.notes = "Scaffolded from CVCF cluster data (Type-1a)";
         entry.ncf = ncf;
 
         store.save(hamiltonianId, entry);
         return entry;
     }
 
-    private CECTerm createScaffoldedTerm(String name, int i, CFMetadata[] metadata) {
-        CECTerm term = new CECTerm();
-        term.name = name;
-        term.a = 0.0;
-        term.b = 0.0;
-        if (metadata != null && i < metadata.length && metadata[i] != null) {
-            term.numSites = metadata[i].numSites;
-            term.multiplicity = metadata[i].multiplicity;
-            term.description = metadata[i].description;
-        }
-        return term;
-    }
-
     /**
      * Derives the cluster data ID from a Hamiltonian ID.
      *
-     * <p>Format: {@code {elements}_{structure}_{model}} → {@code {structure}_{model}_{ncomp}}<br>
-     * Example: {@code "A-B_BCC_A2_T"} → {@code "BCC_A2_T_bin"}</p>
+     * <p>Format: {@code {elements}_{structure}_{model}} → {@code {structure}_{model}_{ncompSuffix}}
+     * Example: {@code "Nb-Ti_BCC_A2_T"} → {@code "BCC_A2_T_bin"}</p>
      */
     private static String deriveClusterId(String hamiltonianId) {
         int sep = hamiltonianId.indexOf('_');
@@ -255,24 +232,8 @@ public class CECManagementWorkflow {
         String elements = hamiltonianId.substring(0, sep);
         String structureModel = hamiltonianId.substring(sep + 1);
 
-        // Support both orthogonal and CVCF Hamiltonians.
-        // - Nb-Ti_BCC_A2_T -> BCC_A2_T_bin
-        // - Nb-Ti_BCC_A2_T_CVCF -> BCC_A2_CVCF_bin
-        // - Nb-Ti_BCC_A2_CVCF -> BCC_A2_CVCF_bin
-        String clusterModel;
-        String upper = structureModel.toUpperCase();
-        if (upper.endsWith("_CVCF")) {
-            String noCvcf = structureModel.substring(0, structureModel.length() - "_CVCF".length());
-            if (noCvcf.toUpperCase().endsWith("_T")) {
-                noCvcf = noCvcf.substring(0, noCvcf.length() - 2);
-            }
-            clusterModel = noCvcf + "_CVCF";
-        } else {
-            clusterModel = structureModel;
-        }
-
         int ncomp = elements.split("-").length;
-        return clusterModel + "_" + SystemId.ncompSuffix(ncomp);
+        return structureModel + "_" + SystemId.ncompSuffix(ncomp);
     }
 
     /**
@@ -329,29 +290,14 @@ public class CECManagementWorkflow {
      */
     public CECEntry loadAndValidateCEC(String clusterId, String hamiltonianId) throws Exception {
 
-        AllClusterData clusterData;
-        if (clusterStore.exists(clusterId)) {
-            clusterData = clusterStore.load(clusterId);
-        } else {
-            // Fallback for CVCF model IDs where clusterId may be BCC_A2_T_CVCF_bin
-            // but stored data is BCC_A2_CVCF_bin.
-            String altClusterId = null;
-            if (clusterId.toUpperCase().contains("_T_CVCF")) {
-                altClusterId = clusterId.toUpperCase().replace("_T_CVCF", "_CVCF");
-            } else if (clusterId.toUpperCase().contains("_CVCF")) {
-                altClusterId = clusterId;
-            }
-            if (altClusterId != null && clusterStore.exists(altClusterId)) {
-                clusterData = clusterStore.load(altClusterId);
-            } else {
-                throw new IllegalArgumentException("Cluster data not found: " + clusterId);
-            }
+        if (!clusterStore.exists(clusterId)) {
+            throw new IllegalArgumentException("Cluster data not found: " + clusterId);
         }
 
+        AllClusterData clusterData = clusterStore.load(clusterId);
         int ncf = clusterData.getDisorderedCFResult().getNcf();
 
         CECEntry entry = store.load(hamiltonianId);
-
         validateCEC(entry, ncf);
 
         return entry;

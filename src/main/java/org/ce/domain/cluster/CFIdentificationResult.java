@@ -76,4 +76,23 @@ public class CFIdentificationResult {
     public List<String> getUNames() { return uNames; }
     @JsonProperty("eoNames")
     public List<String> getEONames() { return eoNames; }
+
+    public void printSummary(java.util.function.Consumer<String> sink) {
+        sink.accept("================================================================================");
+        sink.accept("                       CF IDENTIFICATION RESULT");
+        sink.accept("================================================================================");
+
+        sink.accept("\nSTAGE 2a: HSP CFs (Disordered Phase)");
+        sink.accept("------------------------------------");
+        sink.accept(String.format("  - Total CF types (tcfdis): %d", tcfdis));
+        disCFData.printSummary(sink);
+
+        sink.accept("\nSTAGE 2b: Ordered Phase CFs (grouped)");
+        sink.accept("--------------------------------------");
+        sink.accept(String.format("  - Total CF types (tcf): %d", tcf));
+        sink.accept(String.format("  - Point CF types (nxcf): %d", nxcf));
+        sink.accept(String.format("  - Total CF variables (ncf): %d", ncf));
+        groupedCFData.printSummary(sink);
+        sink.accept("================================================================================");
+    }
 }

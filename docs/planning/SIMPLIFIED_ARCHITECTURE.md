@@ -254,9 +254,10 @@ For generating cluster data:
      ↓
     ClusterIdentificationWorkflow
      ↓
-    ClusterIdentifier
-    CFIdentifier
-    CMatrixBuilder
+    ClusterIdentifier (Stage 1)
+    CFIdentifier (Stage 2)
+    CMatrixBuilder (Stage 3 - Orthogonal Basis)
+    CvCfBasisTransformer (Stage 4 - CVCF Basis)
      ↓
     ClusterDataStore.save()
 

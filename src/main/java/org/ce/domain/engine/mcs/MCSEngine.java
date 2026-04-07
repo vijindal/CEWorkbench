@@ -43,8 +43,9 @@ public class MCSEngine implements ThermodynamicEngine {
 
         // Validate C-matrix dimensions match basis (same check as CVMEngine)
         String structurePhase = input.cec.structurePhase;
+        String model = input.cec.model;
         int numComponents = input.composition.length;
-        var basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, numComponents);
+        var basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, model, numComponents);
 
         CMatrix.Result cmatResult = input.clusterData.getCMatrixResult();
         cmatResult.validateCols(

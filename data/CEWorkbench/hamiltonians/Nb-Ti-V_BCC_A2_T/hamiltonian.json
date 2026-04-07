@@ -3,126 +3,126 @@
   "structurePhase" : "BCC_A2",
   "model" : "T",
   "cecTerms" : [ {
-    "name" : "CF_0",
+    "name" : "e4AB",
     "description" : "CF_0 (4 sites, multiplicity 6)",
     "numSites" : 4,
     "multiplicity" : 6.0,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_1",
+    "name" : "e4AC",
     "description" : "CF_1 (3 sites, multiplicity 12)",
     "numSites" : 3,
     "multiplicity" : 12.0,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_2",
+    "name" : "e4BC",
     "description" : "CF_2 (2 sites, multiplicity 3)",
     "numSites" : 2,
     "multiplicity" : 3.0,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_3",
+    "name" : "e4ABC1",
     "description" : "CF_3 (2 sites, multiplicity 4)",
     "numSites" : 2,
     "multiplicity" : 4.0,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_4",
+    "name" : "e4ABC2",
     "description" : "CF_4 (1 site, multiplicity 1)",
     "numSites" : 1,
     "multiplicity" : 1.0,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_5",
+    "name" : "e4ABC3",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_6",
+    "name" : "e3AB",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_7",
+    "name" : "e3AC",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_8",
+    "name" : "e3BC",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_9",
+    "name" : "e3ABC1",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_10",
+    "name" : "e3ABC2",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_11",
+    "name" : "e3ABC3",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_12",
+    "name" : "e22AB",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_13",
+    "name" : "e22AC",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_14",
+    "name" : "e22BC",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_15",
+    "name" : "e21AB",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_16",
+    "name" : "e21AC",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
     "a" : 0.0,
     "b" : 0.0
   }, {
-    "name" : "CF_17",
+    "name" : "e21BC",
     "description" : null,
     "numSites" : null,
     "multiplicity" : null,
@@ -131,6 +131,6 @@
   } ],
   "cecUnits" : "J/mol",
   "reference" : "",
-  "notes" : "Scaffolded empty CEC",
+  "notes" : "Scaffolded from cluster data (CVCF)",
   "ncf" : 18
 }

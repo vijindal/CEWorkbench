@@ -6,9 +6,9 @@ A scientific software framework for **Cluster Expansion (CE) based thermodynamic
 
 The CE Thermodynamics Workbench implements two fundamental classes of work:
 
-1. **Type-1a — Cluster identification:** Load ordered/disordered cluster files and symmetry groups, identify correlation functions, and build the C-matrix.
-2. **Type-1b — Hamiltonian scaffold:** Auto-generate an empty ECI (Hamiltonian) JSON file from saved cluster data, ready for editing.
-3. **Type-2 — Thermodynamic equilibrium:** Minimize free energy with CVM or run Monte Carlo simulations (MCS) to compute G, H, S as a function of temperature and composition.
+1. **Type-1a — Cluster identification (4 Stages):** Load ordered/disordered cluster files and symmetry groups. Geometric identification (Stage 1-2), Orthogonal Basis C-Matrix construction (Stage 3), and Physic-based CVCF Transformation (Stage 4).
+2. **Type-1b — Hamiltonian scaffold:** Auto-generate an empty ECI (Hamiltonian) JSON file from saved CVCF cluster data, ready for editing.
+3. **Type-2 — Thermodynamic equilibrium:** Minimize free energy with CVM (using CVCF-only solver) or run Monte Carlo simulations (MCS) to compute energy results.
 
 ---
 
@@ -157,9 +157,10 @@ JFrame (BorderLayout)
 Input files (clus/*.txt + sym/*.txt)
   ↓
 ClusterIdentificationWorkflow.identify(config)
-  ↓  Stage 1 — ClusterIdentifier
-  ↓  Stage 2 — CFIdentifier
-  ↓  Stage 3 — CMatrixBuilder
+  ↓  Stage 1 — ClusterIdentifier (Geometric)
+  ↓  Stage 2 — CFIdentifier (Algebraic)
+  ↓  Stage 3 — CMatrixBuilder (Orthogonal Basis)
+  ↓  Stage 4 — CvCfBasisTransformer (CVCF Transformation)
   ↓
 AllClusterData  →  ClusterDataStore.save(clusterId, data)
                    ~/CEWorkbench/cluster-data/<clusterId>/cluster_data.json

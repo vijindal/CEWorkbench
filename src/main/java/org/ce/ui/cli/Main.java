@@ -1,29 +1,19 @@
 package org.ce.ui.cli;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
-
 import org.ce.domain.cluster.*;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.engine.cvm.CVMEngine;
-import org.ce.domain.engine.cvm.CVMFreeEnergy;
-import org.ce.domain.engine.mcs.MCSEngine;
+import org.ce.domain.engine.cvm.CVMGibbsModel;
+import org.ce.domain.engine.cvm.CVMGibbsModel.ModelResult;
+import org.ce.storage.ClusterDataStore;
+import org.ce.storage.Workspace.SystemId;
+import org.ce.storage.HamiltonianStore;
+import org.ce.workflow.CalculationService;
+import org.ce.workflow.ClusterIdentificationRequest;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.result.ThermodynamicResult;
-import org.ce.storage.ClusterDataStore;
-import org.ce.storage.Workspace.SystemId;
-import org.ce.storage.Workspace;
-import org.ce.storage.HamiltonianStore;
-import org.ce.storage.InputLoader;
-import org.ce.workflow.CalculationService;
-import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.workflow.ClusterIdentificationWorkflow;
-import org.ce.workflow.cec.CECManagementWorkflow;
 import org.ce.workflow.thermo.ThermodynamicRequest;
-import org.ce.workflow.thermo.ThermodynamicWorkflow;
 
 import java.util.List;
-import java.io.PrintStream;
 import java.util.function.Consumer;
 
 /**
@@ -137,15 +127,15 @@ public class Main {
         if (!mode.equals("type1a") && !mode.equals("type1b")
                 && !mode.equals("type2") && !mode.equals("all")
                 && !mode.equals("calc_min") && !mode.equals("calc_fixed")
-                && !mode.equals("scaffold_cvcf")) {
+                && !mode.equals("view")) {
             System.err.println("Unknown mode: " + mode);
-            System.err.println("Usage: [mode] [elements] [structure] [model] [--verbose]");
-            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | calc_fixed | scaffold_cvcf");
+            System.err.println("Usage: <mode> [elements] [structure] [model] [--verbose]");
+            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | calc_fixed | view");
             System.exit(1);
         }
 
-        if (mode.equals("scaffold_cvcf")) {
-            scaffoldCecCvcf(elements, structure, model);
+        if (mode.equals("view")) {
+            viewHamiltonian(elements, structure, model);
             return;
         }
 
@@ -163,7 +153,6 @@ public class Main {
 
         try {
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
-            ClusterDataStore clusterStore = appCtx.getClusterStore();
             HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
             CalculationService service = appCtx.getCalculationService();
 
@@ -193,6 +182,7 @@ public class Main {
                         .disorderedSymmetryGroup(disSymGroup)
                         .orderedSymmetryGroup(ordSymGroup)
                         .numComponents(numComponents)
+                        .model(model)
                         .build();
 
                 AllClusterData clusterData = appCtx.identifyClusters(config, sink);
@@ -279,66 +269,28 @@ public class Main {
         System.out.println("\n================================================================================");
     }
 
-    private static void printSupportedCvcfStructures(PrintStream out) {
-        out.println(CvCfBasis.Registry.INSTANCE.supportedSummary());
-        out.println();
-    }
-
-    private static void scaffoldCecCvcf(String elements, String structure, String model) {
-        int numComponents = elements.split("-").length;
-
-        if (!CvCfBasis.Registry.INSTANCE.isSupported(structure, numComponents)) {
-            System.err.println("CVCF basis not registered for structure '" + structure + "' with " + numComponents
-                    + " components.");
-            System.err.println();
-            printSupportedCvcfStructures(System.err);
-            System.exit(1);
-        }
-
-        var basis = CvCfBasis.Registry.INSTANCE.get(structure, numComponents);
-        if (verbose) {
-            System.out.println("Using CVCF basis for " + structure + " (" + numComponents + " components)");
-            System.out.println("Clustering to CVCF transformation matrix (orthogonal->CVCF):");
-            System.out.println(basis);
-        }
-
+    /** Displays the Hamiltonian coefficients (ECIs) for a system. */
+    private static void viewHamiltonian(String elements, String structure, String model) {
         SystemId system = new SystemId(elements, structure, model);
-        String CLUSTER_ID = system.clusterId();
-        String HAMILTONIAN_ID = system.hamiltonianId();
-
-        if (verbose) {
-            System.out.println("Scaffolding CEC for CVCF basis:");
-            System.out.println("  Elements      : " + elements);
-            System.out.println("  Structure     : " + structure);
-            System.out.println("  Model         : " + model);
-            System.out.println("  Cluster ID    : " + CLUSTER_ID);
-            System.out.println("  Hamiltonian ID: " + HAMILTONIAN_ID);
-        }
-
+        String clusterId = system.clusterId();
+        String hamiltonianId = system.hamiltonianId();
+        
         try {
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
-            HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
-
-            if (hamiltonianStore.exists(HAMILTONIAN_ID)) {
-                if (verbose) {
-                    System.out.println("Hamiltonian already exists: " + HAMILTONIAN_ID);
-                    System.out.println(
-                            "  Delete " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID) + " to re-scaffold.");
-                }
-            } else {
-                appCtx.getCecWorkflow().scaffoldFromClusterData(HAMILTONIAN_ID, elements, structure, model);
-                if (verbose) {
-                    System.out.println("Saved: " + appCtx.getWorkspace().hamiltonianFile(HAMILTONIAN_ID));
-                    System.out.println("  -> Edit hamiltonian.json to add real ECI values, then run type2.");
-                } else {
-                    System.out.println("CVCF Hamiltonian scaffolded.");
-                }
+            CECEntry entry = appCtx.getCecWorkflow().loadAndValidateCEC(clusterId, hamiltonianId);
+            
+            System.out.println("\n=== HAMILTONIAN: " + hamiltonianId + " ===");
+            System.out.println("Elements: " + entry.elements + " | Structure: " + entry.structurePhase + " | Model: " + entry.model);
+            System.out.println(String.format("\n  %-4s  %-12s  %-14s  %-14s", "Idx", "Name", "a (J/mol)", "b (J/mol/K)"));
+            System.out.println("  " + "-".repeat(50));
+            for (int i = 0; i < entry.cecTerms.length; i++) {
+                CECTerm term = entry.cecTerms[i];
+                System.out.println(String.format("  [%02d]  %-12s  %14.6f  %14.6f", i, term.name, term.a, term.b));
             }
+            System.out.println();
         } catch (Exception e) {
-            System.err.println("Error scaffolding CVCF: " + e.getMessage());
-            if (verbose) {
-                e.printStackTrace();
-            }
+            System.err.println("Error loading Hamiltonian: " + e.getMessage());
+            if (verbose) e.printStackTrace();
             System.exit(1);
         }
     }
@@ -453,8 +405,8 @@ public class Main {
             }
 
             // Evaluate free energy at fixed CFs
-            CVMFreeEnergy.EvalResult result = CVMFreeEnergy.evaluate(
-                    cfs, composition, temp, eci, mhdis, kb, mh, lc, cmat, lcv, wcv, tcdis, tcf, ncf);
+            ModelResult result = CVMGibbsModel.evaluate(
+                    cfs, composition, temp, eci, tcdis, tcf, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
 
             System.out.println("THERMODYNAMIC PROPERTIES:");
             System.out.println("-".repeat(80));
@@ -466,30 +418,30 @@ public class Main {
             if (verbose) {
                 System.out.println("FIRST DERIVATIVES (Gradient):");
                 System.out.println("-".repeat(80));
-                System.out.println("dG/dv (Gcu):");
+                System.out.println("dG/dv (Gu):");
                 for (int i = 0; i < ncf; i++) {
-                    System.out.printf("  Gcu[%d] = %20.10e%n", i, result.Gcu[i]);
+                    System.out.printf("  Gu[%d] = %20.10e%n", i, result.Gu[i]);
                 }
                 System.out.println();
-                System.out.println("dH/dv (Hcu):");
+                System.out.println("dH/dv (Hu):");
                 for (int i = 0; i < ncf; i++) {
-                    System.out.printf("  Hcu[%d] = %20.10e%n", i, result.Hcu[i]);
+                    System.out.printf("  Hu[%d] = %20.10e%n", i, result.Hu[i]);
                 }
                 System.out.println();
-                System.out.println("dS/dv (Scu):");
+                System.out.println("dS/dv (Su):");
                 for (int i = 0; i < ncf; i++) {
-                    System.out.printf("  Scu[%d] = %20.10e%n", i, result.Scu[i]);
+                    System.out.printf("  Su[%d] = %20.10e%n", i, result.Su[i]);
                 }
                 System.out.println();
 
                 System.out.println("SECOND DERIVATIVES (Hessian):");
                 System.out.println("-".repeat(80));
-                System.out.println("d\u00b2G/dv\u00b2 (Gcuu) [non-zero values only]:");
+                System.out.println("d\u00b2G/dv\u00b2 (Guu) [non-zero values only]:");
                 boolean hasNonZero = false;
                 for (int i = 0; i < ncf; i++) {
-                    for (int j = i; j < ncf; j++) {
-                        if (Math.abs(result.Gcuu[i][j]) > 1e-15) {
-                            System.out.printf("  Gcuu[%d][%d] = %20.10e%n", i, j, result.Gcuu[i][j]);
+                    for (int j = 0; j < ncf; j++) {
+                        if (Math.abs(result.Guu[i][j]) > 1e-15) {
+                            System.out.printf("  Guu[%d][%d] = %20.10e%n", i, j, result.Guu[i][j]);
                             hasNonZero = true;
                         }
                     }

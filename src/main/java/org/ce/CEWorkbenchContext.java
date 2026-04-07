@@ -32,6 +32,7 @@ public class CEWorkbenchContext {
     private final CVMEngine cvmEngine;
     private final MCSEngine mcsEngine;
     private Consumer<String> logSink = System.out::println;
+    private Runnable logClearer = null;
 
     /**
      * Initializes a new context with the default workspace location.
@@ -96,6 +97,22 @@ public class CEWorkbenchContext {
     public void log(String message) {
         if (logSink != null) {
             logSink.accept(message);
+        }
+    }
+
+    /**
+     * Sets the provider for clearing the log area.
+     */
+    public void setLogClearer(Runnable logClearer) {
+        this.logClearer = logClearer;
+    }
+
+    /**
+     * Clears the registered log area.
+     */
+    public void clearLog() {
+        if (logClearer != null) {
+            logClearer.run();
         }
     }
 

@@ -309,6 +309,7 @@ public class CalculationPanel extends JPanel {
         appCtx.log("  Hamiltonian : " + hamiltonianId);
         appCtx.log("  T = " + temperature + " K,  composition = " + java.util.Arrays.toString(composition));
         appCtx.log("  nEquil=" + mcsNEquil + "  nAvg=" + mcsNAvg + " per L-value");
+        appCtx.clearLog();
         statusSink.accept("Production Run at T=" + temperature + " K…");
 
         SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<ThermodynamicResult, Object>() {
@@ -385,6 +386,7 @@ public class CalculationPanel extends JPanel {
         if ("CVM".equals(engineType)) {
             appCtx.log("  CVM Basis   : " + cvmBasisMode);
         }
+        appCtx.clearLog();
         statusSink.accept("Running " + engineType + " at T=" + temperature + " K...");
 
         // SwingWorker publishes heterogeneous chunks: String (log) and ProgressEvent (chart)

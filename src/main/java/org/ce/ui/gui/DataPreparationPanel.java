@@ -348,6 +348,7 @@ public class DataPreparationPanel extends JPanel {
         appCtx.log("Disordered clus: " + disClus + "  (parent — determines ncf)");
         appCtx.log("Disordered sym : " + disSym);
         appCtx.log("Components     : " + numComp);
+        appCtx.clearLog();
         statusSink.accept("Running cluster identification for " + systemId + "...");
 
         runBtn.setEnabled(false);
@@ -358,6 +359,15 @@ public class DataPreparationPanel extends JPanel {
             protected AllClusterData doInBackground() throws Exception {
                 publish("Stage 1-2: Cluster + CF identification...");
 
+                // Parse structure and model from systemId (e.g. BCC_A2_T_bin -> structure=BCC_A2, model=T)
+                String structure = "BCC_A2";
+                String model = "T";
+                String[] parts = systemId.split("_");
+                if (parts.length >= 3) {
+                    structure = parts[0] + "_" + parts[1];
+                    model = parts[2];
+                }
+
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
                         .orderedClusterFile(ordClus)
                         .orderedSymmetryGroup(ordSym)
@@ -366,6 +376,8 @@ public class DataPreparationPanel extends JPanel {
                         .transformationMatrix(new double[][] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } })
                         .translationVector(new Vector3D(0, 0, 0))
                         .numComponents(numComp)
+                        .structurePhase(structure)
+                        .model(model)
                         .build();
 
                 return appCtx.identifyClusters(config, this::publish);

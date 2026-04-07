@@ -106,6 +106,33 @@ public final class CMatrix {
             }
             return uRandom;
         }
+
+        public void printSummary(String title, java.util.function.Consumer<String> sink) {
+            sink.accept("--------------------------------------------------------------------------------");
+            sink.accept("  C-MATRIX: " + title);
+            sink.accept("--------------------------------------------------------------------------------");
+
+            if (cmat == null) {
+                sink.accept("  (No C-Matrix data present)");
+                return;
+            }
+
+            for (int t = 0; t < cmat.size(); t++) {
+                for (int j = 0; j < cmat.get(t).size(); j++) {
+                    double[][] block = cmat.get(t).get(j);
+                    sink.accept(String.format("  - Block (t=%-2d, j=%-2d): %d rows x %d cols",
+                        t, j, block.length, block[0].length));
+                    for (int r = 0; r < block.length; r++) {
+                        StringBuilder row = new StringBuilder("    [ ");
+                        for (int c = 0; c < block[r].length; c++) {
+                            row.append(String.format("%7.3f ", block[r][c]));
+                        }
+                        row.append("]");
+                        sink.accept(row.toString());
+                    }
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -32,6 +32,7 @@ public class ThermodynamicInput {
     /** MCS averaging sweeps (default 2000) */
     public final int mcsNAvg;
 
+    /** Full constructor for specialists (e.g. MCS or pre-identified CVM). */
     public ThermodynamicInput(
             AllClusterData clusterData,
             CECEntry cec,
@@ -58,36 +59,16 @@ public class ThermodynamicInput {
         this.mcsNAvg      = mcsNAvg;
     }
 
+    /** Primary constructor for thermodynamic calculations with progress updates. */
     public ThermodynamicInput(
-            AllClusterData clusterData,
-            CECEntry cec,
-            double temperature,
-            double[] composition,
-            String systemId,
-            String systemName,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink) {
-        this(clusterData, cec, temperature, composition, systemId, systemName, progressSink, eventSink, 4, 1000, 2000);
+            CECEntry cec, double temperature, double[] composition,
+            String systemId, String systemName, Consumer<String> progressSink) {
+        this(null, cec, temperature, composition, systemId, systemName, progressSink, null, 4, 1000, 2000);
     }
 
+    /** Minimal constructor for thermodynamic calculations. */
     public ThermodynamicInput(
-            AllClusterData clusterData,
-            CECEntry cec,
-            double temperature,
-            double[] composition,
-            String systemId,
-            String systemName,
-            Consumer<String> progressSink) {
-        this(clusterData, cec, temperature, composition, systemId, systemName, progressSink, null);
-    }
-
-    public ThermodynamicInput(
-            AllClusterData clusterData,
-            CECEntry cec,
-            double temperature,
-            double[] composition,
-            String systemId,
-            String systemName) {
-        this(clusterData, cec, temperature, composition, systemId, systemName, null, null);
+            CECEntry cec, double temperature, double[] composition, String systemId, String systemName) {
+        this(null, cec, temperature, composition, systemId, systemName, null, null, 4, 1000, 2000);
     }
 }

@@ -1,23 +1,22 @@
 package org.ce.domain.engine.cvm;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
-
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.domain.engine.cvm.CVMPhaseModel.CVMInput;
-import org.ce.domain.engine.cvm.CVMPhaseModel.SolverResult;
-import org.ce.domain.engine.cvm.CVMPhaseModel.SolverResult.IterationSnapshot;
+import org.ce.domain.engine.cvm.CVMGibbsModel.CVMInput;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECEvaluator;
+import org.ce.workflow.ClusterIdentificationRequest;
+import org.ce.workflow.ClusterIdentificationWorkflow;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
@@ -26,25 +25,36 @@ import java.util.logging.Logger;
  * Implements the ThermodynamicEngine interface using the
  * Cluster Variation Method (CVM) for thermodynamic calculations.
  *
- * <p>Responsibilities:</p>
+ * <p>
+ * Responsibilities:
+ * </p>
  * <ul>
- *   <li>Create CVMInput (topology) from AllClusterData</li>
- *   <li>Evaluate ECI at temperature</li>
- *   <li>Validate input consistency</li>
- *   <li>Run CVM minimization via CVMPhaseModel</li>
- *   <li>Return EquilibriumState</li>
+ * <li>Create CVMInput (topology) from AllClusterData</li>
+ * <li>Evaluate ECI at temperature</li>
+ * <li>Validate input consistency</li>
+ * <li>Run CVM minimization via CVMPhaseModel</li>
+ * <li>Return EquilibriumState</li>
  * </ul>
  */
 public class CVMEngine implements ThermodynamicEngine {
 
     private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
 
-
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
 
-        LOG.info("=== CVMEngine.compute() START ===");
-        AllClusterData clusterData = input.clusterData;
+        // Resolve cluster data (on-the-fly or input-provided)
+        AllClusterData clusterData = resolveClusterData(input);
+
+        emit(input.progressSink, "================================================================================");
+        emit(input.progressSink, "                       CVM THERMODYNAMIC CALCULATION");
+        emit(input.progressSink, "================================================================================");
+
+        // Ensure structural summary is always printed for the thermodynamic context
+        if (input.progressSink != null) {
+            clusterData.printSummary(input.progressSink);
+        }
+
         CECEntry cec = input.cec;
         double temperature = input.temperature;
         double[] composition = input.composition;
@@ -52,176 +62,122 @@ public class CVMEngine implements ThermodynamicEngine {
         String systemName = input.systemName;
         String structurePhase = cec.structurePhase;
 
-        LOG.info("Input parameters:");
-        LOG.info("  systemId: " + systemId);
-        LOG.info("  systemName: " + systemName);
-        LOG.info("  structurePhase: " + structurePhase);
-        LOG.info("  temperature: " + temperature + " K");
-        LOG.info("  composition: [" + formatArray(composition) + "]");
-        LOG.info("  numComponents: " + composition.length);
+        emit(input.progressSink, "\nINPUT PARAMETERS");
+        emit(input.progressSink, "-----------------");
+        emit(input.progressSink, "  - System ID:      " + systemId);
+        emit(input.progressSink, "  - System Name:    " + systemName);
+        emit(input.progressSink, "  - Structure:      " + structurePhase);
+        emit(input.progressSink, "  - Temperature:    " + temperature + " K");
+        emit(input.progressSink, "  - Composition:    [" + formatArray(composition) + "]");
 
-        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, composition.length);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, cec.model, composition.length);
 
-        /*
-         * 1. Validate CMatrix exists
-         */
-        LOG.fine("Validating C-Matrix...");
-        if (clusterData.getCMatrixResult() == null) {
-            LOG.severe("C-Matrix not found in AllClusterData!");
-            throw new IllegalStateException(
-                "CMatrix not found in AllClusterData. " +
-                "Ensure ClusterIdentificationWorkflow generated Stage 3."
-            );
-        }
-        LOG.fine("✓ C-Matrix found");
+        // 1. Validate structural consistency
+        validateCmatEciConsistency(clusterData.getCMatrixResult(), basis);
 
-        // Validate C-matrix dimensions match basis
-        CMatrix.Result cmatResult = clusterData.getCMatrixResult();
-        cmatResult.validateCols(
-                basis.totalCfs(),
-                "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
-                + " + " + basis.numComponents + " point variables)"
-        );
-        LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
-        
-        // Fix 4: Structural consistency check (labels vs basis)
-        validateCmatEciConsistency(cmatResult, basis);
+        // 2. Validate inputs
+        validateInputs(temperature, composition);
 
         /*
-         * 2. Validate composition
+         * 3. Create CVMInput (the static model topology class)
          */
-        LOG.fine("Validating composition...");
-        if (composition == null || composition.length < 2) {
-            LOG.severe("Invalid composition array: " + (composition == null ? "null" : "length=" + composition.length));
-            throw new IllegalArgumentException("Invalid composition array");
-        }
-
-        double sum = 0.0;
-        for (double x : composition) {
-            if (x < 0 || x > 1) {
-                LOG.severe("Composition value out of range [0,1]: " + x);
-                throw new IllegalArgumentException("Composition values must be in [0,1]");
-            }
-            sum += x;
-        }
-
-        if (Math.abs(sum - 1.0) > 1e-9) {
-            LOG.severe("Composition sum != 1.0: " + sum);
-            throw new IllegalArgumentException("Composition must sum to 1.0, got: " + sum);
-        }
-        LOG.fine("✓ Composition valid (sum=" + String.format("%.9f", sum) + ")");
-
-        /*
-         * 3. Validate temperature
-         */
-        LOG.fine("Validating temperature...");
-        if (temperature <= 0) {
-            LOG.severe("Invalid temperature: " + temperature);
-            throw new IllegalArgumentException("Temperature must be positive: " + temperature);
-        }
-        LOG.fine("✓ Temperature valid");
-
-        /*
-         * 4. Extract Stage 1-3 data from AllClusterData
-         */
-        LOG.fine("STAGE 4a: Extract Stage 1 (Cluster Identification)...");
-        ClusterIdentificationResult stage1 = clusterData.getDisorderedClusterResult();
-        LOG.fine("  ✓ tcdis=" + stage1.getTcdis() + " (cluster types)");
-        LOG.fine("  ✓ kb coefficients, mh multiplicities, lc counts loaded");
-
-        LOG.fine("STAGE 4b: Extract Stage 2 (CF Identification)...");
-        CFIdentificationResult stage2 = clusterData.getDisorderedCFResult();
-        LOG.fine("  ✓ tcf=" + stage2.getTcf() + ", ncf=" + stage2.getNcf() + " (CF counts)");
-        LOG.fine("  ✓ lcf array, CF basis indices loaded");
-
-        LOG.fine("STAGE 4c: Extract Stage 3 (C-Matrix - CVCF basis)...");
-        org.ce.domain.cluster.CMatrix.Result clusterCMatrix = clusterData.getCMatrixResult();
-        LOG.fine("  ✓ cmat[t][j][v][k] transformation matrix loaded");
-        LOG.fine("  ✓ lcv (CV counts), wcv (CV weights) loaded");
-        LOG.fine("  ✓ cfBasisIndices: " + (clusterCMatrix.getCfBasisIndices() == null ? "null (CVCF)" : "present"));
-
-        /*
-         * 5. Create CVMInput with complete topology (Stages 1-3)
-         */
-        LOG.fine("STAGE 4d: Create CVMInput bundle...");
-        // TODO: resolve basis from systemId + numComponents via registry (future)
         CVMInput cvmInput = new CVMInput(
                 clusterData.getDisorderedClusterResult(),
                 clusterData.getDisorderedCFResult(),
-                clusterCMatrix,
+                clusterData.getCMatrixResult(),
                 systemId,
                 systemName,
                 composition.length,
                 basis
         );
-        LOG.fine("  ✓ CVMInput created with numComponents=" + composition.length);
 
         /*
-         * 6. Evaluate ECI at temperature using CVCF names.
-         *    ECIs are indexed by CF name (e4AB → v4AB at col 0, etc.).
-         *    Missing terms default to 0 (direct inheritance property of CVCF basis).
-        */
-        LOG.fine("Evaluating ECI at T=" + temperature + " K...");
+         * 4. Evaluate ECI at temperature
+         */
+        emit(input.progressSink, "\n  - Evaluating Hamiltonian at T=" + temperature + " K...");
         double[] eci = CECEvaluator.evaluate(cec, temperature, basis, "CVM");
-        LOG.fine("✓ ECI evaluated (" + eci.length + " non-point terms)");
 
         /*
-         * 7. Create CVMPhaseModel and run N-R minimization
+         * 5. Run CVM minimization
          */
-        LOG.info("Running CVM N-R minimization...");
-        CVMPhaseModel model = CVMPhaseModel.create(
-                cvmInput,
-                eci,
+        emit(input.progressSink, "\n  - Running CVM N-R minimization...");
+        CVMGibbsModel gibbsModel = new CVMGibbsModel(cvmInput);
+        CVMSolver solver = new CVMSolver();
+
+        CVMSolver.EquilibriumResult solverResult = solver.minimize(
+                gibbsModel,
+                composition,
                 temperature,
-                composition
+                eci,
+                1.0e-5, // default tolerance
+                input.progressSink,
+                input.eventSink
         );
-        LOG.info("✓ CVM minimization converged in " + model.getLastIterations()
-                + " iterations (||Gu||=" + String.format("%.4e", model.getLastGradientNorm()) + ")");
-        LOG.info("  G(eq) = " + String.format("%.8e", model.getEquilibriumG()) + " J/mol");
-        LOG.info("  H(eq) = " + String.format("%.8e", model.getEquilibriumH()) + " J/mol");
-        LOG.info("  S(eq) = " + String.format("%.8e", model.getEquilibriumS()) + " J/(mol·K)");
 
-        /*
-         * 8. Emit post-hoc N-R iteration trace as structured chart events.
-         *    CVMPhaseModel.create() throws on convergence failure, so this block
-         *    only runs when the solver succeeded — the chart always shows a converged trace.
-         */
-        if (input.eventSink != null) {
-            LOG.fine("Emitting N-R iteration trace to eventSink...");
-            input.eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
-            List<SolverResult.IterationSnapshot> trace = model.getLastIterationTrace();
-            for (SolverResult.IterationSnapshot snap : trace) {
-                double[] ghs = model.computeGHS(snap.getCf());
-                input.eventSink.accept(new ProgressEvent.CvmIteration(
-                        snap.getIteration(),
-                        snap.getGibbsEnergy(),
-                        snap.getGradientNorm(),
-                        ghs[1],      // enthalpy (H)
-                        ghs[2],      // entropy (S) in J/(mol·K)
-                        snap.getCf())); // CFs for logging
-            }
-            LOG.fine("✓ Emitted " + trace.size() + " iteration snapshots");
+        if (!solverResult.converged) {
+            emit(input.progressSink, "  [!] CVM minimization FAILED to converge!");
+            throw new RuntimeException(
+                    "CVM minimization failed to converge within " + solverResult.iterations + " iterations.");
         }
 
+        emit(input.progressSink, String.format("  - CONVERGED in %d iterations (||Gu||=%.4e)",
+                solverResult.iterations, solverResult.finalGradientNorm));
+
+        emit(input.progressSink, "\nEQUILIBRIUM RESULTS");
+        emit(input.progressSink, "-------------------");
+        emit(input.progressSink, String.format("  - G(eq): %.6e J/mol", solverResult.modelValues.G));
+        emit(input.progressSink, String.format("  - H(eq): %.6e J/mol", solverResult.modelValues.H));
+        emit(input.progressSink, String.format("  - S(eq): %.6e J/(mol·K)", solverResult.modelValues.S));
+
+        /*
+         * 6. Iteration trace (already printed live by solver)
+         */
+
         EquilibriumState result = new EquilibriumState(
-            temperature,
-            composition.clone(),
-            model.getEquilibriumH(),
-            model.getEquilibriumG(),
-            model.getEquilibriumS(),
-            Double.NaN, // enthalpyStdErr (MCS only)
-            Double.NaN, // heatCapacity (MCS only)
-            model.getEquilibriumCFs(),
-            null,       // avgCFs (MCS only)
-            null        // stdCFs (MCS only)
+                temperature,
+                composition.clone(),
+                solverResult.modelValues.H,
+                solverResult.modelValues.G,
+                solverResult.modelValues.S,
+                Double.NaN, // enthalpyStdErr (MCS only)
+                Double.NaN, // heatCapacity (MCS only)
+                solverResult.u,
+                null, // avgCFs (MCS only)
+                null // stdCFs (MCS only)
         );
-        LOG.info("=== CVMEngine.compute() SUCCESS ===");
+        emit(input.progressSink, "================================================================================");
         return result;
+    }
+
+    private void validateInputs(double temperature, double[] composition) {
+        if (temperature <= 0) {
+            throw new IllegalArgumentException("Temperature must be positive: " + temperature);
+        }
+        if (composition == null || composition.length < 2) {
+            throw new IllegalArgumentException("Invalid composition array");
+        }
+        double sum = 0.0;
+        for (double x : composition) {
+            if (x < 0 || x > 1) {
+                throw new IllegalArgumentException("Composition values must be in [0,1]");
+            }
+            sum += x;
+        }
+        if (Math.abs(sum - 1.0) > 1e-9) {
+            throw new IllegalArgumentException("Composition must sum to 1.0, got: " + sum);
+        }
+    }
+
+    private void emit(java.util.function.Consumer<String> sink, String line) {
+        if (sink != null)
+            sink.accept(line);
+        LOG.fine(line);
     }
 
     private static void validateCmatEciConsistency(CMatrix.Result cmat, CvCfBasis basis) {
         List<String> cmatNames = cmat.getCmatCfNames();
-        if (cmatNames == null) return; // orthogonal path, skip
+        if (cmatNames == null)
+            return; // orthogonal path, skip
 
         int ncf = basis.numNonPointCfs;
         for (int i = 0; i < ncf; i++) {
@@ -238,13 +194,56 @@ public class CVMEngine implements ThermodynamicEngine {
     }
 
     /**
+     * Resolves the required structural cluster data.
+     *
+     * <p>Uses the provided input.clusterData if available, otherwise triggers
+     * on-the-fly identification using standard naming conventions.</p>
+     */
+    private AllClusterData resolveClusterData(ThermodynamicInput input) {
+        // Strict Always-Fresh Identification Workflow
+        // We bypass any provided clusterData and any cached data to ensure 
+        // 100% traceability and fresh diagnostics for every run.
+        emit(input.progressSink, "  [NOTE] Starting Always Fresh Structural Identification...");
+ 
+        CECEntry cec = input.cec;
+        if (cec == null) {
+            throw new IllegalArgumentException("CEC (Hamiltonian) must be provided in ThermodynamicInput when clusterData is missing.");
+        }
+ 
+        String clusterFile = "clus/" + sanitize(cec.structurePhase) + "-" + sanitize(cec.model) + ".txt";
+        String symmetryGroup = sanitize(cec.structurePhase) + "-SG";
+
+        ClusterIdentificationRequest request = ClusterIdentificationRequest.builder()
+                .structurePhase(cec.structurePhase)
+                .model(cec.model)
+                .numComponents(input.composition.length)
+                .disorderedClusterFile(clusterFile)
+                .orderedClusterFile(clusterFile)
+                .disorderedSymmetryGroup(symmetryGroup)
+                .orderedSymmetryGroup(symmetryGroup)
+                .build();
+ 
+        // Run fresh identification workflow (No caching)
+        return ClusterIdentificationWorkflow.identify(request, input.progressSink);
+    }
+
+    private String sanitize(String id) {
+        if (id == null)
+            return null;
+        // Standard workbench naming for exported CVCF Hamiltonians appends _CVCF
+        return id.replace("_CVCF", "");
+    }
+
+    /**
      * Formats a double array for logging.
      */
     private static String formatArray(double[] arr) {
-        if (arr == null || arr.length == 0) return "";
+        if (arr == null || arr.length == 0)
+            return "";
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < arr.length; i++) {
-            if (i > 0) sb.append(", ");
+            if (i > 0)
+                sb.append(", ");
             sb.append(String.format("%.6f", arr[i]));
         }
         return sb.toString();

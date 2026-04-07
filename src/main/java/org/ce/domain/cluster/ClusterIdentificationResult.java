@@ -185,10 +185,23 @@ public class ClusterIdentificationResult {
     // Debug print
     // -------------------------------------------------------------------------
 
-    /**
-     * Prints a structured summary of the full cluster identification result
-     * to standard output.
-     */
+    public void printSummary(java.util.function.Consumer<String> sink) {
+        sink.accept("================================================================================");
+        sink.accept("                       CLUSTER IDENTIFICATION RESULT");
+        sink.accept("================================================================================");
+
+        sink.accept("\nSTAGE 1a: HSP Clusters (Disordered Phase)");
+        sink.accept("------------------------------------------");
+        disClusterData.printSummary(sink);
+
+        sink.accept("\nSTAGE 1b: Ordered Phase Clusters (classified)");
+        sink.accept("----------------------------------------------");
+        sink.accept(String.format("  - Total ordered types (tc): %d", tc));
+        sink.accept(String.format("  - Point clusters (nxc):     %d", nxc));
+        ordClusterData.printSummary(sink);
+        sink.accept("================================================================================");
+    }
+
     public void printDebug() {
         System.out.println("================================================================================");
         System.out.println("                       CLUSTER IDENTIFICATION RESULT");
