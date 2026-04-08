@@ -2,15 +2,14 @@ package org.ce;
 
 import org.ce.domain.engine.cvm.CVMEngine;
 import org.ce.domain.engine.mcs.MCSEngine;
-import org.ce.storage.ClusterDataStore;
 import org.ce.storage.HamiltonianStore;
 import org.ce.storage.Workspace;
 import org.ce.workflow.CalculationService;
 import org.ce.workflow.ClusterIdentificationWorkflow;
 import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.domain.cluster.AllClusterData;
 import org.ce.workflow.cec.CECManagementWorkflow;
 import org.ce.workflow.thermo.ThermodynamicWorkflow;
+import org.ce.domain.cluster.AllClusterData;
 
 import java.io.IOException;
 import java.util.function.Consumer;
@@ -25,7 +24,6 @@ import java.util.function.Consumer;
 public class CEWorkbenchContext {
 
     private final Workspace workspace;
-    private final ClusterDataStore clusterStore;
     private final HamiltonianStore hamiltonianStore;
     private final CECManagementWorkflow cecWorkflow;
     private final CalculationService calculationService;
@@ -46,14 +44,13 @@ public class CEWorkbenchContext {
      */
     public CEWorkbenchContext(Workspace workspace) {
         this.workspace = workspace;
-        this.clusterStore = new ClusterDataStore(workspace);
         this.hamiltonianStore = new HamiltonianStore(workspace);
-        this.cecWorkflow = new CECManagementWorkflow(hamiltonianStore, clusterStore);
+        this.cecWorkflow = new CECManagementWorkflow(hamiltonianStore);
         this.cvmEngine = new CVMEngine();
         this.mcsEngine = new MCSEngine();
         
         ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                clusterStore, cecWorkflow, cvmEngine, mcsEngine
+                cecWorkflow, cvmEngine, mcsEngine
         );
         this.calculationService = new CalculationService(thermoWorkflow);
     }
@@ -64,10 +61,6 @@ public class CEWorkbenchContext {
 
     public Workspace getWorkspace() {
         return workspace;
-    }
-
-    public ClusterDataStore getClusterStore() {
-        return clusterStore;
     }
 
     public HamiltonianStore getHamiltonianStore() {
@@ -128,11 +121,4 @@ public class CEWorkbenchContext {
         return ClusterIdentificationWorkflow.identify(request, progressSink);
     }
 
-    /**
-     * Saves AllClusterData to the storage.
-     */
-    public void saveClusterData(String clusterId, AllClusterData data) throws IOException {
-        clusterStore.save(clusterId, data);
-    }
 }
-

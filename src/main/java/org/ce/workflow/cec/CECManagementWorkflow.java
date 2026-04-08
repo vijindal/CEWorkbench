@@ -9,12 +9,10 @@ import static org.ce.domain.cluster.ClusterPrimitives.*;
 import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.storage.ClusterDataStore;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECTerm;
 import org.ce.domain.hamiltonian.NumericalCECTransformer;
 import org.ce.storage.HamiltonianStore;
-import org.ce.storage.Workspace.SystemId;
 
 import java.io.IOException;
 import java.util.List;
@@ -28,14 +26,8 @@ public class CECManagementWorkflow {
 
     private final HamiltonianStore store;
 
-    private final ClusterDataStore clusterStore;
-
-    public CECManagementWorkflow(
-            HamiltonianStore store,
-            ClusterDataStore clusterStore) {
-
+    public CECManagementWorkflow(HamiltonianStore store) {
         this.store = store;
-        this.clusterStore = clusterStore;
     }
 
     /**
@@ -175,13 +167,14 @@ public class CECManagementWorkflow {
             throw new IllegalArgumentException(msg);
         }
 
-        String clusterId = deriveClusterId(hamiltonianId);
-        if (!clusterStore.exists(clusterId)) {
-            throw new IllegalStateException(
-                "Cluster data '" + clusterId + "' not found. Run type1a first (Stage 4) to generate CVCF cluster_data.json.");
-        }
+        // Run fresh identification to get metadata
+        org.ce.workflow.ClusterIdentificationRequest request = org.ce.workflow.ClusterIdentificationRequest.builder()
+                .structurePhase(structurePhase)
+                .model(model)
+                .numComponents(numComponents)
+                .build();
 
-        AllClusterData clusterData = clusterStore.load(clusterId);
+        AllClusterData clusterData = org.ce.workflow.ClusterIdentificationWorkflow.identify(request, null);
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
@@ -218,23 +211,6 @@ public class CECManagementWorkflow {
         return entry;
     }
 
-    /**
-     * Derives the cluster data ID from a Hamiltonian ID.
-     *
-     * <p>Format: {@code {elements}_{structure}_{model}} → {@code {structure}_{model}_{ncompSuffix}}
-     * Example: {@code "Nb-Ti_BCC_A2_T"} → {@code "BCC_A2_T_bin"}</p>
-     */
-    private static String deriveClusterId(String hamiltonianId) {
-        int sep = hamiltonianId.indexOf('_');
-        if (sep < 0) {
-            throw new IllegalArgumentException("Invalid hamiltonianId format: " + hamiltonianId);
-        }
-        String elements = hamiltonianId.substring(0, sep);
-        String structureModel = hamiltonianId.substring(sep + 1);
-
-        int ncomp = elements.split("-").length;
-        return structureModel + "_" + SystemId.ncompSuffix(ncomp);
-    }
 
     /**
      * Extracts CF metadata from a CFIdentificationResult.
@@ -290,15 +266,13 @@ public class CECManagementWorkflow {
      */
     public CECEntry loadAndValidateCEC(String clusterId, String hamiltonianId) throws Exception {
 
-        if (!clusterStore.exists(clusterId)) {
-            throw new IllegalArgumentException("Cluster data not found: " + clusterId);
-        }
-
-        AllClusterData clusterData = clusterStore.load(clusterId);
-        int ncf = clusterData.getDisorderedCFResult().getNcf();
-
         CECEntry entry = store.load(hamiltonianId);
-        validateCEC(entry, ncf);
+        
+        // Determine expected ncf from basis registry
+        int numComponents = entry.elements.split("-").length;
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(entry.structurePhase, entry.model, numComponents);
+        
+        validateCEC(entry, basis.numNonPointCfs);
 
         return entry;
     }

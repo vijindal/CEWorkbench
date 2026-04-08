@@ -65,108 +65,79 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │              STAGE 4: ENGINE SETUP (CVMEngine.compute)                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ CVMEngine:97                                                                │
+│ CVMEngine:44                                                                │
 │                                                                              │
-│ 1. Validate input (cluster data, composition, temperature)                 │
+│ 1. Resolve Cluster Data: Forces "Always-Fresh" structural identification.    │
+│    └─ ClusterIdentificationWorkflow.identify() -> Stage 1-3 AllClusterData.  │
 │                                                                              │
-│ 2. Create CVMInput from AllClusterData:                                     │
-│    ├─ Stage 1: ClusterIdentificationResult (tcdis, mhdis, kb, mh, lc)     │
-│    ├─ Stage 2: CFIdentificationResult (tcf, ncf, lcf)                      │
-│    └─ Stage 3: CMatrixResult (cfBasisIndices, cmat, lcv, wcv)             │
+│ 2. Validate Consistency: Ensures C-matrix labels match CVCF basis registry.  │
+│    └─ validateCmatEciConsistency(clusterData, basis)                         │
 │                                                                              │
-│ 3. Create CVMPhaseModel.create()                                            │
+│ 3. Create CVMInput from AllClusterData:                                     │
+│    ├─ Stage 1: ClusterIdentificationResult (tcdis, mhdis, kb, mh, lc)        │
+│    ├─ Stage 2: CFIdentificationResult (tcf, ncf, lcf)                         │
+│    └─ Stage 3: CMatrixResult (cfBasisIndices, cmat, lcv, wcv)                │
+│                                                                              │
+│ 4. Evaluate ECI at temperature: CECEvaluator.evaluate(cec, T, basis)        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ╔═════════════════════════════════════════════════════════════════════════════╗
-║          STAGE 5: MINIMIZATION (CVMPhaseModel & N-R Solver)                ║
-║   THIS IS WHERE THE LOOP HAPPENS — CVMFreeEnergy.evaluate() is called      ║
+║          STAGE 5: MINIMIZATION (CVMGibbsModel & CVMSolver)                  ║
+║   THIS IS WHERE THE LOOP HAPPENS — CVMGibbsModel.evaluate() is called      ║
 ║   ONCE PER ITERATION OF THE NEWTON-RAPHSON SOLVER                          ║
 ╠═════════════════════════════════════════════════════════════════════════════╣
-║ CVMPhaseModel.create() [line 198]                                          ║
-║   → Sets ECI, temperature, composition                                      ║
-║   → Calls ensureMinimized() [line 212]                                     ║
+║ CVMEngine.compute() [line 104]                                              ║
+║   → Creates CVMGibbsModel(cvmInput)                                         ║
+║   → Creates CVMSolver()                                                     ║
 ║                                                                              ║
 ║   ┌──────────────────────────────────────────────────────────┐              ║
-║   │ CVMPhaseModel.minimize() [line 440]                      │              ║
-║   │                                                          │              ║
-║   │  Calls: NewtonRaphsonSolverSimple.solve()               │              ║
-║   │          [NewtonRaphsonSolverSimple.java:194]           │              ║
-║   │                                                          │              ║
-║   └──────────────────────────────────────────────────────────┘              ║
-║                                    │                                        ║
-║                                    ▼                                        ║
-║   ┌──────────────────────────────────────────────────────────┐              ║
-║   │  NewtonRaphsonSolverSimple.minimize() [line 259]        │              ║
+║   │ CVMSolver.minimize() [line 56]                           │              ║
 ║   │                                                          │              ║
 ║   │  1. Initialize:                                          │              ║
-║   │     u = getURand(data)  ← random-state initial guess    │              ║
-║   │     cv = updateCV(data, u)                              │              ║
+║   │     u = model.getInitialGuess(moleFractions)             │              ║
+║   │         [via CvCfBasis.computeRandomState()]             │              ║
 ║   │                                                          │              ║
-║   │  2. MAIN N-R LOOP: for iter = 1 to maxIter             │              ║
+║   │  2. MAIN N-R LOOP: for its = 0 to MAX_ITER               │              ║
 ║   │     ┌─────────────────────────────────────────────┐     │              ║
-║   │     │ ITERATION iter                              │     │              ║
+║   │     │ ITERATION its                               │     │              ║
 ║   │     │ ════════════════════════════════════════    │     │              ║
 ║   │     │                                             │     │              ║
 ║   │     │ A) EVALUATE ENERGY & DERIVATIVES           │     │              ║
-║   │     │    vals = usrfun(data, u, Gu, Guu)       │     │              ║
-║   │     │           [line 284, calls CVMFreeEnergy  │     │              ║
-║   │     │            .evaluate() at line 376]       │     │              ║
+║   │     │    current = model.evaluate(u, x, T, eci)   │     │              ║
+║   │     │           [CVMGibbsModel.evaluate()]        │     │              ║
 ║   │     │                                             │     │              ║
-║   │     │    INPUT: u[ncf] (current CFs)            │     │              ║
+║   │     │    INPUT: u[ncf] (current CFs), x[K]       │     │              ║
 ║   │     │    OUTPUT: G, H, S, Gu[ncf], Guu[ncf×ncf]│     │              ║
 ║   │     │                                             │     │              ║
 ║   │     │ B) CHECK CONVERGENCE (gradient norm)      │     │              ║
-║   │     │    gradNorm = ||Gu||  [line 290-294]     │     │              ║
-║   │     │    if (gradNorm < tolerance)              │     │              ║
+║   │     │    errf = L1(|Gu|)    [line 78]            │     │              ║
+║   │     │    if (errf <= tolerance)                  │     │              ║
 ║   │     │       → CONVERGED! Return result          │     │              ║
 ║   │     │                                             │     │              ║
-║   │     │ C) SOLVE LINEAR SYSTEM: Guu·du = -Gu     │     │              ║
-║   │     │    du = LinearAlgebra.solve(Guu, -Gu)    │     │              ║
-║   │     │    [line 315]                             │     │              ║
+║   │     │ C) SOLVE LINEAR SYSTEM: Guu·p = -Gu       │     │              ║
+║   │     │    p = LinearAlgebra.solve(Guu, -Gu)      │     │              ║
+║   │     │    [line 102]                             │     │              ║
 ║   │     │                                             │     │              ║
 ║   │     │ D) STEP LIMITING (keep CVs positive)      │     │              ║
-║   │     │    stpmax = stpmx(data, u, du, cv)       │     │              ║
-║   │     │    [line 322]                             │     │              ║
+║   │     │    alpha = model.calculateStepLimit(u, p) │     │              ║
+║   │     │    [line 105]                             │     │              ║
 ║   │     │                                             │     │              ║
 ║   │     │ E) UPDATE CFs:                             │     │              ║
-║   │     │    u[i] += stpmax · du[i]                 │     │              ║
-║   │     │    [line 325-327]                         │     │              ║
+║   │     │    u[i] += alpha * p[i]                    │     │              ║
 ║   │     │                                             │     │              ║
-║   │     │ F) UPDATE CVs (next iteration):           │     │              ║
-║   │     │    cv = updateCV(data, u)                 │     │              ║
-║   │     │    [line 330]                             │     │              ║
+║   │     │ F) CHECK STEP SIZE (X-convergence)        │     │              ║
+║   │     │    if (||alpha*p|| <= TOLX)                │     │              ║
+║   │     │       → CONVERGED!                         │     │              ║
 ║   │     │                                             │     │              ║
-║   │     │ G) CHECK STEP SIZE (convergence test 2)   │     │              ║
-║   │     │    if (stepNorm < TOLX)                   │     │              ║
-║   │     │       → Check if truly converged...       │     │              ║
-║   │     │                                             │     │              ║
-║   │     │ H) CONTINUE to next iteration...          │     │              ║
+║   │     │ G) CONTINUE to next iteration...          │     │              ║
 ║   │     └─────────────────────────────────────────────┘     │              ║
 ║   │                                                          │              ║
-║   │  3. Return CVMSolverResult with:                        │              ║
-║   │     - equilibriumCFs (converged u)                      │              ║
-║   │     - G, H, S (at convergence)                         │              ║
-║   │     - iterations, gradientNorm                         │              ║
-║   │     - iterationTrace (diagnostics for all iters)       │              ║
-║   │                                                          │              ║
-║   └──────────────────────────────────────────────────────────┘              ║
-║                                    │                                        ║
-║                                    ▼                                        ║
-║   ┌──────────────────────────────────────────────────────────┐              ║
-║   │ FINAL EVALUATION at equilibrium                          │              ║
-║   │ [CVMPhaseModel.minimize():473]                           │              ║
-║   │                                                          │              ║
-║   │ equilibrium = CVMFreeEnergy.evaluate(                   │              ║
-║   │     equilibriumCFs,  moleFractions, T, ECI, ... )      │              ║
-║   │                                                          │              ║
-║   │ (This is ONE MORE CALL after convergence for record)    │              ║
-║   │                                                          │              ║
+║   │  3. Return EquilibriumResult with converged state        │              ║
 ║   └──────────────────────────────────────────────────────────┘              ║
 ║                                                                              ║
-║ Result: Cache equilibrium state in CVMPhaseModel                           ║
-║         isMinimized = true                                                 ║
+║ Result: Encapsulate in EquilibriumState                                      ║
 ║                                                                              ║
 ╚═════════════════════════════════════════════════════════════════════════════╝
                                     │
@@ -207,139 +178,124 @@
 
 ---
 
-## DETAILED STAGE 5: Inside CVMFreeEnergy.evaluate() (Called Each N-R Iteration)
+## DETAILED STAGE 5: Inside CVMGibbsModel.evaluate() (Called Each N-R Iteration)
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════════╗
-║                         CVMFreeEnergy.evaluate()                                 ║
-║                    Called by usrfun() at each N-R iteration                      ║
+║                         CVMGibbsModel.evaluate()                                 ║
+║                    Called by CVMSolver at each iteration                         ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
                                     │
                     ┌───────────────┴───────────────┐
                     │                               │
                     ▼                               ▼
         ┌─────────────────────────┐    ┌────────────────────────────────────┐
-        │ buildFullCFVector()     │    │ evaluate()                         │
+        │ buildFullCVCFVector()   │    │ evaluate()                         │
         │ ClusterVariableEvaluator│    │ ClusterVariableEvaluator          │
-        │ [Line 113]              │    │ [Line 167]                         │
+        │ [Line 179]              │    │ [Line 198]                         │
         └─────────────────────────┘    └────────────────────────────────────┘
                     │                               │
                     ▼                               ▼
         ┌─────────────────────────┐    ┌────────────────────────────────────┐
-        │ RMatrixCalculator       │    │ Matrix-Vector Multiply             │
-        │ .buildBasis()           │    │ (C-matrix × uFull)                 │
-        │ [Line 120]              │    │ No further calls                   │
+        │ Composition Mapping     │    │ Matrix-Vector Multiply             │
+        │ (non-point + mole frac) │    │ (C-matrix × vFull)                 │
         │                         │    │                                    │
         │ INPUT:                  │    │ INPUT:                             │
-        │ - numElements (K)       │    │ - uFull[tcf]                       │
-        │                         │    │ - cmat[t][j][v][tcf+1]            │
-        │ OUTPUT:                 │    │ - lcv[t][j]                        │
-        │ - basis[K]             │    │ - tcdis, lc[t]                    │
-        │   (symmetric integers)  │    │                                    │
-        │   K=2: [-1, 1]         │    │ OUTPUT:                            │
-        │   K=3: [-1, 0, 1]      │    │ - cv[tcdis][lc[t]][lcv[t][j]]     │
-        └─────────────────────────┘    │   (cluster variables)             │
+        │ - optimization vars (v) │    │ - vFull[tcf]                       │
+        │ - moleFractions (x)     │    │ - cmat[t][j][v][tcf+1]            │
+        │                         │    │ - lcv[t][j], tcdis, lc[t]          │
+        │ OUTPUT:                 │    │                                    │
+        │ - vFull[tcf]            │    │ OUTPUT:                            │
+        │                         │    │ - cv[tcdis][lc[t]][nv]            │
+        └─────────────────────────┘    │   (cluster probabilities)         │
                     │                  │                                    │
                     └──────────────────┴────────────┘                     │
-                                       │                                   │
-                                       ▼                                   │
+                                        │                                   │
+                                        ▼                                   │
                     ┌──────────────────────────────┐                      │
-                    │ Build Point CFs              │                      │
-                    │ (indices ncf...tcf-1)        │                      │
+                    │  ECI Mapping (CECEvaluator)  │                      │
                     │                              │                      │
-                    │ pointCF[k] = Σᵢ xᵢ·tᵢᵏ⁺¹    │                      │
+                    │ idx = findCfIndex(name)      │                      │
+                    │ eci[idx] = a + b * T         │                      │
                     │                              │                      │
-                    │ INPUT:                       │                      │
-                    │ - moleFractions[K]          │                      │
-                    │ - basis[K]                  │                      │
-                    │ - cfBasisIndices[col][0]    │                      │
-                    │                              │                      │
-                    │ OUTPUT:                      │                      │
-                    │ - uFull[tcf]                │                      │
-                    │   (complete CF vector)      │                      │
-                    └──────────────────────────────┘                      │
-                                       │                                   │
-                                       └───────────────┬───────────────────┘
-                                                       │
-                                    ┌──────────────────┴──────────────────┐
-                                    │                                     │
-                                    ▼                                     ▼
-                    ╔═══════════════════════════════╗      ╔═══════════════════════════════╗
-                    ║   ENTHALPY CALCULATION        ║      ║   ENTROPY CALCULATION         ║
-                    ║   (Inline in evaluate)        ║      ║   (Inline in evaluate)        ║
-                    ╠═══════════════════════════════╣      ╠═══════════════════════════════╣
-                    ║ H = Σₜ mhdis[t] · Σₗ ECI[l]  ║      ║ Loop: for each CV value       ║
-                    ║        · u[l]                  ║      ║ - Check if cv > EPS (1e-6)    ║
-                    ║                               ║      ║ - If yes: cv·ln(cv)           ║
-                    ║ Hcu[l] = mhdis[t] · ECI[l]  ║      ║ - If no: smooth C² extension ║
-                    ║ (first derivative)            ║      ║                               ║
-                    ║                               ║      ║ S = -R Σₜ kb[t]·mhdis[t]·Σⱼ ║
-                    ║ Hcuu = 0                      ║      ║        mh[t][j]·Σᵥ wcv·cv·  ║
-                    ║ (second derivative/Hessian)   ║      ║        ln(cv)                 ║
-                    ║                               ║      ║                               ║
-                    ║ INPUT:                        ║      ║ Scu[l] = -R Σₜ kb[t]·ms[t]·  ║
-                    ║ - u[ncf] (optimisation vars) ║      ║          Σⱼ mh[t][j]·Σᵥ      ║
-                    ║ - ECI[tcf]                    ║      ║          wcv·cmat[v][l]·    ║
-                    ║ - mhdis[tcdis]               ║      ║          ln(cv)              ║
-                    ║ - lcf[t][j] (CF counts)      ║      ║                               ║
-                    ║                               ║      ║ Scuu[l1][l2] = -R Σₜ kb[t]· ║
-                    ║ OUTPUT:                       ║      ║               ms[t]·Σⱼ mh·  ║
-                    ║ - Hval (scalar)              ║      ║               Σᵥ wcv·cmat[l₁]║
-                    ║ - Hcu[ncf]                   ║      ║               ·cmat[l₂]/cv  ║
-                    ║                               ║      ║                               ║
-                    ║                               ║      ║ INPUT:                        ║
-                    ║                               ║      ║ - cv[tcdis][lc[t]][lcv[t][j]]║
-                    ║                               ║      ║ - cmat[t][j][v][tcf]         ║
-                    ║                               ║      ║ - kb[tcdis]                  ║
-                    ║                               ║      ║ - mhdis[tcdis]               ║
-                    ║                               ║      ║ - mh[t][j]                   ║
-                    ║                               ║      ║ - wcv[t][j][v]               ║
-                    ║                               ║      ║ - temperature (K)             ║
-                    ║                               ║      ║ - R_GAS = 8.3144598 J/(mol·K)║
-                    ║                               ║      ║ - ncf                         ║
-                    ║                               ║      ║                               ║
-                    ║                               ║      ║ OUTPUT:                       ║
-                    ║                               ║      ║ - Sval (scalar)              ║
-                    ║                               ║      ║ - Scu[ncf]                   ║
-                    ║                               ║      ║ - Scuu[ncf][ncf]             ║
-                    ╚═══════════════════════════════╝      ╚═══════════════════════════════╝
-                                    │                                     │
-                                    └──────────────────┬──────────────────┘
-                                                       │
-                                                       ▼
-                    ╔═══════════════════════════════════════════════════════╗
-                    ║       GIBBS ENERGY COMBINATION                       ║
-                    ║       (Inline in evaluate)                           ║
-                    ╠═══════════════════════════════════════════════════════╣
-                    ║ G = H - T·S                                           ║
-                    ║                                                       ║
-                    ║ Gcu[l] = Hcu[l] - T·Scu[l]                           ║
-                    ║                                                       ║
-                    ║ Gcuu[l1][l2] = -T·Scuu[l1][l2]                       ║
-                    ║                (since Hcuu = 0)                      ║
-                    ║                                                       ║
-                    ║ INPUT:                                                ║
-                    ║ - Hval, Hcu[ncf]                                     ║
-                    ║ - Sval, Scu[ncf], Scuu[ncf][ncf]                     ║
-                    ║ - temperature (K)                                     ║
-                    ║                                                       ║
-                    ║ OUTPUT:                                               ║
-                    ║ - Gval (scalar)                                      ║
-                    ║ - Gcu[ncf]  (gradient/first derivative)              ║
-                    ║ - Gcuu[ncf][ncf]  (Hessian/second derivative)        ║
-                    ╚═══════════════════════════════════════════════════════╝
-                                                       │
-                                                       ▼
-                    ╔═══════════════════════════════════════════════════════╗
-                    ║              FINAL RESULT                            ║
-                    ║              EvalResult                              ║
+                    └────────────────────�### Level 2: Sub-calls
+
+#### 2a. buildFullCVCFVector()
+```
+ClusterVariableEvaluator.buildFullCVCFVector(v, x, basis,
+                                             cfBasisIndices, ncf, tcf)
+├─ Computes: Point CFs from mole fractions and basis
+│  ├─ pointCF[k] = Σᵢ x[i] · basis.evaluate(i, k)
+│  └─ Result: pointCFValues[nxcf]  where nxcf = tcf - ncf
+│
+└─ Returns: double[] vFull[tcf]
+   ├─ vFull[non-point-indices] = v (mapped)
+   └─ vFull[point-indices] = calculated point CFs
+```
+
+#### 2b. evaluate() - Cluster Variable (Probability) Evaluation
+```
+ClusterVariableEvaluator.evaluate(vFull, cmat, lcv, tcdis, lc)
+├─ Matrix-Vector Multiplication (C-matrix × basis CFs):
+│  │
+│  └─ for each HSP type t, group j, CV v:
+│     cv[t][j][v] = Σₖ cmat[t][j][v][k] · vFull[k] + cmat[t][j][v][tcf]
+│                   └──────────────────┬──────────────────┘
+│                                Linear combination
+│
+└─ Returns: double[][][] cv[tcdis][lc[t]][nv]
+```
+
+### Level 3: Physics Evaluation (CVMGibbsModel.evaluateInternal)
+
+#### 3a. Enthalpy Calculation
+```
+Hessian Hcuu is assumed zero (linear in CFs).
+1. Loop over ECI values:
+   Hcu[l] = ECI[l]
+   Hval += ECI[l] · u[l]
+
+Output: Hval (scalar), Hcu (gradient)
+```
+
+#### 3b. Entropy Calculation (The Core Complexity)
+```
+1. Loop over HSP types, groups, and CV probabilities:
+   cvVal = probabilities from ClusterVariableEvaluator
+   if (cvVal > EPS): 
+      sContrib = cvVal · ln(cvVal)
+      logEff = ln(cvVal)
+      invEff = 1.0 / cvVal
+   else: 
+      "Smooth log extension" (C² quadratic)
+      
+2. Accumulate G, Gradient, and Hessian:
+   prefix = -R · multiplicity · weight
+   Sval += prefix · sContrib
+   Scu[l] += prefix · logEff · Cmat[l]
+   Scuu[l1][l2] += prefix · invEff · Cmat[l1]·Cmat[l2]
+
+Output: Sval (scalar), Scu (gradient), Scuu (Hessian)
+```
+
+#### 3c. Gibbs Energy Combination
+```
+Combine enthalpy and entropy:
+├─ Gval = Hval - temperature · Sval
+├─ for each l < ncf:
+│  └─ Gu[l] = Hcu[l] - temperature · Scu[l]
+├─ for each l1,l2 < ncf:
+│  └─ Guu[l1][l2] = -temperature · Scuu[l1][l2]
+
+Output: Gval (double), Gu[ncf], Guu[ncf][ncf]
+```
+��═╗
+                    ║       GIBBS ENERGY COMBINATION (G = H - T·S)         ║
                     ╠═══════════════════════════════════════════════════════╣
                     ║ OUTPUTS:                                              ║
-                    ║ - G       (Gibbs energy of mixing)                   ║
-                    ║ - H       (Enthalpy of mixing)                       ║
-                    ║ - S       (Entropy of mixing)                        ║
-                    ║ - Gcu[ncf]    (gradient: ∂G/∂u)                      ║
-                    ║ - Gcuu[ncf²]  (Hessian: ∂²G/∂u²)                     ║
+                    ║ - Gval, Hval, Sval (scalars)                          ║
+                    ║ - Gu[ncf] (gradient)                                  ║
+                    ║ - Guu[ncf][ncf] (Hessian)                             ║
                     ╚═══════════════════════════════════════════════════════╝
 ```
 
@@ -353,102 +309,54 @@
 | **CalculationService** | `workflow/CalculationService.java` | Service facade; orchestrates line/grid/point scans |
 | **LineScanWorkflow** | `workflow/thermo/LineScanWorkflow.java` | Temperature/composition scanning |
 | **ThermodynamicWorkflow** | `workflow/thermo/ThermodynamicWorkflow.java` | Loads data; dispatches to engines (CVM or MCS) |
-| **CVMEngine** | `domain/engine/cvm/CVMEngine.java` | Engine interface impl; validates, creates CVMPhaseModel |
-| **CVMPhaseModel** | `domain/engine/cvm/CVMPhaseModel.java` | Stateful thermodynamic model; triggers minimization via N-R solver |
-| **NewtonRaphsonSolverSimple** | `domain/engine/cvm/NewtonRaphsonSolverSimple.java` | **The N-R minimization loop** — calls `usrfun()` repeatedly |
-| **CVMFreeEnergy** | `domain/engine/cvm/CVMFreeEnergy.java` | **Free energy evaluator** — called once per N-R iteration |
+| **CVMEngine** | `domain/engine/cvm/CVMEngine.java` | Engine interface impl; triggers structural identification |
+| **CVMGibbsModel** | `domain/engine/cvm/CVMGibbsModel.java` | **Physical model** (Entropy/Enthalpy) — called once per iteration |
+| **CVMSolver** | `domain/engine/cvm/CVMSolver.java` | **The N-R minimization loop** — calls `model.evaluate()` repeatedly |
+| **CECEvaluator** | `domain/hamiltonian/CECEvaluator.java` | **ECI Mapping** — maps Hamiltonian terms to basis indices |
 | **ClusterVariableEvaluator** | `domain/cluster/ClusterVariableEvaluator.java` | Builds full CF vector; evaluates CVs from CFs |
-| **RMatrixCalculator** | `domain/cluster/RMatrixCalculator.java` | Constructs basis vectors for multi-component systems |
-| **LinearAlgebra** | `domain/cluster/LinearAlgebra.java` | Gaussian elimination (solves `Guu · du = -Gu`) |
+| **CvCfBasis** | `domain/cluster/cvcf/CvCfBasis.java` | Manages CVCF labels and random-state initialization |
+| **LinearAlgebra** | `domain/cluster/LinearAlgebra.java` | Linear solver for Newton steps |
 
 ---
 
 ## Execution Summary
 
-### Temperature Scan Scenario (Main Example)
-```
-Main.java:151
-  runLineScanTemperature(clusterId, hamiltonianId,
-                        composition=[0.5,0.5],
-                        T: 300K→2000K, step=100K,
-                        engineType="CVM")
-  │
-  └─ LineScanWorkflow.scanTemperature()
-      │
-      └─ For each T in [300, 400, 500, ..., 2000]:  (18 temperatures)
-          │
-          └─ ThermodynamicWorkflow.runCalculation(T)
-              │
-              ├─ Load cluster data (once per T)
-              ├─ Load Hamiltonian (once per T)
-              ├─ Evaluate ECI(T) = a + b·T (once per T)
-              │
-              └─ CVMEngine.compute()
-                  │
-                  └─ CVMPhaseModel.create(cvmInput, eci, T, composition)
-                      │
-                      └─ ensure
-Minimized()
-                          │
-                          └─ NewtonRaphsonSolverSimple.solve()
-                              │
-                              ├─ getURand()        ← initial guess (random state)
-                              │
-                              └─ N-R LOOP: iter = 1 to max_iter (typically 20-80 iters)
-                                  │
-                                  ├─ usrfun() [line 284]
-                                  │   │
-                                  │   └─ CVMFreeEnergy.evaluate() ◄─ CALLED ONCE PER ITERATION
-                                  │       │
-                                  │       ├─ buildFullCFVector()
-                                  │       ├─ evaluate() CVs
-                                  │       ├─ Compute H
-                                  │       ├─ Compute S (nonlinear, with smooth extension)
-                                  │       └─ Compute G = H - T·S
-                                  │
-                                  ├─ Check convergence: ||∇G|| < tolerance
-                                  │   [line 304]
-                                  │
-                                  ├─ Solve: ∇²G · du = -∇G
-                                  │   [line 315, LinearAlgebra.solve()]
-                                  │
-                                  ├─ Step limiting: compute stpmax  [line 322]
-                                  │
-                                  ├─ Update CFs: u += stpmax · du  [line 325]
-                                  │
-                                  └─ If converged → BREAK
-
-                              └─ Final evaluation (line 473 in CVMPhaseModel):
-                                  CVMFreeEnergy.evaluate()  ◄─ CALLED ONCE MORE
-
-
-TOTAL CALLS TO CVMFreeEnergy.evaluate() FOR THIS SCENARIO:
-  = (# temperatures) × (avg # N-R iterations)
-  = 18 × 40 (typical)
-  ≈ 720 evaluations for a full temperature scan
-```
-
 ### Single-Point Calculation (Simpler)
-```
-CalculationService.runSinglePoint(clusterId, hamiltonianId,
-                                  T=1000K, composition=[0.5,0.5],
-                                  engineType="CVM")
-  │
-  └─ ThermodynamicWorkflow.runCalculation(1000K)
-      │
-      └─ CVMEngine.compute()
-          └─ CVMPhaseModel.create()
-              └─ NewtonRaphsonSolverSimple.solve()
-                  │
-                  ├─ N-R LOOP (typically 20-80 iterations)
-                  │   └─ CVMFreeEnergy.evaluate()  ◄─ called per iteration
-                  │
-                  └─ Final evaluation
-                      └─ CVMFreeEnergy.evaluate()  ◄─ called once more
+**File:** [CVMSolver.java:56](app/src/main/java/org/ce/domain/engine/cvm/CVMSolver.java#L56)
 
-TOTAL CALLS TO CVMFreeEnergy.evaluate():
-  = avg # N-R iterations (typically 30-60)
+**Method:** `minimize(CVMGibbsModel model, double[] moleFractions, ...)`
+
+**Call Chain Leading to It:**
 ```
+Main:151 → CalculationService → LineScanWorkflow
+→ ThermodynamicWorkflow → CVMEngine.compute()
+→ CVMSolver.minimize()  ◄─ THE LOOP IS HERE
+```
+
+**What Happens in minimize():**
+
+1. **Initialize** (line 65):
+   - u = model.getInitialGuess() — compute random-state CFs via CvCfBasis
+
+2. **Main Loop** (lines 71-123):
+   ```
+   for its = 0 to MAX_ITER:
+     1. model.evaluate(u, x, T, eci)  ← calls CVMGibbsModel.evaluate()
+     2. Check convergence: if ||Gu|| < tolerance → exit (converged)
+     3. Solve: Guu · p = -Gu  (LinearAlgebra.solve)
+     4. Limit step size: alpha = model.calculateStepLimit(u, p, x)
+     5. Update state: u += alpha * p
+     6. Check step size (X-convergence)
+   ```
+
+3. **Return** EquilibriumResult with converged state and iteration trace.
+
+**How Many Times is CVMGibbsModel.evaluate() Called?**
+
+- **Per Single Point:** 30-100 iterations (depending on tolerance)
+- **Temperature Scan (300-2000 K, 100 K step):**
+  - 18 temperatures × ~40 iterations = **~720 evaluations**
+- **Each call cost:** O(tcdis · lcv · ncf²) — dominated by entropy Hessian assembly.
 
 ---
 
@@ -456,25 +364,13 @@ TOTAL CALLS TO CVMFreeEnergy.evaluate():
 
 ### Level 1: Entry Point
 ```
-CVMFreeEnergy.evaluate(...)
+CVMGibbsModel.evaluate(...)
 ├─ Input Parameters:
 │  ├─ double[] u                    (non-point CF values, length ncf)
 │  ├─ double[] moleFractions        (composition, length K)
-│  ├─ int numElements               (K: number of components)
 │  ├─ double temperature            (Kelvin)
 │  ├─ double[] eci                  (effective cluster interactions)
-│  ├─ List<Double> mhdis            (HSP cluster multiplicities)
-│  ├─ double[] kb                   (Kikuchi-Baker entropy coefficients)
-│  ├─ double[][] mh                 (normalized multiplicities)
-│  ├─ int[] lc                      (ordered clusters per HSP type)
-│  ├─ List<List<double[][]>> cmat   (C-matrix)
-│  ├─ int[][] lcv                   (CV counts)
-│  ├─ List<List<int[]>> wcv         (CV weights)
-│  ├─ int tcdis                     (number of HSP cluster types)
-│  ├─ int tcf                       (total number of CFs)
-│  ├─ int ncf                       (number of non-point CFs)
-│  ├─ int[][] lcf                   (CF count per type/group)
-│  └─ int[][] cfBasisIndices        (basis-index decorations)
+│  └─ ... (C-matrix, multiplicities, etc.)
 │
 └─ Returns: EvalResult
 ```

@@ -37,9 +37,12 @@ public class MCSEngine implements ThermodynamicEngine {
 
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
+ 
+        // Resolve cluster data (Always Fresh)
+        org.ce.domain.cluster.AllClusterData allClusterData = resolveClusterData(input);
 
         ClusCoordListResult clusterData =
-                input.clusterData.getDisorderedClusterResult().getDisClusterData();
+                allClusterData.getDisorderedClusterResult().getDisClusterData();
 
         // Validate C-matrix dimensions match basis (same check as CVMEngine)
         String structurePhase = input.cec.structurePhase;
@@ -47,7 +50,7 @@ public class MCSEngine implements ThermodynamicEngine {
         int numComponents = input.composition.length;
         var basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, model, numComponents);
 
-        CMatrix.Result cmatResult = input.clusterData.getCMatrixResult();
+        CMatrix.Result cmatResult = allClusterData.getCMatrixResult();
         cmatResult.validateCols(
                 basis.totalCfs(),
                 "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
@@ -243,6 +246,16 @@ public class MCSEngine implements ThermodynamicEngine {
         if (!anyIssue) {
             sink.accept("  ✓  Statistical parameters look sufficient (n_eff ≥ 100, nEquil ≥ 20·τ_int)");
         }
+    }
+
+    private org.ce.domain.cluster.AllClusterData resolveClusterData(ThermodynamicInput input) {
+        if (input.progressSink != null) {
+            input.progressSink.accept("  [NOTE] Starting Always Fresh Structural Identification...");
+        }
+        org.ce.workflow.ClusterIdentificationRequest request = 
+                new org.ce.workflow.ClusterIdentificationRequest(input, "MCS");
+
+        return org.ce.workflow.ClusterIdentificationWorkflow.identify(request, input.progressSink);
     }
 
     /** Helper: returns 0 if value is NaN, otherwise returns the value. */

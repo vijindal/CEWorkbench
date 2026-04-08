@@ -3,7 +3,6 @@ package org.ce.ui.cli;
 import org.ce.domain.cluster.*;
 import org.ce.domain.engine.cvm.CVMGibbsModel;
 import org.ce.domain.engine.cvm.CVMGibbsModel.ModelResult;
-import org.ce.storage.ClusterDataStore;
 import org.ce.storage.Workspace.SystemId;
 import org.ce.storage.HamiltonianStore;
 import org.ce.workflow.CalculationService;
@@ -18,30 +17,6 @@ import java.util.function.Consumer;
 
 /**
  * Main entry point for the CE Workbench CLI.
- *
- * Usage:
- * ./gradlew run -- full pipeline, built-in defaults
- * ./gradlew run --args="type1a" -- cluster identification only
- * ./gradlew run --args="type1b" -- Hamiltonian scaffold only
- * ./gradlew run --args="type2" -- thermodynamic calculation only
- * ./gradlew run --args="all Nb-Ti BCC_A2 T" -- explicit system, all modes
- * ./gradlew run --args="all Nb-Ti BCC_A2 T_CVCF" -- explicit system with CVCF basis
- * ./gradlew run --args="scaffold_cvcf Nb-Ti BCC_A2 T_CVCF" -- scaffold CEC using CVCF basis
- * ./gradlew run --args="type2 Nb-Ti BCC_A2 T" -- explicit system, type-2 only
- * ./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 0.5" -- calculate with minimization
- * ./gradlew run --args="calc_min Nb-Ti BCC_A2 T_CVCF 1000 0.5" -- CVCF calc_min
- * ./gradlew run --args="calc_fixed Nb-Ti BCC_A2 T 1000 0.5 0.1 0.2 0.3 0.4" -- calculate with fixed CFs
- * ./gradlew run --args="calc_fixed Nb-Ti BCC_A2 T_CVCF 1000 0.5 0.1 0.2 0.3 0.4" -- CVCF calc_fixed
- *
- * Arguments: mode [elements structure model] [--verbose]
- * mode : type1a | type1b | type2 | all | calc_min | calc_fixed (default: all)
- * elements : element pair, e.g. Nb-Ti (default: A-B)
- * structure : structure ID, e.g. BCC_A2 (default: BCC_B2)
- * model : model ID, e.g. T (default: T)
- * for calc_min: temp comp
- * for calc_fixed: temp comp cf1 cf2 ...
- *
- * Use --verbose or -v to see detailed progress and debug logs.
  */
 public class Main {
 
@@ -140,7 +115,6 @@ public class Main {
         }
 
         SystemId system = new SystemId(elements, structure, model);
-        String CLUSTER_ID = system.clusterId();
         String HAMILTONIAN_ID = system.hamiltonianId();
         int numComponents = elements.split("-").length;
 
@@ -149,7 +123,7 @@ public class Main {
         System.out.println("================================================================================");
         System.out.println("Mode      : " + mode);
         System.out.println("System    : " + elements + "  /  " + structure + "  /  " + model);
-        System.out.println("Cluster ID: " + CLUSTER_ID + "   Hamiltonian ID: " + HAMILTONIAN_ID);
+        System.out.println("Hamiltonian ID: " + HAMILTONIAN_ID);
 
         try {
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
@@ -159,7 +133,7 @@ public class Main {
             Consumer<String> sink = verbose ? System.out::println : null;
 
             // ------------------------------------------------------------------
-            // TYPE-1a: Cluster Identification + Save
+            // TYPE-1a: Cluster Identification
             // ------------------------------------------------------------------
             if (mode.equals("type1a") || mode.equals("all")) {
 
@@ -185,16 +159,15 @@ public class Main {
                         .model(model)
                         .build();
 
-                AllClusterData clusterData = appCtx.identifyClusters(config, sink);
-                appCtx.saveClusterData(CLUSTER_ID, clusterData);
+                appCtx.identifyClusters(config, sink);
                 
                 if (verbose) {
-                    System.out.println("Saved: " + appCtx.getWorkspace().clusterDataFile(CLUSTER_ID));
+                    System.out.println("Identification complete (on-the-fly, not saved to disk).");
                 }
             }
 
             // ------------------------------------------------------------------
-            // TYPE-1b: Scaffold empty Hamiltonian from saved cluster data
+            // TYPE-1b: Scaffold empty Hamiltonian
             // ------------------------------------------------------------------
             if (mode.equals("type1b") || mode.equals("all")) {
 
@@ -241,13 +214,13 @@ public class Main {
                 double tStep = 100.0;
 
                 if (verbose) {
-                    System.out.println("System      : " + CLUSTER_ID + " / " + HAMILTONIAN_ID);
+                    System.out.println("System      : " + HAMILTONIAN_ID);
                     System.out.println("Composition : " + java.util.Arrays.toString(composition));
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
                 List<ThermodynamicResult> results = service.runLineScanTemperature(
-                        CLUSTER_ID, HAMILTONIAN_ID, composition, tStart, tEnd, tStep, "CVM");
+                        null, HAMILTONIAN_ID, composition, tStart, tEnd, tStep, "CVM");
 
                 System.out.println(String.format("  %-8s  %-16s  %-16s",
                         "T (K)", "G (J/mol)", "H (J/mol)"));
@@ -269,15 +242,13 @@ public class Main {
         System.out.println("\n================================================================================");
     }
 
-    /** Displays the Hamiltonian coefficients (ECIs) for a system. */
     private static void viewHamiltonian(String elements, String structure, String model) {
         SystemId system = new SystemId(elements, structure, model);
-        String clusterId = system.clusterId();
         String hamiltonianId = system.hamiltonianId();
         
         try {
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
-            CECEntry entry = appCtx.getCecWorkflow().loadAndValidateCEC(clusterId, hamiltonianId);
+            CECEntry entry = appCtx.getCecWorkflow().loadAndValidateCEC(null, hamiltonianId);
             
             System.out.println("\n=== HAMILTONIAN: " + hamiltonianId + " ===");
             System.out.println("Elements: " + entry.elements + " | Structure: " + entry.structurePhase + " | Model: " + entry.model);
@@ -306,21 +277,16 @@ public class Main {
 
     private static void runCalcMin(String elements, String structure, String model, double temp, double[] composition) {
         try {
-            // Set up context (same as GUI)
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             CalculationService service = appCtx.getCalculationService();
 
-            // Derive IDs from system
             SystemId system = new SystemId(elements, structure, model);
-            String clusterId = system.clusterId();
             String hamiltonianId = system.hamiltonianId();
 
-            // Run calculation through CalculationService (same path as GUI)
             ThermodynamicResult result = service.runSinglePoint(
-                    new ThermodynamicRequest(clusterId, hamiltonianId, temp, composition, "CVM",
+                    new ThermodynamicRequest(null, hamiltonianId, temp, composition, "CVM",
                             verbose ? System.out::println : null, null));
 
-            // Format and display results
             System.out.println("System: " + hamiltonianId);
             System.out.println("Temperature: " + temp + " K");
             System.out.print("Composition: [");
@@ -354,32 +320,35 @@ public class Main {
         try {
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             SystemId system = new SystemId(elements, structure, model);
-            String CLUSTER_ID = system.clusterId();
             String rawId = system.hamiltonianId();
             String preferredId = rawId + "_CVCF";
 
             HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
-            ClusterDataStore clusterStore = appCtx.getClusterStore();
-
             String HAMILTONIAN_ID = hamiltonianStore.exists(preferredId) ? preferredId : rawId;
 
-            AllClusterData allData = clusterStore.load(CLUSTER_ID);
+            // Run fresh identification
+            ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
+                    .numComponents(composition.length)
+                    .structurePhase(structure)
+                    .model(model)
+                    .build();
+            AllClusterData allData = appCtx.identifyClusters(config, null);
+            
             CECEntry entry = hamiltonianStore.load(HAMILTONIAN_ID);
             double[] eci = extractEciFromEntry(entry, temp);
 
-            // Extract CVM parameters from AllClusterData
             ClusterIdentificationResult disResult = allData.getDisorderedClusterResult();
             CFIdentificationResult cfResult = allData.getDisorderedCFResult();
             CMatrix.Result cmatResult = allData.getCMatrixResult();
 
-            List<Double> mhdis = disResult.getDisClusterData().getMultiplicities();
+            java.util.List<Double> mhdis = disResult.getDisClusterData().getMultiplicities();
             double[] kb = disResult.getKbCoefficients();
             int tcdis = disResult.getTcdis();
             int[] lc = disResult.getLc();
             double[][] mh = disResult.getMh();
             int[][] lcv = cmatResult.getLcv();
-            List<List<double[][]>> cmat = cmatResult.getCmat();
-            List<List<int[]>> wcv = cmatResult.getWcv();
+            java.util.List<java.util.List<double[][]>> cmat = cmatResult.getCmat();
+            java.util.List<java.util.List<int[]>> wcv = cmatResult.getWcv();
 
             int ncf = cfResult.getNcf();
             int numComponents = composition.length;
@@ -389,22 +358,6 @@ public class Main {
             System.out.println("Temperature: " + temp + " K");
             System.out.println("Composition: " + java.util.Arrays.toString(composition));
             
-            if (verbose) {
-                System.out.println("Input CFs (" + cfs.length + " values):");
-                for (int i = 0; i < cfs.length; i++) {
-                    System.out.printf("  v[%d] = %.10f%n", i, cfs[i]);
-                }
-                System.out.println();
-
-                System.out.println("ECI VALUES (at " + temp + " K):");
-                System.out.println("-".repeat(80));
-                for (int i = 0; i < eci.length; i++) {
-                    System.out.printf("  ECI[%d] = %20.10f J/mol%n", i, eci[i]);
-                }
-                System.out.println();
-            }
-
-            // Evaluate free energy at fixed CFs
             ModelResult result = CVMGibbsModel.evaluate(
                     cfs, composition, temp, eci, tcdis, tcf, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
 
@@ -414,42 +367,6 @@ public class Main {
             System.out.printf("Enthalpy (H):         %20.10f J/mol%n", result.H);
             System.out.printf("Entropy (S):          %20.10f J/(mol·K)%n", result.S);
             System.out.println();
-
-            if (verbose) {
-                System.out.println("FIRST DERIVATIVES (Gradient):");
-                System.out.println("-".repeat(80));
-                System.out.println("dG/dv (Gu):");
-                for (int i = 0; i < ncf; i++) {
-                    System.out.printf("  Gu[%d] = %20.10e%n", i, result.Gu[i]);
-                }
-                System.out.println();
-                System.out.println("dH/dv (Hu):");
-                for (int i = 0; i < ncf; i++) {
-                    System.out.printf("  Hu[%d] = %20.10e%n", i, result.Hu[i]);
-                }
-                System.out.println();
-                System.out.println("dS/dv (Su):");
-                for (int i = 0; i < ncf; i++) {
-                    System.out.printf("  Su[%d] = %20.10e%n", i, result.Su[i]);
-                }
-                System.out.println();
-
-                System.out.println("SECOND DERIVATIVES (Hessian):");
-                System.out.println("-".repeat(80));
-                System.out.println("d\u00b2G/dv\u00b2 (Guu) [non-zero values only]:");
-                boolean hasNonZero = false;
-                for (int i = 0; i < ncf; i++) {
-                    for (int j = 0; j < ncf; j++) {
-                        if (Math.abs(result.Guu[i][j]) > 1e-15) {
-                            System.out.printf("  Guu[%d][%d] = %20.10e%n", i, j, result.Guu[i][j]);
-                            hasNonZero = true;
-                        }
-                    }
-                }
-                if (!hasNonZero)
-                    System.out.println("  (all zero)");
-                System.out.println();
-            }
 
         } catch (Exception e) {
             if (verbose) {

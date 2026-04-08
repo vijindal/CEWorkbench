@@ -1,17 +1,7 @@
 package org.ce;
 
-import org.ce.domain.engine.cvm.CVMEngine;
-import org.ce.domain.engine.mcs.MCSEngine;
-import org.ce.storage.ClusterDataStore;
-import org.ce.storage.Workspace;
-import org.ce.storage.HamiltonianStore;
 import org.ce.ui.gui.MainWindow;
-import org.ce.workflow.CalculationService;
-import org.ce.workflow.cec.CECManagementWorkflow;
-import org.ce.workflow.thermo.ThermodynamicWorkflow;
-
 import javax.swing.*;
-import java.nio.file.Path;
 
 /**
  * GUI entry point for the CE Thermodynamics Workbench.

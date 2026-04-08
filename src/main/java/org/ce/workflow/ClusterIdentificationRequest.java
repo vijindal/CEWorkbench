@@ -22,6 +22,48 @@ public class ClusterIdentificationRequest {
     private final int numComponents;
     private final String structurePhase;
     private final String model;
+    private final String engineType;
+
+    private static String sanitize(String id) {
+        if (id == null) return null;
+        return id.replace("_CVCF", "");
+    }
+
+    /**
+     * Constructor for CVM calculation. 
+     */
+    public ClusterIdentificationRequest(org.ce.domain.engine.ThermodynamicInput input) {
+        this(input, "CVM");
+    }
+
+    /**
+     * Constructor for specific engine types (e.g., MCS).
+     */
+    public ClusterIdentificationRequest(org.ce.domain.engine.ThermodynamicInput input, String engineType) {
+        org.ce.domain.hamiltonian.CECEntry cec = input.cec;
+        this.structurePhase = cec.structurePhase;
+        this.model = cec.model;
+        this.numComponents = input.composition.length;
+        this.engineType = engineType;
+
+        String base = sanitize(this.structurePhase);
+        String mod = sanitize(this.model);
+        
+        this.disorderedClusterFile = "clus/" + base + "-" + mod + ".txt";
+        this.orderedClusterFile = this.disorderedClusterFile;
+        this.disorderedSymmetryGroup = base + "-SG";
+        this.orderedSymmetryGroup = this.disorderedSymmetryGroup;
+
+        // Extract transformation from symmetry group immediately
+        try {
+            org.ce.domain.cluster.SpaceGroup sg = org.ce.storage.InputLoader.parseSpaceGroup(this.disorderedSymmetryGroup);
+            this.transformationMatrix = sg.getRotateMat();
+            double[] translateMat = sg.getTranslateMat();
+            this.translationVector = new org.ce.domain.cluster.ClusterPrimitives.Vector3D(translateMat[0], translateMat[1], translateMat[2]);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to extract transformation from symmetry group: " + this.disorderedSymmetryGroup, e);
+        }
+    }
 
     private ClusterIdentificationRequest(Builder builder) {
         this.disorderedClusterFile = builder.disorderedClusterFile;
@@ -33,6 +75,7 @@ public class ClusterIdentificationRequest {
         this.numComponents = builder.numComponents;
         this.structurePhase = builder.structurePhase;
         this.model = builder.model;
+        this.engineType = builder.engineType;
     }
 
     // =========================================================================
@@ -75,6 +118,10 @@ public class ClusterIdentificationRequest {
         return model;
     }
 
+    public String getEngineType() {
+        return engineType;
+    }
+
     // =========================================================================
     // Builder
     // =========================================================================
@@ -96,6 +143,12 @@ public class ClusterIdentificationRequest {
         private int numComponents;
         private String structurePhase = "BCC_A2";
         private String model = "T";
+        private String engineType = "CVM";
+
+        public Builder engineType(String type) {
+            this.engineType = type;
+            return this;
+        }
 
         public Builder disorderedClusterFile(String file) {
             this.disorderedClusterFile = file;

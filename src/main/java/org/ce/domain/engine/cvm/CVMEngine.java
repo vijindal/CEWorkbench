@@ -201,37 +201,12 @@ public class CVMEngine implements ThermodynamicEngine {
      */
     private AllClusterData resolveClusterData(ThermodynamicInput input) {
         // Strict Always-Fresh Identification Workflow
-        // We bypass any provided clusterData and any cached data to ensure 
-        // 100% traceability and fresh diagnostics for every run.
         emit(input.progressSink, "  [NOTE] Starting Always Fresh Structural Identification...");
  
-        CECEntry cec = input.cec;
-        if (cec == null) {
-            throw new IllegalArgumentException("CEC (Hamiltonian) must be provided in ThermodynamicInput when clusterData is missing.");
-        }
- 
-        String clusterFile = "clus/" + sanitize(cec.structurePhase) + "-" + sanitize(cec.model) + ".txt";
-        String symmetryGroup = sanitize(cec.structurePhase) + "-SG";
-
-        ClusterIdentificationRequest request = ClusterIdentificationRequest.builder()
-                .structurePhase(cec.structurePhase)
-                .model(cec.model)
-                .numComponents(input.composition.length)
-                .disorderedClusterFile(clusterFile)
-                .orderedClusterFile(clusterFile)
-                .disorderedSymmetryGroup(symmetryGroup)
-                .orderedSymmetryGroup(symmetryGroup)
-                .build();
+        ClusterIdentificationRequest request = new ClusterIdentificationRequest(input);
  
         // Run fresh identification workflow (No caching)
         return ClusterIdentificationWorkflow.identify(request, input.progressSink);
-    }
-
-    private String sanitize(String id) {
-        if (id == null)
-            return null;
-        // Standard workbench naming for exported CVCF Hamiltonians appends _CVCF
-        return id.replace("_CVCF", "");
     }
 
     /**

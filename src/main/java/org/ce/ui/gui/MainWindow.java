@@ -2,9 +2,6 @@ package org.ce.ui.gui;
 
 import org.ce.domain.engine.ProgressEvent;
 import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.storage.ClusterDataStore;
-import org.ce.workflow.CalculationService;
-import org.ce.workflow.cec.CECManagementWorkflow;
 
 import javax.swing.*;
 import java.awt.*;

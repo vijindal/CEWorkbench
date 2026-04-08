@@ -1,12 +1,7 @@
 package org.ce.ui.gui;
 
 import org.ce.domain.cluster.AllClusterData;
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.storage.ClusterDataStore;
-import org.ce.storage.Workspace;
 import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.workflow.ClusterIdentificationWorkflow;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -20,16 +15,6 @@ import java.util.function.Consumer;
 /**
  * Parameter panel for Type-1 cluster identification (shown in the Explorer
  * column).
- *
- * <p>
- * The user selects two sets of files:
- * </p>
- * <ol>
- * <li>The <em>ordered</em> cluster file + symmetry group (e.g. BCC_B2-T +
- * BCC_B2-SG).</li>
- * <li>The <em>disordered</em> (parent/HSP) cluster file + symmetry group (e.g.
- * BCC_A2-T).</li>
- * </ol>
  *
  * <p>
  * Log output is routed via the unified {@link org.ce.CEWorkbenchContext#log(String)} API.
@@ -48,7 +33,6 @@ public class DataPreparationPanel extends JPanel {
 
     private final org.ce.CEWorkbenchContext appCtx;
     private final Path inputsDir;
-    private final WorkbenchContext context;
     private final Consumer<String> statusSink;
 
     // Ordered phase (target) — determines system ID
@@ -62,16 +46,13 @@ public class DataPreparationPanel extends JPanel {
     private final JSpinner numCompSpinner = new JSpinner(new SpinnerNumberModel(2, 2, 20, 1));
     private final JTextField systemIdField = new JTextField(24);
 
-    private AllClusterData lastResult = null;
     private final JButton runBtn;
-    private final JButton saveBtn;
 
     public DataPreparationPanel(org.ce.CEWorkbenchContext appCtx,
             WorkbenchContext context,
             Consumer<String> statusSink) {
         this.appCtx = appCtx;
-        this.inputsDir = new Workspace().inputsDir();
-        this.context = context;
+        this.inputsDir = new org.ce.storage.Workspace().inputsDir();
         this.statusSink = statusSink;
 
         setBackground(BG);
@@ -93,8 +74,6 @@ public class DataPreparationPanel extends JPanel {
         refreshSystemId();
 
         runBtn = new JButton("Run Identification");
-        saveBtn = new JButton("Save Result");
-        saveBtn.setEnabled(false);
 
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
@@ -159,14 +138,6 @@ public class DataPreparationPanel extends JPanel {
             suffix = numComp + "comp";
         }
         return base + "_" + suffix;
-    }
-
-    private static String[] parseStructureModel(String systemId) {
-        String stripped = systemId.replaceAll("_(bin|tern|quat|\\d+comp)$", "");
-        int last = stripped.lastIndexOf('_');
-        if (last < 0)
-            return null;
-        return new String[] { stripped.substring(0, last), stripped.substring(last + 1) };
     }
 
     // =========================================================================
@@ -274,9 +245,7 @@ public class DataPreparationPanel extends JPanel {
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         btnRow.setBackground(BG);
         runBtn.addActionListener(e -> runIdentification());
-        saveBtn.addActionListener(e -> saveResult());
         btnRow.add(runBtn);
-        btnRow.add(saveBtn);
 
         GridBagConstraints rbc = new GridBagConstraints();
         rbc.gridx = 0;
@@ -352,9 +321,8 @@ public class DataPreparationPanel extends JPanel {
         statusSink.accept("Running cluster identification for " + systemId + "...");
 
         runBtn.setEnabled(false);
-        saveBtn.setEnabled(false);
 
-        SwingWorker<AllClusterData, String> worker = new SwingWorker<>() {
+        SwingWorker<AllClusterData, String> worker = new SwingWorker<AllClusterData, String>() {
             @Override
             protected AllClusterData doInBackground() throws Exception {
                 publish("Stage 1-2: Cluster + CF identification...");
@@ -374,7 +342,7 @@ public class DataPreparationPanel extends JPanel {
                         .disorderedClusterFile(disClus)
                         .disorderedSymmetryGroup(disSym)
                         .transformationMatrix(new double[][] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } })
-                        .translationVector(new Vector3D(0, 0, 0))
+                        .translationVector(new org.ce.domain.cluster.ClusterPrimitives.Vector3D(0, 0, 0))
                         .numComponents(numComp)
                         .structurePhase(structure)
                         .model(model)
@@ -393,11 +361,8 @@ public class DataPreparationPanel extends JPanel {
             protected void done() {
                 runBtn.setEnabled(true);
                 try {
-                    AllClusterData result = get();
-                    lastResult = result;
-                    saveBtn.setEnabled(true);
-
-                    appCtx.log("\nReview the identification results. Click 'Save Result' to persist to database.");
+                    get();
+                    appCtx.log("\nReview the identification results above.");
                     statusSink.accept("Cluster identification complete.");
                 } catch (Exception ex) {
                     appCtx.log("Error: " + ex.getMessage());
@@ -407,19 +372,5 @@ public class DataPreparationPanel extends JPanel {
         };
 
         worker.execute();
-    }
-
-    private void saveResult() {
-        if (lastResult == null) return;
-        String systemId = systemIdField.getText().trim();
-        try {
-            appCtx.saveClusterData(systemId, lastResult);
-            appCtx.log("Saved to ~/CEWorkbench/cluster-data/" + systemId + "/cluster_data.json");
-            statusSink.accept("Saved cluster data for " + systemId);
-            saveBtn.setEnabled(false);
-        } catch (Exception ex) {
-            appCtx.log("Error saving: " + ex.getMessage());
-            statusSink.accept("Error: " + ex.getMessage());
-        }
     }
 }
