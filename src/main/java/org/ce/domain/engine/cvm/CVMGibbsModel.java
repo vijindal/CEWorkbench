@@ -5,6 +5,7 @@ import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.ClusterIdentificationResult;
+import org.ce.domain.cluster.ClusterMath;
 
 import java.util.List;
 
@@ -222,10 +223,97 @@ public class CVMGibbsModel {
     }
 
     /**
-     * Gets the initial random state for the minimization.
+     * Computes the full disordered-state (random) CVCF vector for N-R solver initialization.
+     *
+     * <h3>Algorithm (derived from Stage 2 CF definitions and Stage 3 data)</h3>
+     * <ol>
+     *   <li><b>Point CFs (orthogonal)</b>: compute the K-1 orthogonal point CFs from
+     *       composition using the Inden (1992) basis:
+     *       {@code ⟨σ^k⟩ = Σ_i x_i · t_i^k}  for k=1…K-1,
+     *       where {@code t_i} comes from {@link ClusterMath#buildBasis(int)}.</li>
+     *   <li><b>Non-point CFs (orthogonal)</b>: for each CF column, its random value is
+     *       the product of the point CFs at the basis indices recorded by Stage 2:
+     *       {@code u_rand[col] = Π_{b ∈ cfBasisIndices[col]} ⟨σ^b⟩}
+     *       (indices are 1-based powers of σ).</li>
+     *   <li><b>Full orthogonal vector</b>: assemble [u_non-point | u_point], then
+     *       append the empty-cluster value {@code 1.0} so the vector length matches
+     *       the T matrix.</li>
+     *   <li><b>Transform to CVCF basis</b>: apply {@code Tinv} (inverse of the orthogonal-to-CVCF
+     *       transformation matrix) to obtain the CVCF coordinates.</li>
+     * </ol>
+     *
+     * @param moleFractions   mole fractions (length K = 2 or more, Σ = 1.0)
+     * @return full CVCF vector of length {@link #getTcf()} = numNonPointCfs + K
+     * @throws IllegalArgumentException if {@code orthCfBasisIndices} is null or empty
      */
-    public double[] getInitialGuess(double[] moleFractions) {
-        return basis.computeRandomState(moleFractions, orthCfBasisIndices);
+    public double[] computeRandomCFs(double[] moleFractions) {
+        int K    = moleFractions.length;
+        int nxcf = K - 1;                         // # orthogonal point CFs
+        int orthTcf = orthCfBasisIndices.length;   // total orthogonal CFs (non-point + point)
+        int orthNcf = orthTcf - nxcf;             // # orthogonal non-point CFs
+
+        // ── Step 1: K-1 orthogonal point CFs from composition ───────────────
+        // pointCF[k] = ⟨σ^(k+1)⟩ = Σ_i x_i · basis_i^(k+1)   k = 0 … nxcf-1
+        double[] basisVec = ClusterMath.buildBasis(K);
+        double[] pointCF  = new double[nxcf];
+        for (int k = 0; k < nxcf; k++) {
+            for (int i = 0; i < K; i++) {
+                pointCF[k] += moleFractions[i] * Math.pow(basisVec[i], k + 1);
+            }
+        }
+
+        // ── Step 2: orthogonal non-point random CFs ──────────────────────────
+        // u_rand[col] = Π_{b ∈ cfBasisIndices[col]} pointCF[b-1]   (b is 1-based power)
+        double[] uNonPoint = new double[orthNcf];
+        for (int col = 0; col < orthNcf; col++) {
+            double val = 1.0;
+            for (int b : orthCfBasisIndices[col]) val *= pointCF[b - 1];
+            uNonPoint[col] = val;
+        }
+
+        // ── Step 3: full orthogonal vector [u_non-point | u_point | 1.0] ────
+        // Point CFs are placed at their correct columns using cfBasisIndices.
+        // The last entry is the empty-cluster = 1.0, matching T's row count.
+        double[] uPoint = new double[nxcf];
+        for (int k = 0; k < nxcf; k++) {
+            int col = orthNcf + k;
+            int power = orthCfBasisIndices[col][0]; // single σ-power decoration
+            uPoint[k] = pointCF[power - 1];
+        }
+
+        double[][] tInv = basis.Tinv;
+        int tRows = tInv[0].length;                // columns of Tinv = rows of T
+
+        // Build u_orth_full of length tRows
+        double[] uOrthFull = new double[tRows];
+        System.arraycopy(uNonPoint, 0, uOrthFull, 0, orthNcf);
+        System.arraycopy(uPoint,    0, uOrthFull, orthNcf, nxcf);
+        if (tRows == orthTcf + 1) {
+            uOrthFull[tRows - 1] = 1.0;            // empty-cluster row = 1
+        } else if (tRows != orthTcf) {
+            throw new IllegalStateException(
+                "T row count mismatch: T.rows=" + tRows
+                + ", orthTcf=" + orthTcf
+                + "  (expected T.rows == orthTcf or orthTcf+1)");
+        }
+
+        // ── Step 4: transform to CVCF ────────────────────────────────────────
+        // v_full[j] = Σ_i Tinv[j][i] · uOrthFull[i]   for j = 0 … totalCfs()-1
+        // The last K entries (point variables in CVCF basis) equal the mole fractions.
+        double[] vFull = new double[tcf];
+        for (int j = 0; j < tcf; j++) {
+            double sum = 0.0;
+            double[] row = tInv[j];
+            for (int i = 0; i < row.length; i++) sum += row[i] * uOrthFull[i];
+            vFull[j] = sum;
+        }
+
+        // Override the point-variable entries with exact mole fractions
+        // (the T_inv rows for point variables should already recover x_i exactly,
+        // but we set them explicitly to avoid any floating-point drift)
+        for (int i = 0; i < K; i++) vFull[ncf + i] = moleFractions[i];
+
+        return vFull;
     }
 
     /**

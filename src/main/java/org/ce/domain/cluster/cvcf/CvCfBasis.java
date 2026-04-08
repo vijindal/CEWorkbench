@@ -6,12 +6,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.IntFunction;
-import org.ce.domain.cluster.LinearAlgebra;
 import org.ce.domain.cluster.AllClusterData;
+import org.ce.domain.cluster.ClusterMath;
+import org.ce.domain.cluster.LinearAlgebra;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.ClusterMath;
 
 /**
  * Holds all data for one (structure, model, numComponents) CVCF basis combination.
@@ -202,7 +202,7 @@ public final class CvCfBasis {
     // =========================================================================
 
     /**
-     * Computes the full disordered-state (random) CVCF vector for N-R solver initialization.
+     * Computes the full disordered-state (random) CVCF vector for initialization.
      *
      * <h3>Algorithm (derived from Stage 2 CF definitions and Stage 3 data)</h3>
      * <ol>
@@ -216,8 +216,7 @@ public final class CvCfBasis {
      *       (indices are 1-based powers of σ).</li>
      *   <li><b>Full orthogonal vector</b>: assemble [u_non-point | u_point], then
      *       append the empty-cluster value {@code 1.0} so the vector length matches
-     *       the row count of the T matrix (which has one row per orthogonal CF
-     *       including the empty cluster).</li>
+     *       the T matrix.</li>
      *   <li><b>CVCF transform</b>: {@code v_full = T_inv · u_orth_full},
      *       where the first {@code numNonPointCfs} entries are the optimizer variables
      *       and the last K entries are the mole fractions (point variables in CVCF basis).</li>

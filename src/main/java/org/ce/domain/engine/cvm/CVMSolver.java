@@ -62,7 +62,7 @@ public class CVMSolver {
             eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
         }
         int n = model.getNcf();
-        double[] u = model.getInitialGuess(moleFractions);
+        double[] u = model.computeRandomCFs(moleFractions);
         List<IterationSnapshot> trace = new ArrayList<>();
 
         double errf = 0;
