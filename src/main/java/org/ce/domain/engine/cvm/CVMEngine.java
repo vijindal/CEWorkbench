@@ -1,22 +1,13 @@
 package org.ce.domain.engine.cvm;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.engine.ThermodynamicEngine;
 import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.domain.engine.cvm.CVMGibbsModel.CVMInput;
 import org.ce.domain.result.EquilibriumState;
 import org.ce.domain.hamiltonian.CECEntry;
 import org.ce.domain.hamiltonian.CECEvaluator;
-import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.workflow.ClusterIdentificationWorkflow;
 
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
@@ -26,14 +17,14 @@ import java.util.logging.Logger;
  * Cluster Variation Method (CVM) for thermodynamic calculations.
  *
  * <p>
- * Responsibilities:
+ * Orchestrates the CVM calculation pipeline:
  * </p>
  * <ul>
- * <li>Create CVMInput (topology) from AllClusterData</li>
- * <li>Evaluate ECI at temperature</li>
- * <li>Validate input consistency</li>
- * <li>Run CVM minimization via CVMPhaseModel</li>
- * <li>Return EquilibriumState</li>
+ * <li>Identify cluster structures and basis functions</li>
+ * <li>Evaluate ECI (effective cluster interactions) at temperature</li>
+ * <li>Initialize CVMGibbsModel</li>
+ * <li>Run CVM minimization via CVMSolver</li>
+ * <li>Return EquilibriumState with thermodynamic properties</li>
  * </ul>
  */
 public class CVMEngine implements ThermodynamicEngine {
@@ -42,106 +33,104 @@ public class CVMEngine implements ThermodynamicEngine {
 
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
+        printHeader(input.progressSink);
 
-        // Resolve cluster data (on-the-fly or input-provided)
-        AllClusterData clusterData = resolveClusterData(input);
-
-        emit(input.progressSink, "================================================================================");
-        emit(input.progressSink, "                       CVM THERMODYNAMIC CALCULATION");
-        emit(input.progressSink, "================================================================================");
-
-        CECEntry cec = input.cec;
         double temperature = input.temperature;
         double[] composition = input.composition;
-        String systemId = input.systemId;
-        String systemName = input.systemName;
-        String structurePhase = cec.structurePhase;
+        CECEntry cec = input.cec;
 
-        emit(input.progressSink, "\nINPUT PARAMETERS");
-        emit(input.progressSink, "-----------------");
-        emit(input.progressSink, "  - System ID:      " + systemId);
-        emit(input.progressSink, "  - System Name:    " + systemName);
-        emit(input.progressSink, "  - Structure:      " + structurePhase);
-        emit(input.progressSink, "  - Temperature:    " + temperature + " K");
-        emit(input.progressSink, "  - Composition:    [" + formatArray(composition) + "]");
+        printInputParameters(input.progressSink, input.systemId, input.systemName,
+                            cec.structurePhase, temperature, composition);
 
-        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, cec.model, composition.length);
-
-        // 1. Validate structural consistency
-        validateCmatEciConsistency(clusterData.getCMatrixResult(), basis);
-
-        // 2. Validate inputs
         validateInputs(temperature, composition);
+        CvCfBasis basis = getBasis(cec, composition.length);
+        CVMGibbsModel gibbsModel = CVMGibbsModel.fromThermodynamicInput(input, input.progressSink);
 
-        /*
-         * 3. Create CVMInput (the static model topology class)
-         */
-        CVMInput cvmInput = new CVMInput(
-                clusterData.getDisorderedClusterResult(),
-                clusterData.getDisorderedCFResult(),
-                clusterData.getCMatrixResult(),
-                systemId,
-                systemName,
-                composition.length,
-                basis
-        );
+        double[] eci = evaluateEci(cec, temperature, basis, input.progressSink);
+        CVMSolver.EquilibriumResult solverResult = runSolver(gibbsModel, composition, temperature, eci, input);
 
-        /*
-         * 4. Evaluate ECI at temperature
-         */
-        emit(input.progressSink, "\n  - Evaluating Hamiltonian at T=" + temperature + " K...");
-        double[] eci = CECEvaluator.evaluate(cec, temperature, basis, "CVM");
+        validateConvergence(solverResult, input.progressSink);
+        printEquilibriumResults(input.progressSink, solverResult);
 
-        /*
-         * 5. Run CVM minimization
-         */
+        EquilibriumState result = buildEquilibriumState(temperature, composition, solverResult);
+        emit(input.progressSink, "================================================================================");
+        return result;
+    }
+
+    private CvCfBasis getBasis(CECEntry cec, int nComponents) {
+        return CvCfBasis.Registry.INSTANCE.get(cec.structurePhase, cec.model, nComponents);
+    }
+
+    private double[] evaluateEci(CECEntry cec, double temperature, CvCfBasis basis, Consumer<String> sink) {
+        emit(sink, "\n  - Evaluating Hamiltonian at T=" + temperature + " K...");
+        return CECEvaluator.evaluate(cec, temperature, basis, "CVM");
+    }
+
+    private CVMSolver.EquilibriumResult runSolver(CVMGibbsModel gibbsModel, double[] composition,
+                                                   double temperature, double[] eci, ThermodynamicInput input) {
         emit(input.progressSink, "\n  - Running CVM N-R minimization...");
-        CVMGibbsModel gibbsModel = new CVMGibbsModel(cvmInput);
-        CVMSolver solver = new CVMSolver();
-
-        CVMSolver.EquilibriumResult solverResult = solver.minimize(
+        return new CVMSolver().minimize(
                 gibbsModel,
                 composition,
                 temperature,
                 eci,
-                1.0e-5, // default tolerance
+                1.0e-5,
                 input.progressSink,
                 input.eventSink
         );
+    }
 
-        if (!solverResult.converged) {
-            emit(input.progressSink, "  [!] CVM minimization FAILED to converge!");
-            throw new RuntimeException(
-                    "CVM minimization failed to converge within " + solverResult.iterations + " iterations.");
-        }
-
-        emit(input.progressSink, String.format("  - CONVERGED in %d iterations (||Gu||=%.4e)",
-                solverResult.iterations, solverResult.finalGradientNorm));
-
-        emit(input.progressSink, "\nEQUILIBRIUM RESULTS");
-        emit(input.progressSink, "-------------------");
-        emit(input.progressSink, String.format("  - G(eq): %.6e J/mol", solverResult.modelValues.G));
-        emit(input.progressSink, String.format("  - H(eq): %.6e J/mol", solverResult.modelValues.H));
-        emit(input.progressSink, String.format("  - S(eq): %.6e J/(mol·K)", solverResult.modelValues.S));
-
-        /*
-         * 6. Iteration trace (already printed live by solver)
-         */
-
-        EquilibriumState result = new EquilibriumState(
+    private EquilibriumState buildEquilibriumState(double temperature, double[] composition,
+                                                    CVMSolver.EquilibriumResult result) {
+        return new EquilibriumState(
                 temperature,
                 composition.clone(),
-                solverResult.modelValues.H,
-                solverResult.modelValues.G,
-                solverResult.modelValues.S,
-                Double.NaN, // enthalpyStdErr (MCS only)
-                Double.NaN, // heatCapacity (MCS only)
-                solverResult.u,
-                null, // avgCFs (MCS only)
-                null // stdCFs (MCS only)
+                result.modelValues.H,
+                result.modelValues.G,
+                result.modelValues.S,
+                Double.NaN,
+                Double.NaN,
+                result.u,
+                null,
+                null
         );
-        emit(input.progressSink, "================================================================================");
-        return result;
+    }
+
+    private void printHeader(Consumer<String> sink) {
+        String border = "================================================================================";
+        emit(sink, border);
+        emit(sink, "                       CVM THERMODYNAMIC CALCULATION");
+        emit(sink, border);
+    }
+
+    private void printInputParameters(Consumer<String> sink, String systemId, String systemName,
+                                     String structurePhase, double temperature, double[] composition) {
+        emit(sink, "\nINPUT PARAMETERS");
+        emit(sink, "-----------------");
+        emit(sink, "  - System ID:      " + systemId);
+        emit(sink, "  - System Name:    " + systemName);
+        emit(sink, "  - Structure:      " + structurePhase);
+        emit(sink, "  - Temperature:    " + temperature + " K");
+        emit(sink, "  - Composition:    [" + formatArray(composition) + "]");
+    }
+
+
+    private void validateConvergence(CVMSolver.EquilibriumResult result, Consumer<String> sink) {
+        if (!result.converged) {
+            emit(sink, "  [!] CVM minimization FAILED to converge!");
+            throw new RuntimeException(
+                    "CVM minimization failed to converge within " + result.iterations + " iterations.");
+        }
+        emit(sink, String.format("  - CONVERGED in %d iterations (||Gu||=%.4e)",
+                result.iterations, result.finalGradientNorm));
+    }
+
+    private void printEquilibriumResults(Consumer<String> sink, CVMSolver.EquilibriumResult result) {
+        emit(sink, "\nEQUILIBRIUM RESULTS");
+        emit(sink, "-------------------");
+        emit(sink, String.format("  - G(eq): %.6e J/mol", result.modelValues.G));
+        emit(sink, String.format("  - H(eq): %.6e J/mol", result.modelValues.H));
+        emit(sink, String.format("  - S(eq): %.6e J/(mol·K)", result.modelValues.S));
     }
 
     private void validateInputs(double temperature, double[] composition) {
@@ -163,46 +152,12 @@ public class CVMEngine implements ThermodynamicEngine {
         }
     }
 
-    private void emit(java.util.function.Consumer<String> sink, String line) {
+    private void emit(Consumer<String> sink, String line) {
         if (sink != null)
             sink.accept(line);
         LOG.fine(line);
     }
 
-    private static void validateCmatEciConsistency(CMatrix.Result cmat, CvCfBasis basis) {
-        List<String> cmatNames = cmat.getCmatCfNames();
-        if (cmatNames == null)
-            return; // orthogonal path, skip
-
-        int ncf = basis.numNonPointCfs;
-        for (int i = 0; i < ncf; i++) {
-            String cmatLabel = cmatNames.get(i);
-            String basisLabel = basis.cfNames.get(i);
-            if (!cmatLabel.equals(basisLabel)) {
-                throw new IllegalStateException(
-                        "C-matrix column " + i + " is labelled '" + cmatLabel
-                                + "' but basis expects '" + basisLabel
-                                + "'. The cluster_data.json and CVCF basis are out of sync. "
-                                + "Re-run type1a to regenerate cluster_data.json.");
-            }
-        }
-    }
-
-    /**
-     * Resolves the required structural cluster data.
-     *
-     * <p>Uses the provided input.clusterData if available, otherwise triggers
-     * on-the-fly identification using standard naming conventions.</p>
-     */
-    private AllClusterData resolveClusterData(ThermodynamicInput input) {
-        // Strict Always-Fresh Identification Workflow
-        emit(input.progressSink, "  [NOTE] Starting Always Fresh Structural Identification...");
- 
-        ClusterIdentificationRequest request = new ClusterIdentificationRequest(input);
- 
-        // Run fresh identification workflow (No caching)
-        return ClusterIdentificationWorkflow.identify(request, input.progressSink);
-    }
 
     /**
      * Formats a double array for logging.

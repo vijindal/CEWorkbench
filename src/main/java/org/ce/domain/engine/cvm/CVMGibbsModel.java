@@ -1,13 +1,18 @@
 package org.ce.domain.engine.cvm;
 
+import org.ce.domain.cluster.AllClusterData;
 import org.ce.domain.cluster.ClusterVariableEvaluator;
 import org.ce.domain.cluster.cvcf.CvCfBasis;
 import org.ce.domain.cluster.CFIdentificationResult;
 import org.ce.domain.cluster.CMatrix;
 import org.ce.domain.cluster.ClusterIdentificationResult;
 import org.ce.domain.cluster.ClusterMath;
+import org.ce.domain.engine.ThermodynamicInput;
+import org.ce.workflow.ClusterIdentificationRequest;
+import org.ce.workflow.ClusterIdentificationWorkflow;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Physical model for the Cluster Variation Method (CVM).
@@ -20,43 +25,6 @@ import java.util.List;
  */
 public class CVMGibbsModel {
 
-    /**
-     * Input contract for the CVM model.
-     */
-    public static final class CVMInput {
-        private final ClusterIdentificationResult stage1;
-        private final CFIdentificationResult stage2;
-        private final CMatrix.Result stage3;
-        private final String systemId;
-        private final String systemName;
-        private final int numComponents;
-        private final CvCfBasis basis;
-
-        public CVMInput(
-                ClusterIdentificationResult stage1,
-                CFIdentificationResult stage2,
-                CMatrix.Result stage3,
-                String systemId,
-                String systemName,
-                int numComponents,
-                CvCfBasis basis) {
-            this.stage1 = stage1;
-            this.stage2 = stage2;
-            this.stage3 = stage3;
-            this.systemId = systemId;
-            this.systemName = systemName;
-            this.numComponents = numComponents;
-            this.basis = basis;
-        }
-
-        public ClusterIdentificationResult getStage1()  { return stage1; }
-        public CFIdentificationResult      getStage2()  { return stage2; }
-        public CMatrix.Result               getStage3()  { return stage3; }
-        public String                      getSystemId()      { return systemId; }
-        public String                      getSystemName()    { return systemName; }
-        public int                         getNumComponents() { return numComponents; }
-        public CvCfBasis                   getBasis()         { return basis; }
-    }
 
     public static final double R_GAS = 8.3144598;
     private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
@@ -97,23 +65,52 @@ public class CVMGibbsModel {
         }
     }
 
-    public CVMGibbsModel(CVMInput input) {
-        ClusterIdentificationResult stage1 = input.getStage1();
+    /**
+     * Main constructor that initializes from cluster identification results and basis.
+     */
+    public CVMGibbsModel(
+            ClusterIdentificationResult stage1,
+            CFIdentificationResult stage2,
+            CMatrix.Result stage3,
+            CvCfBasis basis) {
         this.tcdis = stage1.getTcdis();
         this.mhdis = stage1.getDisClusterData().getMultiplicities();
         this.kb = stage1.getKbCoefficients();
         this.mh = stage1.getMh();
         this.lc = stage1.getLc();
 
-        CMatrix.Result stage3 = input.getStage3();
         this.cmat = stage3.getCmat();
         this.lcv = stage3.getLcv();
         this.wcv = stage3.getWcv();
         this.orthCfBasisIndices = stage3.getCfBasisIndices();
 
-        this.basis = input.getBasis();
+        this.basis = basis;
         this.ncf = basis.numNonPointCfs;
         this.tcf = basis.totalCfs();
+    }
+
+    /**
+     * Factory method that creates a CVMGibbsModel by resolving cluster data from ThermodynamicInput.
+     */
+    public static CVMGibbsModel fromThermodynamicInput(ThermodynamicInput input, Consumer<String> progressSink) {
+        if (progressSink != null) {
+            progressSink.accept("  [NOTE] Starting Always Fresh Structural Identification...");
+        }
+        AllClusterData clusterData = ClusterIdentificationWorkflow.identify(
+                new ClusterIdentificationRequest(input),
+                progressSink
+        );
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(
+                input.cec.structurePhase,
+                input.cec.model,
+                input.composition.length
+        );
+        return new CVMGibbsModel(
+                clusterData.getDisorderedClusterResult(),
+                clusterData.getDisorderedCFResult(),
+                clusterData.getCMatrixResult(),
+                basis
+        );
     }
 
     /**
