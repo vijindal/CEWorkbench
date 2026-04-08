@@ -37,6 +37,12 @@ public final class CMatrix {
         private final int[][] cfBasisIndices;
         private final List<String> cmatCfNames;
 
+        // Runtime-only fields — not serialized to JSON.
+        // Populated by buildOrthogonal() so Stage 4 can reuse them without rebuilding.
+        private final ClusterMath.PRules pRules;
+        private final SubstituteRules substituteRules;
+        private final List<Position> siteList;
+
         @JsonCreator
         public Result(
                 @JsonProperty("cmat")            List<List<double[][]>> cmat,
@@ -49,6 +55,27 @@ public final class CMatrix {
             this.wcv = wcv;
             this.cfBasisIndices = cfBasisIndices;
             this.cmatCfNames = cmatCfNames;
+            this.pRules = null;
+            this.substituteRules = null;
+            this.siteList = null;
+        }
+
+        Result(List<List<double[][]>> cmat,
+               int[][]                lcv,
+               List<List<int[]>>      wcv,
+               int[][]                cfBasisIndices,
+               List<String>           cmatCfNames,
+               ClusterMath.PRules     pRules,
+               SubstituteRules        substituteRules,
+               List<Position>         siteList) {
+            this.cmat = cmat;
+            this.lcv = lcv;
+            this.wcv = wcv;
+            this.cfBasisIndices = cfBasisIndices;
+            this.cmatCfNames = cmatCfNames;
+            this.pRules = pRules;
+            this.substituteRules = substituteRules;
+            this.siteList = siteList;
         }
 
         public Result() {
@@ -57,6 +84,9 @@ public final class CMatrix {
             this.wcv = null;
             this.cfBasisIndices = null;
             this.cmatCfNames = null;
+            this.pRules = null;
+            this.substituteRules = null;
+            this.siteList = null;
         }
 
         public List<List<double[][]>> getCmat() { return cmat; }
@@ -64,6 +94,9 @@ public final class CMatrix {
         public List<List<int[]>> getWcv() { return wcv; }
         public int[][] getCfBasisIndices() { return cfBasisIndices; }
         public List<String> getCmatCfNames() { return cmatCfNames; }
+        public ClusterMath.PRules getPRules() { return pRules; }
+        public SubstituteRules getSubstituteRules() { return substituteRules; }
+        public List<Position> getSiteList() { return siteList; }
 
         public void validateCols(int expectedCols, String contextMsg) {
             if (cmat == null || cmat.isEmpty()) return;
@@ -247,7 +280,7 @@ public final class CMatrix {
             wcv.add(wcvType);
         }
 
-        return new Result(cmat, lcv, wcv, cfBasisIndices, null);
+        return new Result(cmat, lcv, wcv, cfBasisIndices, null, pRules, substituteRules, siteList);
     }
 
     private static void dumpCmat(String label, Result result, Consumer<String> sink) {

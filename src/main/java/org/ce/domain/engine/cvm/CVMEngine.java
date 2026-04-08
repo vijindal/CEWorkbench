@@ -50,11 +50,6 @@ public class CVMEngine implements ThermodynamicEngine {
         emit(input.progressSink, "                       CVM THERMODYNAMIC CALCULATION");
         emit(input.progressSink, "================================================================================");
 
-        // Ensure structural summary is always printed for the thermodynamic context
-        if (input.progressSink != null) {
-            clusterData.printSummary(input.progressSink);
-        }
-
         CECEntry cec = input.cec;
         double temperature = input.temperature;
         double[] composition = input.composition;

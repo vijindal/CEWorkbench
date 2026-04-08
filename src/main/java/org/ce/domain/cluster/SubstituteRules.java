@@ -142,33 +142,37 @@ public final class SubstituteRules {
 
     /**
      * Returns a canonical string encoding the geometry and basis pattern
-     * of a site-operator product.  Two products are equivalent iff they
-     * have the same sorted basis indices <em>and</em> the same sorted
-     * pairwise inter-site distances.
+     * of a site-operator product.  Two products are equivalent iff there
+     * exists a permutation of their sites that preserves all pairwise
+     * distances AND maps each site's basis index to the corresponding
+     * basis index in the other product.
+     *
+     * <p>The signature pairs each site's basis index with its sorted
+     * distances to all other sites in the product, then sorts these
+     * per-site tuples canonically.  This correctly distinguishes orbits
+     * where the same multiset of basis indices is distributed differently
+     * across geometrically non-equivalent site roles (e.g. the apex vs.
+     * the base of an isosceles triangle).</p>
      */
     static String geometrySignature(List<SiteOp> ops, List<Position> siteList) {
         int n = ops.size();
 
-        // Sorted basis indices
-        List<Integer> bases = new ArrayList<>(n);
-        for (SiteOp op : ops) {
-            bases.add(op.getBasisIndex());
-        }
-        bases.sort(Integer::compareTo);
-
-        // Sorted pairwise distances (rounded to microsecond-level to avoid
-        // floating-point noise)
-        List<Long> dists = new ArrayList<>();
+        List<String> perSiteSigs = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
+            int b = ops.get(i).getBasisIndex();
             Position pi = siteList.get(ops.get(i).getSiteIndex());
-            for (int j = i + 1; j < n; j++) {
+            List<Long> dists = new ArrayList<>(n - 1);
+            for (int j = 0; j < n; j++) {
+                if (j == i) continue;
                 Position pj = siteList.get(ops.get(j).getSiteIndex());
                 dists.add(Math.round(pi.distance(pj) * 1_000_000));
             }
+            dists.sort(Long::compareTo);
+            perSiteSigs.add(b + ":" + dists);
         }
-        dists.sort(Long::compareTo);
+        perSiteSigs.sort(String::compareTo);
 
-        return bases + "|" + dists;
+        return perSiteSigs.toString();
     }
 
     // =====================================================================

@@ -169,8 +169,19 @@ public final class CvCfBasis {
             ClusterIdentificationResult clusterResult,
             CFIdentificationResult cfResult,
             CMatrix.Result orthMatrix,
+            String model,
+            java.util.function.Consumer<String> sink) {
+        return CvCfMatrixGenerator.generate(structurePhase, clusterResult, cfResult, orthMatrix, model, sink);
+    }
+
+    /** Overload without sink for backward compatibility. */
+    public static CvCfBasis dynamic(
+            String structurePhase,
+            ClusterIdentificationResult clusterResult,
+            CFIdentificationResult cfResult,
+            CMatrix.Result orthMatrix,
             String model) {
-        return CvCfMatrixGenerator.generate(structurePhase, clusterResult, cfResult, orthMatrix, model);
+        return dynamic(structurePhase, clusterResult, cfResult, orthMatrix, model, null);
     }
 
     /**

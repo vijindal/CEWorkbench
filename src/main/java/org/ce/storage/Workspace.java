@@ -20,12 +20,6 @@ import java.nio.file.Path;
  *   │       ├─ BCC_A2-SG.txt
  *   │       └─ BCC_B2-SG.txt
  *   │
- *   ├─ cluster-data/                    ← Type-1 OUTPUTS  (element-agnostic)
- *   │   │   ID = {structure}_{model}_{ncomp}
- *   │   │   e.g. BCC_A2_T_bin, BCC_A2_T_tern, BCC_A2_T_quat
- *   │   └─ BCC_A2_T_bin/
- *   │       └─ cluster_data.json
- *   │
  *   └─ hamiltonians/                    ← ECI parameters  (element-specific)
  *         ID = {elements}_{structure}_{model}
  *         e.g. Nb-Ti_BCC_A2_T, Al-Nb_BCC_A2_T
@@ -69,21 +63,6 @@ public class Workspace {
      */
     public Path inputsDir() {
         return root.resolve("inputs");
-    }
-
-    // -------------------------------------------------------------------------
-    // Type-1 outputs  (element-agnostic cluster data)
-    // ID convention: {structure}_{model}_{ncomp}  e.g. BCC_A2_T_bin
-    // -------------------------------------------------------------------------
-
-    /** Directory for a cluster dataset: {@code <root>/cluster-data/<clusterId>/}. */
-    public Path clusterDataDir(String clusterId) {
-        return root.resolve("cluster-data").resolve(clusterId);
-    }
-
-    /** Path to the cluster data JSON: {@code <root>/cluster-data/<clusterId>/cluster_data.json}. */
-    public Path clusterDataFile(String clusterId) {
-        return clusterDataDir(clusterId).resolve("cluster_data.json");
     }
 
     // -------------------------------------------------------------------------

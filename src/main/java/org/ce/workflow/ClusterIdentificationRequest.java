@@ -42,7 +42,7 @@ public class ClusterIdentificationRequest {
     public ClusterIdentificationRequest(org.ce.domain.engine.ThermodynamicInput input, String engineType) {
         org.ce.domain.hamiltonian.CECEntry cec = input.cec;
         this.structurePhase = cec.structurePhase;
-        this.model = cec.model;
+        this.model = sanitize(cec.model);
         this.numComponents = input.composition.length;
         this.engineType = engineType;
 
