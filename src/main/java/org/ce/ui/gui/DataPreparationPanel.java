@@ -1,7 +1,7 @@
 package org.ce.ui.gui;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.workflow.ClusterIdentificationRequest;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.calculation.workflow.ClusterIdentificationRequest;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -32,6 +32,7 @@ public class DataPreparationPanel extends JPanel {
     private static final Color SYS_ID_FG = new Color(0x4EC9B0); // teal
 
     private final org.ce.CEWorkbenchContext appCtx;
+    private final WorkbenchContext context;
     private final Path inputsDir;
     private final Consumer<String> statusSink;
 
@@ -43,6 +44,7 @@ public class DataPreparationPanel extends JPanel {
     private final JComboBox<String> disorderedClusterCombo;
     private final JComboBox<String> disorderedSymCombo;
 
+    private final JTextField elementsField  = new JTextField("Nb-Ti", 12);
     private final JSpinner numCompSpinner = new JSpinner(new SpinnerNumberModel(2, 2, 20, 1));
     private final JTextField systemIdField = new JTextField(24);
 
@@ -52,7 +54,8 @@ public class DataPreparationPanel extends JPanel {
             WorkbenchContext context,
             Consumer<String> statusSink) {
         this.appCtx = appCtx;
-        this.inputsDir = new org.ce.storage.Workspace().inputsDir();
+        this.context = context;
+        this.inputsDir = new org.ce.model.storage.Workspace().inputsDir();
         this.statusSink = statusSink;
 
         setBackground(BG);
@@ -71,6 +74,16 @@ public class DataPreparationPanel extends JPanel {
 
         orderedClusterCombo.addActionListener(e -> refreshSystemId());
         numCompSpinner.addChangeListener(e -> refreshSystemId());
+        // Keep numComp in sync with elements field
+        elementsField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e)  { syncNumComp(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e)  { syncNumComp(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncNumComp(); }
+            private void syncNumComp() {
+                int n = elementsField.getText().trim().split("-").length;
+                if (n >= 2) numCompSpinner.setValue(n);
+            }
+        });
         refreshSystemId();
 
         runBtn = new JButton("Run Identification");
@@ -133,7 +146,7 @@ public class DataPreparationPanel extends JPanel {
 
         String suffix;
         try {
-            suffix = org.ce.storage.Workspace.SystemId.ncompSuffix(numComp);
+            suffix = org.ce.model.storage.Workspace.SystemId.ncompSuffix(numComp);
         } catch (IllegalArgumentException e) {
             suffix = numComp + "comp";
         }
@@ -231,6 +244,11 @@ public class DataPreparationPanel extends JPanel {
 
         // ── Shared ──
         lc.gridy = row++;
+        form.add(makeLabel("Elements (e.g. Nb-Ti):", LABEL_FG), lc);
+        fc.gridy = row++;
+        form.add(elementsField, fc);
+
+        lc.gridy = row++;
         form.add(makeLabel("Num components:", LABEL_FG), lc);
         fc.gridy = row;
         bc.gridy = row++;
@@ -320,6 +338,20 @@ public class DataPreparationPanel extends JPanel {
         appCtx.clearLog();
         statusSink.accept("Running cluster identification for " + systemId + "...");
 
+        // Parse structure and model from systemId before creating worker
+        String parsedStructure;
+        String parsedModel;
+        String[] parts = systemId.split("_");
+        if (parts.length >= 3) {
+            parsedStructure = parts[0] + "_" + parts[1];
+            parsedModel = parts[2];
+        } else {
+            parsedStructure = "BCC_A2";
+            parsedModel = "T";
+        }
+        final String resolvedStructure = parsedStructure;
+        final String resolvedModel = parsedModel;
+
         runBtn.setEnabled(false);
 
         SwingWorker<AllClusterData, String> worker = new SwingWorker<AllClusterData, String>() {
@@ -327,25 +359,16 @@ public class DataPreparationPanel extends JPanel {
             protected AllClusterData doInBackground() throws Exception {
                 publish("Stage 1-2: Cluster + CF identification...");
 
-                // Parse structure and model from systemId (e.g. BCC_A2_T_bin -> structure=BCC_A2, model=T)
-                String structure = "BCC_A2";
-                String model = "T";
-                String[] parts = systemId.split("_");
-                if (parts.length >= 3) {
-                    structure = parts[0] + "_" + parts[1];
-                    model = parts[2];
-                }
-
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
                         .orderedClusterFile(ordClus)
                         .orderedSymmetryGroup(ordSym)
                         .disorderedClusterFile(disClus)
                         .disorderedSymmetryGroup(disSym)
                         .transformationMatrix(new double[][] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } })
-                        .translationVector(new org.ce.domain.cluster.ClusterPrimitives.Vector3D(0, 0, 0))
+                        .translationVector(new org.ce.model.cluster.ClusterPrimitives.Vector3D(0, 0, 0))
                         .numComponents(numComp)
-                        .structurePhase(structure)
-                        .model(model)
+                        .structurePhase(resolvedStructure)
+                        .model(resolvedModel)
                         .build();
 
                 return appCtx.identifyClusters(config, this::publish);
@@ -362,8 +385,15 @@ public class DataPreparationPanel extends JPanel {
                 runBtn.setEnabled(true);
                 try {
                     get();
-                    appCtx.log("\nReview the identification results above.");
-                    statusSink.accept("Cluster identification complete.");
+                    appCtx.log("\nIdentification complete.");
+                    appCtx.log("Click [Rebuild] in the Session Bar to build a session for this system.");
+
+                    // Update system identity — SessionBar picks up the change and syncs its combos.
+                    String elements = elementsField.getText().trim();
+                    if (!elements.isBlank()) {
+                        context.setSystem(elements, resolvedStructure, resolvedModel);
+                    }
+                    statusSink.accept("Identification done — click Rebuild in Session Bar to continue.");
                 } catch (Exception ex) {
                     appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());

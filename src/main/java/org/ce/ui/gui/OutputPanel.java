@@ -1,12 +1,13 @@
 package org.ce.ui.gui;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECTerm;
-import org.ce.domain.engine.ProgressEvent;
-import org.ce.domain.result.ThermodynamicResult;
-import org.ce.storage.Workspace.SystemId;
+import org.ce.calculation.QuantityDescriptor;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECTerm;
+import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.storage.Workspace.SystemId;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -195,6 +196,33 @@ public class OutputPanel extends JPanel {
         });
     }
 
+    /**
+     * Shows the results of a line scan (T-sweep or x-sweep) in the chart panel.
+     * Thread-safe — can be called from any thread.
+     *
+     * @param results  list of thermodynamic results (one per scan point)
+     * @param scanType "T" for temperature scan, "X" for composition scan
+     */
+    public void showLineScanResult(List<ThermodynamicResult> results, String scanType) {
+        SwingUtilities.invokeLater(() -> {
+            resultsBodyLayout.show(resultsBody, CARD_CHART);
+            chartPanel.showLineScanResult(results, scanType);
+        });
+    }
+
+    /**
+     * Shows the results of a 2D grid scan (T × x) as a heatmap.
+     * Thread-safe — can be called from any thread.
+     *
+     * @param grid rows indexed by temperature (ascending), each row by composition (ascending)
+     */
+    public void showMapResult(List<List<ThermodynamicResult>> grid) {
+        SwingUtilities.invokeLater(() -> {
+            resultsBodyLayout.show(resultsBody, CARD_CHART);
+            chartPanel.showMapResult(grid);
+        });
+    }
+
     /** Resets the chart. Thread-safe. */
     public void clearResult() {
         SwingUtilities.invokeLater(() -> {
@@ -345,7 +373,7 @@ public class OutputPanel extends JPanel {
         private static final int ML = 64, MB = 34, MT = 22, MR = 16;
         private static final int STRIP_H = 54;
 
-        private enum Mode { IDLE, MCS, CVM }
+        private enum Mode { IDLE, MCS, CVM, LINESCAN, MAP }
 
         private Mode   mode = Mode.IDLE;
 
@@ -362,6 +390,13 @@ public class OutputPanel extends JPanel {
         private ThermodynamicResult lastResult = null;
         private String systemText = "no system selected";
         private String textResult = null;
+
+        // Line-scan data: list of [xValue, G, H, S] per scan point
+        private final List<double[]> lsData = new ArrayList<>();
+        private String lsScanType = "T";  // "T" = temperature scan, "X" = composition scan
+
+        // Map data: rows indexed by temperature (ascending), columns by composition (ascending)
+        private List<List<ThermodynamicResult>> mapGrid = new ArrayList<>();
 
         ResultChartPanel(WorkbenchContext context) {
             setBackground(BG);
@@ -386,6 +421,8 @@ public class OutputPanel extends JPanel {
             cvmGData.clear();
             cvmHData.clear();
             cvmNegTSData.clear();
+            lsData.clear();
+            mapGrid = new ArrayList<>();
             lastResult = null;
             textResult = null;
             repaint();
@@ -425,8 +462,34 @@ public class OutputPanel extends JPanel {
             cvmGData.clear();
             cvmHData.clear();
             cvmNegTSData.clear();
+            lsData.clear();
             lastResult = null;
             textResult = text;
+            repaint();
+        }
+
+        void showLineScanResult(List<ThermodynamicResult> results, String scanType) {
+            lsData.clear();
+            lsScanType = scanType;
+            for (ThermodynamicResult r : results) {
+                double xVal = "T".equals(scanType)
+                        ? r.temperature
+                        : (r.composition.length > 1 ? r.composition[1] : r.composition[0]);
+                lsData.add(new double[]{xVal, r.gibbsEnergy, r.enthalpy, r.entropy});
+            }
+            mode = Mode.LINESCAN;
+            lastResult = results.isEmpty() ? null : results.get(results.size() - 1);
+            repaint();
+        }
+
+        void showMapResult(List<List<ThermodynamicResult>> grid) {
+            mapGrid = grid;
+            mode = Mode.MAP;
+            // Set lastResult to the centre point for the strip display
+            if (!grid.isEmpty()) {
+                List<ThermodynamicResult> midRow = grid.get(grid.size() / 2);
+                lastResult = midRow.isEmpty() ? null : midRow.get(midRow.size() / 2);
+            }
             repaint();
         }
 
@@ -460,6 +523,22 @@ public class OutputPanel extends JPanel {
             // Plot background
             g.setColor(PLOT_BG);
             g.fillRect(px, py, pw, ph);
+
+            // ── Line scan mode ────────────────────────────────────────────────
+            if (mode == Mode.LINESCAN) {
+                drawLineScanChart(g, px, py, pw, ph, w);
+                g.setColor(BORDER);
+                g.drawRect(px, py, pw, ph);
+                return;
+            }
+
+            // ── Map mode ──────────────────────────────────────────────────────
+            if (mode == Mode.MAP) {
+                drawMapChart(g, px, py, pw, ph);
+                g.setColor(BORDER);
+                g.drawRect(px, py, pw, ph);
+                return;
+            }
 
             if (mode == Mode.IDLE) {
                 g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
@@ -630,6 +709,317 @@ public class OutputPanel extends JPanel {
 
             // Legend (top-right inside plot)
             drawLegend(g, px + pw - 8, py + 8);
+        }
+
+        private void drawMapChart(Graphics2D g, int px, int py, int pw, int ph) {
+            if (mapGrid == null || mapGrid.isEmpty()) {
+                g.setColor(LABEL_DIM);
+                g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+                FontMetrics fm = g.getFontMetrics();
+                String msg = "No map data";
+                g.drawString(msg, px + (pw - fm.stringWidth(msg)) / 2, py + ph / 2);
+                return;
+            }
+
+            int nT = mapGrid.size();
+            int nX = mapGrid.get(0).size();
+            if (nX == 0) return;
+
+            // Collect all Gibbs energies to find global min/max
+            double gMin = Double.MAX_VALUE, gMax = -Double.MAX_VALUE;
+            for (List<ThermodynamicResult> row : mapGrid) {
+                for (ThermodynamicResult r : row) {
+                    if (r.isFreeEnergyValid()) {
+                        if (r.gibbsEnergy < gMin) gMin = r.gibbsEnergy;
+                        if (r.gibbsEnergy > gMax) gMax = r.gibbsEnergy;
+                    }
+                }
+            }
+            if (gMax == gMin) gMax = gMin + 1;
+
+            // T and x axis ranges
+            ThermodynamicResult first = mapGrid.get(0).get(0);
+            ThermodynamicResult last  = mapGrid.get(nT - 1).get(nX - 1);
+            double tMin = first.temperature, tMax = last.temperature;
+            double xMin = first.composition.length > 1 ? first.composition[1] : 0;
+            double xMax = last.composition.length  > 1 ? last.composition[1]  : 1;
+
+            // Reserve right margin for colour bar
+            int cbW  = 18;  // colour bar width
+            int cbGap = 8;
+            int plotW = pw - cbW - cbGap - 36; // 36 for cb labels
+            if (plotW < 10) plotW = pw / 2;
+
+            int cellW = Math.max(1, plotW / nX);
+            int cellH = Math.max(1, ph / nT);
+
+            // Draw heatmap cells (row 0 = lowest T at bottom)
+            Shape oldClip = g.getClip();
+            g.setClip(px, py, plotW, ph);
+            for (int ti = 0; ti < nT; ti++) {
+                List<ThermodynamicResult> row = mapGrid.get(ti);
+                int cy = py + ph - (ti + 1) * cellH;  // low T at bottom
+                for (int xi = 0; xi < row.size(); xi++) {
+                    ThermodynamicResult r = row.get(xi);
+                    double g_val = r.isFreeEnergyValid() ? r.gibbsEnergy : gMin;
+                    double t = (g_val - gMin) / (gMax - gMin);  // 0=min(blue), 1=max(red)
+                    g.setColor(heatColor(t));
+                    g.fillRect(px + xi * cellW, cy, cellW, cellH);
+                }
+            }
+            g.setClip(oldClip);
+
+            // Axis labels
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+            g.setColor(AXIS_FG);
+            FontMetrics fm = g.getFontMetrics();
+            int nGrid = 5;
+            for (int i = 0; i <= nGrid; i++) {
+                // X axis (composition)
+                double xv = xMin + (double) i / nGrid * (xMax - xMin);
+                int gx = px + (int)((double) i / nGrid * plotW);
+                String xl = String.format("%.2f", xv);
+                g.drawString(xl, gx - fm.stringWidth(xl) / 2, py + ph + 14);
+                // Y axis (temperature)
+                double tv = tMin + (double) i / nGrid * (tMax - tMin);
+                int gy = py + ph - (int)((double) i / nGrid * ph);
+                String tl = String.format("%.0f", tv);
+                g.drawString(tl, px - fm.stringWidth(tl) - 4, gy + fm.getAscent() / 2);
+            }
+
+            // Axis titles
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = g.getFontMetrics();
+            String xTitle = "x\u2082  (composition)";
+            g.drawString(xTitle, px + (plotW - fm.stringWidth(xTitle)) / 2, py + ph + 28);
+            Graphics2D gT = (Graphics2D) g.create();
+            gT.translate(10, py + ph / 2);
+            gT.rotate(-Math.PI / 2);
+            gT.setColor(AXIS_FG);
+            gT.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = gT.getFontMetrics();
+            gT.drawString("T (K)", -fm.stringWidth("T (K)") / 2, fm.getAscent() / 2);
+            gT.dispose();
+
+            // Chart title
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
+            g.setColor(AXIS_FG);
+            fm = g.getFontMetrics();
+            String title = "G (J/mol)  vs  T \u00d7 x  [" + systemText + "]";
+            String shortened = title.length() > 72 ? title.substring(0, 69) + "..." : title;
+            g.drawString(shortened, px + (plotW - fm.stringWidth(shortened)) / 2, py - 6);
+
+            // Colour bar
+            int cbX = px + plotW + cbGap;
+            for (int i = 0; i < ph; i++) {
+                double t = 1.0 - (double) i / ph;
+                g.setColor(heatColor(t));
+                g.fillRect(cbX, py + i, cbW, 1);
+            }
+            g.setColor(BORDER);
+            g.drawRect(cbX, py, cbW, ph);
+
+            // Colour bar labels
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+            g.setColor(AXIS_FG);
+            fm = g.getFontMetrics();
+            for (int i = 0; i <= 4; i++) {
+                double val = gMax - (double) i / 4 * (gMax - gMin);
+                int ly = py + (int)((double) i / 4 * ph) + fm.getAscent() / 2;
+                g.drawString(formatAxisVal(val), cbX + cbW + 3, ly);
+            }
+        }
+
+        /** Maps t∈[0,1] → blue→white→red colour gradient. */
+        private static Color heatColor(double t) {
+            t = Math.max(0, Math.min(1, t));
+            if (t < 0.5) {
+                // blue → white
+                float f = (float)(t * 2);
+                return new Color(f, f, 1f);
+            } else {
+                // white → red
+                float f = (float)((1 - t) * 2);
+                return new Color(1f, f, f);
+            }
+        }
+
+        private static final Color LS_G_CLR = new Color(0x4EC9B0);  // teal — G
+        private static final Color LS_H_CLR = new Color(0xCE9178);  // orange — H
+        private static final Color LS_S_CLR = new Color(0x9CDCFE);  // sky — S
+
+        private void drawLineScanChart(Graphics2D g, int px, int py, int pw, int ph, int totalW) {
+            if (lsData.isEmpty()) {
+                g.setColor(LABEL_DIM);
+                g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+                FontMetrics fm = g.getFontMetrics();
+                String msg = "No line-scan data";
+                g.drawString(msg, px + (pw - fm.stringWidth(msg)) / 2, py + ph / 2);
+                return;
+            }
+
+            // Axis ranges for primary Y (G, H in J/mol) — left axis
+            double xMin = lsData.get(0)[0], xMax = lsData.get(lsData.size()-1)[0];
+            if (xMax == xMin) xMax = xMin + 1;
+
+            double yMin = Double.MAX_VALUE, yMax = -Double.MAX_VALUE;
+            for (double[] pt : lsData) {
+                if (pt[1] < yMin) yMin = pt[1];  // G
+                if (pt[1] > yMax) yMax = pt[1];
+                if (pt[2] < yMin) yMin = pt[2];  // H
+                if (pt[2] > yMax) yMax = pt[2];
+            }
+            double pad = (yMax - yMin) * 0.12;
+            if (pad == 0) pad = 1.0;
+            yMin -= pad; yMax += pad;
+
+            // Secondary Y: entropy (S) — right axis
+            double sMin = Double.MAX_VALUE, sMax = -Double.MAX_VALUE;
+            for (double[] pt : lsData) {
+                if (pt[3] < sMin) sMin = pt[3];
+                if (pt[3] > sMax) sMax = pt[3];
+            }
+            double sPad = (sMax - sMin) * 0.12;
+            if (sPad == 0) sPad = 0.001;
+            sMin -= sPad; sMax += sPad;
+
+            int nGrid = 5;
+
+            // Grid
+            g.setStroke(new BasicStroke(1f));
+            g.setColor(GRID_CLR);
+            for (int i = 0; i <= nGrid; i++) {
+                double frac = (double) i / nGrid;
+                g.drawLine(px, py + (int)(frac * ph), px + pw, py + (int)(frac * ph));
+                g.drawLine(px + (int)(frac * pw), py, px + (int)(frac * pw), py + ph);
+            }
+
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+            g.setColor(AXIS_FG);
+            FontMetrics fm = g.getFontMetrics();
+
+            // Left Y-axis labels (G, H)
+            for (int i = 0; i <= nGrid; i++) {
+                double val = yMax - (double) i / nGrid * (yMax - yMin);
+                int gy = py + (int)((double) i / nGrid * ph);
+                String lbl = formatAxisVal(val);
+                g.drawString(lbl, px - fm.stringWidth(lbl) - 4, gy + fm.getAscent() / 2);
+            }
+
+            // Right Y-axis labels (S)
+            int rightLabelX = px + pw + 4;
+            for (int i = 0; i <= nGrid; i++) {
+                double val = sMax - (double) i / nGrid * (sMax - sMin);
+                int gy = py + (int)((double) i / nGrid * ph);
+                String lbl = formatAxisVal(val);
+                g.drawString(lbl, rightLabelX, gy + fm.getAscent() / 2);
+            }
+
+            // X-axis labels
+            String xLabel = "T".equals(lsScanType) ? "T (K)" : "x₂";
+            for (int i = 0; i <= nGrid; i++) {
+                double val = xMin + (double) i / nGrid * (xMax - xMin);
+                int gx = px + (int)((double) i / nGrid * pw);
+                String lbl = "T".equals(lsScanType) ? String.format("%.0f", val) : String.format("%.3f", val);
+                g.drawString(lbl, gx - fm.stringWidth(lbl) / 2, py + ph + 14);
+            }
+
+            // Axis titles
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = g.getFontMetrics();
+            g.drawString(xLabel, px + (pw - fm.stringWidth(xLabel)) / 2, py + ph + 28);
+
+            Graphics2D gL = (Graphics2D) g.create();
+            gL.translate(10, py + ph / 2);
+            gL.rotate(-Math.PI / 2);
+            gL.setColor(AXIS_FG);
+            gL.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = gL.getFontMetrics();
+            String leftTitle = "G, H  (J/mol)";
+            gL.drawString(leftTitle, -fm.stringWidth(leftTitle) / 2, fm.getAscent() / 2);
+            gL.dispose();
+
+            Graphics2D gR = (Graphics2D) g.create();
+            gR.translate(totalW - 10, py + ph / 2);
+            gR.rotate(Math.PI / 2);
+            gR.setColor(AXIS_FG);
+            gR.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            fm = gR.getFontMetrics();
+            String rightTitle = "S  (J/mol/K)";
+            gR.drawString(rightTitle, -fm.stringWidth(rightTitle) / 2, fm.getAscent() / 2);
+            gR.dispose();
+
+            // Chart title
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
+            g.setColor(AXIS_FG);
+            fm = g.getFontMetrics();
+            String title = "T".equals(lsScanType)
+                    ? "G, H, S  vs  Temperature  [" + systemText + "]"
+                    : "G, H, S  vs  Composition  [" + systemText + "]";
+            String shortened = title.length() > 72 ? title.substring(0, 69) + "..." : title;
+            g.drawString(shortened, px + (pw - fm.stringWidth(shortened)) / 2, py - 6);
+
+            // Draw series clipped to plot area
+            Shape oldClip = g.getClip();
+            g.setClip(px, py, pw, ph);
+
+            // Build point arrays for G, H on left axis; S on right axis
+            int n = lsData.size();
+            int[] xs = new int[n], yG = new int[n], yH = new int[n], yS = new int[n];
+            for (int i = 0; i < n; i++) {
+                xs[i] = toX(lsData.get(i)[0], xMin, xMax, px, pw);
+                yG[i] = toY(lsData.get(i)[1], yMin, yMax, py, ph);
+                yH[i] = toY(lsData.get(i)[2], yMin, yMax, py, ph);
+                yS[i] = toYR(lsData.get(i)[3], sMin, sMax, py, ph);
+            }
+
+            g.setStroke(new BasicStroke(1.8f));
+            g.setColor(LS_H_CLR);
+            if (n == 1) g.fillOval(xs[0]-2, yH[0]-2, 4, 4);
+            else        g.drawPolyline(xs, yH, n);
+
+            g.setColor(LS_G_CLR);
+            if (n == 1) g.fillOval(xs[0]-2, yG[0]-2, 4, 4);
+            else        g.drawPolyline(xs, yG, n);
+
+            g.setColor(LS_S_CLR);
+            g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                    10f, new float[]{5f, 3f}, 0f));
+            if (n == 1) g.fillOval(xs[0]-2, yS[0]-2, 4, 4);
+            else        g.drawPolyline(xs, yS, n);
+            g.setStroke(new BasicStroke(1f));
+
+            g.setClip(oldClip);
+
+            // Legend (top-right inside plot)
+            drawLineScanLegend(g, px + pw - 8, py + 8);
+        }
+
+        private void drawLineScanLegend(Graphics2D g, int rightX, int topY) {
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+            int lineW = 14, lineH = 12, y = topY;
+
+            g.setStroke(new BasicStroke(1.8f));
+            g.setColor(LS_G_CLR);
+            g.drawLine(rightX - 60, y + 6, rightX - 60 + lineW, y + 6);
+            g.setColor(AXIS_FG);
+            g.drawString("G", rightX - 43, y + 9);
+            y += lineH;
+
+            g.setStroke(new BasicStroke(1.8f));
+            g.setColor(LS_H_CLR);
+            g.drawLine(rightX - 60, y + 6, rightX - 60 + lineW, y + 6);
+            g.setColor(AXIS_FG);
+            g.drawString("H", rightX - 43, y + 9);
+            y += lineH;
+
+            g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                    10f, new float[]{5f, 3f}, 0f));
+            g.setColor(LS_S_CLR);
+            g.drawLine(rightX - 60, y + 6, rightX - 60 + lineW, y + 6);
+            g.setColor(AXIS_FG);
+            g.drawString("S (→)", rightX - 43, y + 9);
+            g.setStroke(new BasicStroke(1f));
         }
 
         private void drawSeries(Graphics2D g, List<double[]> data, Color color,

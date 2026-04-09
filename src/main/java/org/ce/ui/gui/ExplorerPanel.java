@@ -26,10 +26,12 @@ public class ExplorerPanel extends JPanel {
     private static final String[] TITLES = {
         "DATA PREPARATION",
         "HAMILTONIAN  /  ECI",
-        "CALCULATION",
+        "SINGLE POINT",
+        "LINE SCAN",
+        "MAP SCAN",
     };
 
-    private static final String[] CARDS = { "DataPrep", "Hamiltonian", "Calculate" };
+    private static final String[] CARDS = { "DataPrep", "Hamiltonian", "Single", "LineScan", "Map" };
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel     cardPanel  = new JPanel(cardLayout);

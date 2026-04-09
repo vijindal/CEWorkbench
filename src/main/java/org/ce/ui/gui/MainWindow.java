@@ -1,7 +1,8 @@
 package org.ce.ui.gui;
 
-import org.ce.domain.engine.ProgressEvent;
-import org.ce.domain.hamiltonian.CECEntry;
+import org.ce.calculation.QuantityDescriptor;
+import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.hamiltonian.CECEntry;
 
 import javax.swing.*;
 import java.awt.*;
@@ -55,6 +56,9 @@ public class MainWindow extends JFrame {
         // ── shared session state ──────────────────────────────────────────────
         WorkbenchContext context = new WorkbenchContext();
 
+        // ── shared quantity selection model ───────────────────────────────────
+        QuantityDescriptor.SelectionModel quantityModel = new QuantityDescriptor.SelectionModel();
+
         // ── chrome ───────────────────────────────────────────────────────────
         statusBar = new StatusBar();
         HeaderBar header = new HeaderBar(context);
@@ -73,7 +77,7 @@ public class MainWindow extends JFrame {
         java.util.function.Consumer<String> statusSink = this::postStatus;
         java.util.function.BiConsumer<CECEntry, CECEntry> cecResultSink = outputPanel::showCECResult;
         java.util.function.Function<CECEntry, Boolean> cecEditApplySink = outputPanel::applyCECEdits;
-        java.util.function.Consumer<org.ce.domain.result.ThermodynamicResult> resultSink =
+        java.util.function.Consumer<org.ce.model.result.ThermodynamicResult> resultSink =
                 outputPanel::showResult;
         java.util.function.Consumer<ProgressEvent> chartSink = outputPanel::onChartEvent;
 
@@ -85,19 +89,29 @@ public class MainWindow extends JFrame {
                 appCtx, context, statusSink, cecResultSink, cecEditApplySink);
 
         CalculationPanel calcPanel = new CalculationPanel(
-                appCtx, context, statusSink, resultSink, chartSink);
+                appCtx, context, statusSink, resultSink, chartSink, quantityModel);
+
+        LineScanPanel lineScanPanel = new LineScanPanel(
+                appCtx, context, statusSink, logSink, outputPanel, quantityModel);
+
+        MapPanel mapPanel = new MapPanel(
+                appCtx, context, statusSink, logSink, outputPanel, quantityModel);
 
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();
         explorerPanel.addCard(dataPrepPanel, 0);
         explorerPanel.addCard(cecPanel,      1);
         explorerPanel.addCard(calcPanel,     2);
+        explorerPanel.addCard(lineScanPanel, 3);
+        explorerPanel.addCard(mapPanel,      4);
 
         // ── activity bar ──────────────────────────────────────────────────────
         Runnable[] navCallbacks = {
             () -> navigate(0),
             () -> navigate(1),
             () -> navigate(2),
+            () -> navigate(3),
+            () -> navigate(4),
         };
         activityBar = new ActivityBar(navCallbacks);
 
@@ -115,10 +129,18 @@ public class MainWindow extends JFrame {
         centre.add(activityBar,   BorderLayout.WEST);
         centre.add(contentSplit,  BorderLayout.CENTER);
 
+        // ── session bar (between header and main content) ─────────────────────
+        SessionBar sessionBar = new SessionBar(appCtx, context, statusSink, logSink);
+
+        JPanel northZone = new JPanel(new BorderLayout());
+        northZone.setBackground(new Color(0x1A1A1A));
+        northZone.add(header,     BorderLayout.NORTH);
+        northZone.add(sessionBar, BorderLayout.SOUTH);
+
         // ── assemble ──────────────────────────────────────────────────────────
         setLayout(new BorderLayout());
-        add(header,   BorderLayout.NORTH);
-        add(centre,   BorderLayout.CENTER);
+        add(northZone, BorderLayout.NORTH);
+        add(centre,    BorderLayout.CENTER);
         add(statusBar, BorderLayout.SOUTH);
 
         navigate(2);    // start on Calculation panel
