@@ -30,16 +30,16 @@ public class ClusterIdentificationRequest {
     }
 
     /**
-     * Constructor for CVM calculation. 
+     * Constructor for CVM calculation.
      */
-    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicInput input) {
+    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicEngine.Input input) {
         this(input, "CVM");
     }
 
     /**
      * Constructor for specific engine types (e.g., MCS).
      */
-    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicInput input, String engineType) {
+    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicEngine.Input input, String engineType) {
         org.ce.model.hamiltonian.CECEntry cec = input.cec;
         this.structurePhase = cec.structurePhase;
         this.model = sanitize(cec.model);

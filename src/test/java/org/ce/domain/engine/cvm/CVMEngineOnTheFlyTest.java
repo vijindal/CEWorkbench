@@ -1,6 +1,6 @@
 package org.ce.domain.engine.cvm;
 
-import org.ce.calculation.engine.ThermodynamicInput;
+import org.ce.calculation.engine.ThermodynamicEngine;
 import org.ce.calculation.engine.cvm.CVMEngine;
 import org.ce.calculation.workflow.ClusterIdentificationRequest;
 import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
@@ -39,7 +39,7 @@ public class CVMEngineOnTheFlyTest {
                 .build();
         AllClusterData clusterData = ClusterIdentificationWorkflow.identify(idRequest);
 
-        ThermodynamicInput input = new ThermodynamicInput(
+        ThermodynamicEngine.Input input = new ThermodynamicEngine.Input(
                 clusterData,
                 cec,
                 temperature,

@@ -6,7 +6,7 @@ import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.storage.Workspace.SystemId;
 import org.ce.calculation.workflow.ClusterIdentificationRequest;
 import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
-import org.ce.calculation.workflow.cec.CECManagementWorkflow;
+import org.ce.calculation.workflow.CECManagementWorkflow;
 
 import java.util.function.Consumer;
 import java.util.logging.Logger;

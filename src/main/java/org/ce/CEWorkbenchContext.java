@@ -7,7 +7,7 @@ import org.ce.model.storage.Workspace;
 import org.ce.calculation.workflow.CalculationService;
 import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
 import org.ce.calculation.workflow.ClusterIdentificationRequest;
-import org.ce.calculation.workflow.cec.CECManagementWorkflow;
+import org.ce.calculation.workflow.CECManagementWorkflow;
 import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.ModelSession;

@@ -9,7 +9,6 @@ import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.model.cluster.CMatrix;
 import org.ce.calculation.engine.ProgressEvent;
 import org.ce.calculation.engine.ThermodynamicEngine;
-import org.ce.calculation.engine.ThermodynamicInput;
 import org.ce.calculation.engine.mcs.MCResult;
 import org.ce.calculation.engine.mcs.MCSRunner;
 import org.ce.model.mcs.MCSUpdate;
@@ -35,7 +34,7 @@ public class MCSEngine implements ThermodynamicEngine {
     private static final Logger LOG = Logger.getLogger(MCSEngine.class.getName());
 
     @Override
-    public ThermodynamicResult.EquilibriumState compute(ThermodynamicInput input) throws Exception {
+    public ThermodynamicResult.EquilibriumState compute(ThermodynamicEngine.Input input) throws Exception {
 
         // Cluster data must be pre-built by ModelSession — not re-identified here
         java.util.Objects.requireNonNull(input.clusterData,

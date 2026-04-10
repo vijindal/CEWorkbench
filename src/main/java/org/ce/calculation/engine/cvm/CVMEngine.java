@@ -4,7 +4,6 @@ import org.ce.model.cluster.AllClusterData;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.calculation.engine.ThermodynamicEngine;
-import org.ce.calculation.engine.ThermodynamicInput;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
@@ -34,7 +33,7 @@ public class CVMEngine implements ThermodynamicEngine {
     private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
 
     @Override
-    public ThermodynamicResult.EquilibriumState compute(ThermodynamicInput input) throws Exception {
+    public ThermodynamicResult.EquilibriumState compute(ThermodynamicEngine.Input input) throws Exception {
         printHeader(input.progressSink);
 
         double temperature = input.temperature;
@@ -74,7 +73,7 @@ public class CVMEngine implements ThermodynamicEngine {
     }
 
     private CVMSolver.EquilibriumResult runSolver(CVMGibbsModel gibbsModel, double[] composition,
-                                                   double temperature, double[] eci, ThermodynamicInput input) {
+                                                   double temperature, double[] eci, ThermodynamicEngine.Input input) {
         emit(input.progressSink, "\n  - Running CVM N-R minimization...");
         return new CVMSolver().minimize(
                 gibbsModel,

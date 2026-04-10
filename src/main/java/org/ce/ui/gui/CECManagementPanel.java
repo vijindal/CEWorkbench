@@ -1,7 +1,7 @@
 package org.ce.ui.gui;
 
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.calculation.workflow.cec.CECManagementWorkflow;
+import org.ce.calculation.workflow.CECManagementWorkflow;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;

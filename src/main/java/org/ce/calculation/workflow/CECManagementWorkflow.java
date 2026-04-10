@@ -1,4 +1,4 @@
-package org.ce.calculation.workflow.cec;
+package org.ce.calculation.workflow;
 
 import static org.ce.model.cluster.AllClusterData.ClusterData;
 
@@ -184,13 +184,13 @@ public class CECManagementWorkflow {
         }
 
         // Run fresh identification to get metadata
-        org.ce.calculation.workflow.ClusterIdentificationRequest request = org.ce.calculation.workflow.ClusterIdentificationRequest.builder()
+        ClusterIdentificationRequest request = ClusterIdentificationRequest.builder()
                 .structurePhase(structurePhase)
                 .model(model)
                 .numComponents(numComponents)
                 .build();
 
-        AllClusterData clusterData = org.ce.calculation.workflow.ClusterIdentificationWorkflow.identify(request, null);
+        AllClusterData clusterData = ClusterIdentificationWorkflow.identify(request, null);
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
@@ -283,11 +283,11 @@ public class CECManagementWorkflow {
     public CECEntry loadAndValidateCEC(String clusterId, String hamiltonianId) throws Exception {
 
         CECEntry entry = store.load(hamiltonianId);
-        
+
         // Determine expected ncf from basis registry
         int numComponents = entry.elements.split("-").length;
         CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(entry.structurePhase, entry.model, numComponents);
-        
+
         validateCEC(entry, basis.numNonPointCfs);
 
         return entry;

@@ -1,7 +1,6 @@
 package org.ce.calculation.workflow.thermo;
 
 import org.ce.calculation.engine.ThermodynamicEngine;
-import org.ce.calculation.engine.ThermodynamicInput;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 
@@ -53,7 +52,7 @@ public class ThermodynamicWorkflow {
         emit(request.progressSink, "STAGE 3: Using pre-loaded Hamiltonian '"
                 + session.resolvedHamiltonianId + "'");
 
-        ThermodynamicInput input = new ThermodynamicInput(
+        ThermodynamicEngine.Input input = new ThermodynamicEngine.Input(
                 session.clusterData,
                 session.cecEntry,
                 request.temperature,
