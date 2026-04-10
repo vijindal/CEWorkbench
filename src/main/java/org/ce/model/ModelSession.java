@@ -1,12 +1,11 @@
 package org.ce.model;
 
 import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.storage.Workspace.SystemId;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
-import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
-import org.ce.calculation.workflow.CECManagementWorkflow;
+import org.ce.model.storage.DataStore;
 
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -144,10 +143,10 @@ public final class ModelSession {
 
         private static final Logger LOG = Logger.getLogger(Builder.class.getName());
 
-        private final CECManagementWorkflow cecWorkflow;
+        private final DataStore.HamiltonianStore hamiltonianStore;
 
-        public Builder(CECManagementWorkflow cecWorkflow) {
-            this.cecWorkflow = cecWorkflow;
+        public Builder(DataStore.HamiltonianStore hamiltonianStore) {
+            this.hamiltonianStore = hamiltonianStore;
         }
 
         /**
@@ -191,7 +190,7 @@ public final class ModelSession {
                     .orderedSymmetryGroup(symGroup)
                     .build();
 
-            AllClusterData clusterData = ClusterIdentificationWorkflow.identify(clusterReq, progressSink);
+            AllClusterData clusterData = AllClusterData.identify(clusterReq, progressSink);
             emit(progressSink, "  [Session] ✓ Cluster identification complete");
 
             // ── Stage 2: Resolve Hamiltonian ID ──────────────────────────────
@@ -201,17 +200,28 @@ public final class ModelSession {
 
             // ── Stage 3: Load and validate Hamiltonian ────────────────────────
             emit(progressSink, "  [Session] Stage 3: Loading Hamiltonian '" + resolvedHamiltonianId + "'...");
-            CECEntry cecEntry = cecWorkflow.loadAndValidateCEC(
-                    systemId.clusterId(), resolvedHamiltonianId);
+            CECEntry cecEntry = hamiltonianStore.load(resolvedHamiltonianId);
+
+            // Validate CEC: term count must be > 0 and <= basis.numNonPointCfs
+            CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(
+                    systemId.structure, systemId.model, numComponents);
+            int termCount = cecEntry.cecTerms == null ? 0 : cecEntry.cecTerms.length;
+            if (termCount <= 0 || termCount > basis.numNonPointCfs) {
+                throw new IllegalStateException("CEC term count (" + termCount
+                        + ") is invalid (must be > 0 and <= " + basis.numNonPointCfs + ")");
+            }
+            for (CECEntry.CECTerm term : cecEntry.cecTerms) {
+                term.validate();
+            }
+
             emit(progressSink, "  [Session] ✓ Hamiltonian loaded (" + cecEntry.ncf + " terms)");
 
-            // ── Stage 4: Resolve CVCF basis ───────────────────────────────────
-            emit(progressSink, "  [Session] Stage 4: Resolving CVCF basis...");
-            CvCfBasis cvcfBasis = CvCfBasis.Registry.INSTANCE.get(
-                    systemId.structure, systemId.model, numComponents);
+            // ── Stage 4: CVCF basis already resolved during validation ─────────────
+            emit(progressSink, "  [Session] Stage 4: CVCF basis resolved...");
             emit(progressSink, "  [Session] ✓ Basis resolved: "
-                    + cvcfBasis.numNonPointCfs + " non-point CFs, "
-                    + cvcfBasis.numComponents + " point variables");
+                    + basis.numNonPointCfs + " non-point CFs, "
+                    + basis.numComponents + " point variables");
+            CvCfBasis cvcfBasis = basis;
 
             emit(progressSink, "  [Session] ✓ Session ready — " + systemId.elements
                     + " / " + systemId.structure + " / " + systemId.model);
@@ -246,7 +256,7 @@ public final class ModelSession {
 
             // Preferred: exact _CVCF suffix
             String preferredId = baseId + "_CVCF";
-            if (cecWorkflow.hamiltonianExists(preferredId)) {
+            if (hamiltonianStore.exists(preferredId)) {
                 emit(progressSink, "  [Session] CVM mode: using CVCF Hamiltonian '"
                         + preferredId + "'");
                 LOG.info("CVM mode: using CVCF Hamiltonian '" + preferredId + "'");
@@ -257,7 +267,7 @@ public final class ModelSession {
             int lastUnderscore = baseId.lastIndexOf('_');
             if (lastUnderscore > 0) {
                 String legacyId = baseId.substring(0, lastUnderscore) + "_CVCF";
-                if (cecWorkflow.hamiltonianExists(legacyId)) {
+                if (hamiltonianStore.exists(legacyId)) {
                     emit(progressSink, "  [Session] CVM mode: using CVCF Hamiltonian (legacy) '"
                             + legacyId + "'");
                     LOG.info("CVM mode: using CVCF Hamiltonian (legacy) '" + legacyId + "'");

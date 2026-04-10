@@ -8,6 +8,7 @@ import static org.ce.model.cluster.ClusterPrimitives.*;
 
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.cluster.CFIdentificationResult;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.NumericalCECTransformer;
@@ -190,7 +191,7 @@ public class CECManagementWorkflow {
                 .numComponents(numComponents)
                 .build();
 
-        AllClusterData clusterData = ClusterIdentificationWorkflow.identify(request, null);
+        AllClusterData clusterData = AllClusterData.identify(request, null);
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 

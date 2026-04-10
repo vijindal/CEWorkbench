@@ -1,4 +1,4 @@
-package org.ce.calculation.workflow;
+package org.ce.model.cluster;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.model.cluster.SpaceGroup;
@@ -27,42 +27,6 @@ public class ClusterIdentificationRequest {
     private static String sanitize(String id) {
         if (id == null) return null;
         return id.replace("_CVCF", "");
-    }
-
-    /**
-     * Constructor for CVM calculation.
-     */
-    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicEngine.Input input) {
-        this(input, "CVM");
-    }
-
-    /**
-     * Constructor for specific engine types (e.g., MCS).
-     */
-    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicEngine.Input input, String engineType) {
-        org.ce.model.hamiltonian.CECEntry cec = input.cec;
-        this.structurePhase = cec.structurePhase;
-        this.model = sanitize(cec.model);
-        this.numComponents = input.composition.length;
-        this.engineType = engineType;
-
-        String base = sanitize(this.structurePhase);
-        String mod = sanitize(this.model);
-        
-        this.disorderedClusterFile = "clus/" + base + "-" + mod + ".txt";
-        this.orderedClusterFile = this.disorderedClusterFile;
-        this.disorderedSymmetryGroup = base + "-SG";
-        this.orderedSymmetryGroup = this.disorderedSymmetryGroup;
-
-        // Extract transformation from symmetry group immediately
-        try {
-            org.ce.model.cluster.SpaceGroup sg = org.ce.model.storage.InputLoader.parseSpaceGroup(this.disorderedSymmetryGroup);
-            this.transformationMatrix = sg.getRotateMat();
-            double[] translateMat = sg.getTranslateMat();
-            this.translationVector = new org.ce.model.cluster.ClusterPrimitives.Vector3D(translateMat[0], translateMat[1], translateMat[2]);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to extract transformation from symmetry group: " + this.disorderedSymmetryGroup, e);
-        }
     }
 
     private ClusterIdentificationRequest(Builder builder) {

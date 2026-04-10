@@ -2,8 +2,7 @@ package org.ce.domain.engine.cvm;
 
 import org.ce.calculation.engine.ThermodynamicEngine;
 import org.ce.calculation.engine.cvm.CVMEngine;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
-import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.ThermodynamicResult;
@@ -37,7 +36,7 @@ public class CVMEngineOnTheFlyTest {
                 .structurePhase("BCC_A2")
                 .model("T")
                 .build();
-        AllClusterData clusterData = ClusterIdentificationWorkflow.identify(idRequest);
+        AllClusterData clusterData = AllClusterData.identify(idRequest);
 
         ThermodynamicEngine.Input input = new ThermodynamicEngine.Input(
                 clusterData,

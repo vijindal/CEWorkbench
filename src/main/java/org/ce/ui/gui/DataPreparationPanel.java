@@ -1,7 +1,7 @@
 package org.ce.ui.gui;
 
 import org.ce.model.cluster.AllClusterData;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;

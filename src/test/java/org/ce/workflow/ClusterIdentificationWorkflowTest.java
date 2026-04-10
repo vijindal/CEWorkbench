@@ -1,7 +1,6 @@
 package org.ce.workflow;
 
-import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.model.cluster.AllClusterData;
 import org.junit.jupiter.api.Test;
@@ -34,7 +33,7 @@ public class ClusterIdentificationWorkflowTest {
                 .build();
 
         // Run the identification workflow
-        AllClusterData result = ClusterIdentificationWorkflow.identify(config);
+        AllClusterData result = AllClusterData.identify(config);
 
         // Verify results are not null
         assertNotNull(result, "AllClusterData should not be null");

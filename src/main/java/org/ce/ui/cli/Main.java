@@ -9,7 +9,7 @@ import org.ce.model.ThermodynamicResult;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
 import org.ce.calculation.workflow.CalculationService;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.calculation.workflow.thermo.ThermodynamicRequest;
 
 import java.util.List;

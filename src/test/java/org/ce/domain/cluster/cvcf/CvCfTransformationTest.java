@@ -4,12 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cluster.ClusterVariableEvaluator;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.cluster.cvcf.CvCfBasisTransformer;
 import org.ce.model.cluster.cvcf.BccA2TModelCvCfTransformations;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
-import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -69,7 +68,7 @@ public class CvCfTransformationTest {
                 .model("T")
                 .build();
 
-        AllClusterData fullData = ClusterIdentificationWorkflow.identify(request, System.out::println);
+        AllClusterData fullData = AllClusterData.identify(request, System.out::println);
         CMatrix.Result orthoResult = fullData.getCMatrixResult();
         
         // Extract block for printing

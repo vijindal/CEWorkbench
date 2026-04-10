@@ -5,11 +5,10 @@ import org.ce.calculation.engine.mcs.MCSEngine;
 import org.ce.model.storage.DataStore;
 import org.ce.model.storage.Workspace;
 import org.ce.calculation.workflow.CalculationService;
-import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
-import org.ce.calculation.workflow.ClusterIdentificationRequest;
 import org.ce.calculation.workflow.CECManagementWorkflow;
 import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
 import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.ModelSession;
 
 import java.io.IOException;
@@ -55,7 +54,7 @@ public class CEWorkbenchContext {
                 cvmEngine, mcsEngine
         );
         this.calculationService = new CalculationService(thermoWorkflow);
-        this.sessionBuilder = new ModelSession.Builder(cecWorkflow);
+        this.sessionBuilder = new ModelSession.Builder(hamiltonianStore);
     }
 
     // =========================================================================
@@ -125,7 +124,7 @@ public class CEWorkbenchContext {
      * Does NOT save results automatically.
      */
     public AllClusterData identifyClusters(ClusterIdentificationRequest request, Consumer<String> progressSink) throws IOException {
-        return ClusterIdentificationWorkflow.identify(request, progressSink);
+        return AllClusterData.identify(request, progressSink);
     }
 
 }
