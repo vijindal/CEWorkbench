@@ -160,6 +160,19 @@ public class ClusterIdentificationRequest {
         }
 
         public ClusterIdentificationRequest build() {
+            // Auto-derive cluster and symmetry files if not set
+            if ((disorderedClusterFile == null || disorderedClusterFile.isBlank()) && structurePhase != null && model != null) {
+                String base = structurePhase.replace("_CVCF", "");
+                String mod = model.replace("_CVCF", "");
+                this.disorderedClusterFile = "clus/" + base + "-" + mod + ".txt";
+                this.orderedClusterFile = this.disorderedClusterFile;
+            }
+            if ((disorderedSymmetryGroup == null || disorderedSymmetryGroup.isBlank()) && structurePhase != null) {
+                String base = structurePhase.replace("_CVCF", "");
+                this.disorderedSymmetryGroup = base + "-SG";
+                this.orderedSymmetryGroup = this.disorderedSymmetryGroup;
+            }
+
             validate();
             // Auto-extract transformation matrix and translation vector from symmetry group files if not set
             if (transformationMatrix == null || translationVector == null) {
