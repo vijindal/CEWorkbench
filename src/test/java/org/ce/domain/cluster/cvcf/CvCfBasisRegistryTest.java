@@ -3,6 +3,8 @@ package org.ce.domain.cluster.cvcf;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.ce.model.cluster.cvcf.CvCfBasis;
+
 import java.util.Optional;
 
 /**

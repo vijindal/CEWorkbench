@@ -1,9 +1,9 @@
 package org.ce.workflow;
 
-import org.ce.workflow.ClusterIdentificationWorkflow;
-import org.ce.workflow.ClusterIdentificationRequest;
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-import org.ce.domain.cluster.AllClusterData;
+import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
+import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import static org.ce.model.cluster.ClusterPrimitives.*;
+import org.ce.model.cluster.AllClusterData;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;

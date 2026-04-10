@@ -2,11 +2,14 @@ package org.ce.domain.cluster.cvcf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.ClusterVariableEvaluator;
-import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.workflow.ClusterIdentificationWorkflow;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.ClusterVariableEvaluator;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cluster.cvcf.CvCfBasisTransformer;
+import org.ce.model.cluster.cvcf.BccA2TModelCvCfTransformations;
+import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
 import org.junit.jupiter.api.Test;
 
 /**

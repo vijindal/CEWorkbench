@@ -54,6 +54,11 @@ public class ClusterIdentificationWorkflow {
 
         // [STAGE 1a/1b]: Identify clusters
         emit(progressSink, "\n[STAGE 1a/1b]: Identifying Clusters (Structural Symmetry)...");
+        
+        if (config.getTranslationVector() == null) {
+            throw new IllegalStateException("translationVector is null in identify(config)");
+        }
+
         ClusterIdentificationResult clusterResult = ClusterIdentifier.identify(
                 disorderedClusters,
                 disorderedSymOps,
@@ -63,11 +68,11 @@ public class ClusterIdentificationWorkflow {
                 new double[] { config.getTranslationVector().getX(),
                         config.getTranslationVector().getY(),
                         config.getTranslationVector().getZ() });
+        
         emit(progressSink, String.format("  [STAGE 2a OK] Clusters identified: tcdis=%d, nxcdis=%d, tc=%d, nxc=%d, kb[0]=%.4f",
                 clusterResult.getTcdis(), clusterResult.getNxcdis(),
                 clusterResult.getTc(), clusterResult.getNxc(),
                 clusterResult.getKbCoefficients()[0]));
-        //clusterResult.printSummary(progressSink);
 
         // [STAGE 2a/2b]: Identify CFs
         emit(progressSink, "\n[STAGE 2a/2b]: Identifying Correlation Function (CF) Orbits...");
@@ -80,10 +85,10 @@ public class ClusterIdentificationWorkflow {
                 orderedSpaceGroup.getRotateMat(),
                 orderedSpaceGroup.getTranslateMat(),
                 config.getNumComponents());
+        
         emit(progressSink, String.format("  [STAGE 2b OK] CFs identified: tcfdis=%d, tcf=%d, nxcf=%d, ncf=%d, uNames=%d, eoNames=%d",
                 cfResult.getTcfdis(), cfResult.getTcf(), cfResult.getNxcf(), cfResult.getNcf(),
                 cfResult.getUNames().size(), cfResult.getEONames().size()));
-        //cfResult.printSummary(progressSink);
 
         // [STAGE 3]: Orthogonal C-Matrix
         emit(progressSink, "\n[STAGE 3]: Building Orthogonal C-Matrix foundation...");
@@ -92,34 +97,24 @@ public class ClusterIdentificationWorkflow {
                 cfResult,
                 orderedClusters,
                 numComponents);
-        // [STAGE 3] metadata — printed now; printSummary below will be commented out once stable
+        
         int[][] lcv = orthMatrix.getLcv();
         java.util.List<java.util.List<int[]>> wcv = orthMatrix.getWcv();
         int totalCvRows = 0;
         for (int[] lcvt : lcv) for (int v : lcvt) totalCvRows += v;
         emit(progressSink, String.format("  [STAGE 3 OK] C-Matrix built: %d cluster types, %d total CV rows", lcv.length, totalCvRows));
-        for (int t = 0; t < lcv.length; t++) {
-            StringBuilder sb = new StringBuilder(String.format("    t=%-2d  lcv=%s  wcv=", t, java.util.Arrays.toString(lcv[t])));
-            for (int j = 0; j < wcv.get(t).size(); j++) sb.append(java.util.Arrays.toString(wcv.get(t).get(j))).append(" ");
-            emit(progressSink, sb.toString().stripTrailing());
-        }
-        //orthMatrix.printSummary("Orthogonal Basis (Structural Foundation)", progressSink);
 
         // [STAGE 4]: CVCF Transformation
         emit(progressSink, "\n[STAGE 4]: Transforming to CVCF Basis (Thermodynamic Basis)...");
-        emit(progressSink, "  [NOTE] Generating transformation matrix dynamically from CV definitions...");
         CvCfBasis cvcfBasis = CvCfBasis.dynamic(structurePhase, clusterResult, cfResult, orthMatrix, model, progressSink);
 
         CMatrix.Result cMatrix = org.ce.model.cluster.cvcf.CvCfBasisTransformer.transform(orthMatrix,
                 cvcfBasis);
-        cMatrix.printSummary("Final CVCF Result (Minimized Hamiltonian Basis)", progressSink);
 
         List<String> uList = cfResult.getUNames();
         List<String> eOList = cfResult.getEONames();
         List<String> vList = cvcfBasis.cfNames;
         List<String> eList = cvcfBasis.eciNames;
-
-        //printTransformationMatrix(cvcfBasis.T, progressSink);
 
         double[] equiX = new double[numComponents];
         Arrays.fill(equiX, 1.0 / numComponents);

@@ -11,6 +11,7 @@ import org.ce.model.cluster.Cluster;
 import org.ce.model.cluster.CMatrix;
 import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
 import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.mcs.MCSUpdate;
 
 import java.util.ArrayList;
 import java.util.List;

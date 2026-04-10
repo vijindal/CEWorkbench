@@ -3,6 +3,9 @@ package org.ce.domain.cluster.cvcf;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cluster.cvcf.BccA2TModelCvCfTransformations;
+
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;

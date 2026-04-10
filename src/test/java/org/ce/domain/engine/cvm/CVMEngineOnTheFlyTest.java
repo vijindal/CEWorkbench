@@ -1,9 +1,13 @@
 package org.ce.domain.engine.cvm;
 
-import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECTerm;
-import org.ce.domain.result.EquilibriumState;
+import org.ce.calculation.engine.ThermodynamicInput;
+import org.ce.calculation.engine.cvm.CVMEngine;
+import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECTerm;
+import org.ce.model.result.EquilibriumState;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,21 +21,37 @@ public class CVMEngineOnTheFlyTest {
         // Setup a minimal CEC for BCC_A2
         CECEntry cec = new CECEntry();
         cec.structurePhase = "BCC_A2";
-        cec.model = "T_CVCF"; // Suffix to test sanitization
+        cec.model = "T"; 
         cec.elements = "Nb-Ti-V";
-        // Minimal terms (just point terms to satisfy basis)
         cec.cecTerms = new CECTerm[0]; 
 
         double[] composition = {0.33, 0.33, 0.34};
         double temperature = 1000.0;
 
+        // Perform identification (required by new ThermodynamicInput design)
+        ClusterIdentificationRequest idRequest = ClusterIdentificationRequest.builder()
+                .disorderedClusterFile("clus/BCC_A2-T.txt")
+                .orderedClusterFile("clus/BCC_A2-T.txt")
+                .disorderedSymmetryGroup("BCC_A2-SG")
+                .orderedSymmetryGroup("BCC_A2-SG")
+                .numComponents(3)
+                .structurePhase("BCC_A2")
+                .model("T")
+                .build();
+        AllClusterData clusterData = ClusterIdentificationWorkflow.identify(idRequest);
+
         ThermodynamicInput input = new ThermodynamicInput(
+                clusterData,
                 cec,
                 temperature,
                 composition,
                 "BCC_A2_test",
                 "BCC_A2 Test System",
-                System.out::println
+                System.out::println,
+                null,   // eventSink
+                4,      // mcsL
+                1000,   // nEquil
+                2000    // nAvg
         );
 
         // First run: calls identification

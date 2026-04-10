@@ -12,7 +12,7 @@ import org.ce.calculation.engine.ThermodynamicEngine;
 import org.ce.calculation.engine.ThermodynamicInput;
 import org.ce.calculation.engine.mcs.MCResult;
 import org.ce.calculation.engine.mcs.MCSRunner;
-import org.ce.calculation.engine.mcs.MCEngine.MCSUpdate;
+import org.ce.model.mcs.MCSUpdate;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECTerm;
