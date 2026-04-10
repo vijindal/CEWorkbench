@@ -337,7 +337,7 @@ public class CECManagementPanel extends JPanel {
             protected org.ce.model.ModelSession doInBackground() throws Exception {
                 return appCtx.getSessionBuilder().build(
                         sysId,
-                        org.ce.model.EngineConfig.cvm(),
+                        org.ce.model.ModelSession.EngineConfig.cvm(),
                         this::publish);
             }
 

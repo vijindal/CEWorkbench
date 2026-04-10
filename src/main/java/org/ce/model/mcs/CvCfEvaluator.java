@@ -21,20 +21,20 @@ public final class CvCfEvaluator {
      */
     public static double[] measureCVsFromConfig(
             LatticeConfig config,
-            List<List<Embedding>> cfEmbeddings,
+            List<List<EmbeddingData.Embedding>> cfEmbeddings,
             double[][] basisMatrix,
             int ncf) {
 
         double[] v = new double[ncf];
         for (int l = 0; l < ncf; l++) {
-            List<Embedding> embs = cfEmbeddings.get(l);
+            List<EmbeddingData.Embedding> embs = cfEmbeddings.get(l);
             if (embs == null || embs.isEmpty()) {
                 v[l] = 0.0;
                 continue;
             }
 
             double sum = 0.0;
-            for (Embedding e : embs) {
+            for (EmbeddingData.Embedding e : embs) {
                 int[] sites  = e.getSiteIndices();
                 int[] alphas = e.getAlphaIndices();
                 double prod  = 1.0;

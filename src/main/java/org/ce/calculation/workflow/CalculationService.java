@@ -3,9 +3,7 @@ package org.ce.calculation.workflow;
 import org.ce.calculation.engine.ProgressEvent;
 import org.ce.model.result.ThermodynamicResult;
 import org.ce.model.ModelSession;
-import org.ce.calculation.workflow.thermo.FiniteSizeScanWorkflow;
-import org.ce.calculation.workflow.thermo.GridScanWorkflow;
-import org.ce.calculation.workflow.thermo.LineScanWorkflow;
+import org.ce.calculation.workflow.thermo.ScanWorkflows;
 import org.ce.calculation.workflow.thermo.ThermodynamicRequest;
 import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
 
@@ -23,15 +21,15 @@ import java.util.function.Consumer;
 public class CalculationService {
 
     private final ThermodynamicWorkflow  thermoWorkflow;
-    private final LineScanWorkflow       lineScanWorkflow;
-    private final GridScanWorkflow       gridScanWorkflow;
-    private final FiniteSizeScanWorkflow fssWorkflow;
+    private final ScanWorkflows.LineScan   lineScanWorkflow;
+    private final ScanWorkflows.GridScan   gridScanWorkflow;
+    private final ScanWorkflows.FiniteSizeScan fssWorkflow;
 
     public CalculationService(ThermodynamicWorkflow thermoWorkflow) {
         this.thermoWorkflow   = thermoWorkflow;
-        this.lineScanWorkflow = new LineScanWorkflow(thermoWorkflow);
-        this.gridScanWorkflow = new GridScanWorkflow(thermoWorkflow);
-        this.fssWorkflow      = new FiniteSizeScanWorkflow(thermoWorkflow);
+        this.lineScanWorkflow = new ScanWorkflows.LineScan(thermoWorkflow);
+        this.gridScanWorkflow = new ScanWorkflows.GridScan(thermoWorkflow);
+        this.fssWorkflow      = new ScanWorkflows.FiniteSizeScan(thermoWorkflow);
     }
 
     // =========================================================================

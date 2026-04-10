@@ -1,7 +1,6 @@
 package org.ce.calculation.engine.mcs;
 
 import org.ce.model.mcs.EmbeddingData;
-import org.ce.model.mcs.Embedding;
 import org.ce.model.mcs.LatticeConfig;
 import org.ce.model.mcs.SiteOperatorBasis;
 import org.ce.model.cluster.Cluster;
@@ -13,7 +12,7 @@ public final class LocalEnergyCalc {
 
     private LocalEnergyCalc() {}
 
-    public static double clusterProduct(Embedding e, LatticeConfig config) {
+    public static double clusterProduct(EmbeddingData.Embedding e, LatticeConfig config) {
         SiteOperatorBasis basis  = config.getBasis();
         double prod  = 1.0;
         int[]  idx    = e.getSiteIndices();
@@ -28,7 +27,7 @@ public final class LocalEnergyCalc {
                                      double[] eci,
                                      List<List<Cluster>> orbits) {
         double sum = 0.0;
-        for (Embedding e : emb.getAllEmbeddings()) {
+        for (EmbeddingData.Embedding e : emb.getAllEmbeddings()) {
             int size = e.size();
             if (size > 0)
                 sum += eci[e.getClusterType()] * clusterProduct(e, config) / size;
@@ -50,7 +49,7 @@ public final class LocalEnergyCalc {
         double dE    = 0.0;
         SiteOperatorBasis basis = config.getBasis();
 
-        for (Embedding e : emb.getSiteToEmbeddings()[i]) {
+        for (EmbeddingData.Embedding e : emb.getSiteToEmbeddings()[i]) {
             int    t      = e.getClusterType();
             int[]  idx    = e.getSiteIndices();
             int[]  alphas = e.getAlphaIndices();

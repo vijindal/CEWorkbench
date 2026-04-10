@@ -1,11 +1,10 @@
 package org.ce.ui.cli;
 
-import org.ce.model.EngineConfig;
 import org.ce.model.ModelSession;
+import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.storage.Workspace.SystemId;
-import org.ce.model.storage.HamiltonianStore;
+import org.ce.model.storage.DataStore.HamiltonianStore;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.hamiltonian.CECTerm;
 import org.ce.model.result.ThermodynamicResult;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
@@ -229,7 +228,7 @@ public class Main {
                     "Idx", "Name", "a (J/mol)", "b (J/mol/K)"));
             System.out.println("  " + "-".repeat(50));
             for (int i = 0; i < entry.cecTerms.length; i++) {
-                CECTerm term = entry.cecTerms[i];
+                CECEntry.CECTerm term = entry.cecTerms[i];
                 System.out.println(String.format("  [%02d]  %-12s  %14.6f  %14.6f",
                         i, term.name, term.a, term.b));
             }

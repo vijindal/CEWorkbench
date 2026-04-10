@@ -2,7 +2,6 @@ package org.ce.calculation.engine.mcs;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import org.ce.model.mcs.Embedding;
 import org.ce.model.mcs.EmbeddingData;
 import org.ce.model.mcs.EmbeddingGenerator;
 import org.ce.model.mcs.LatticeConfig;
@@ -79,7 +78,7 @@ public class MCSRunner {
         int[]    multiSiteEmbedCounts = emb.multiSiteEmbedCountsPerType(tc);
 
         // New Direct Measurement Structures
-        List<List<Embedding>> cfEmbeddings = null;
+        List<List<EmbeddingData.Embedding>> cfEmbeddings = null;
         double[][] basisMatrix = null;
         if (basis != null && cmatResult != null) {
             cfEmbeddings = EmbeddingGenerator.generateCfEmbeddings(emb.getAllEmbeddings(), clusterData, cmatResult.getCfBasisIndices());

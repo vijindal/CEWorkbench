@@ -29,14 +29,14 @@ public class EmbeddingGenerator {
 
         List<ClusterTemplate> templates = buildTemplates(clusterData);
 
-        List<Embedding>   allEmbeddings    = new ArrayList<>();
+        List<EmbeddingData.Embedding>   allEmbeddings    = new ArrayList<>();
         @SuppressWarnings("unchecked")
-        List<Embedding>[] siteToEmbeddings = new ArrayList[N];
+        List<EmbeddingData.Embedding>[] siteToEmbeddings = new ArrayList[N];
         for (int i = 0; i < N; i++) siteToEmbeddings[i] = new ArrayList<>();
 
         for (int i = 0; i < N; i++) {
             Vector3D anchor = latticePositions.get(i);
-            List<Embedding> raw = new ArrayList<>();
+            List<EmbeddingData.Embedding> raw = new ArrayList<>();
 
             for (ClusterTemplate template : templates) {
                 Vector3D[] rel     = template.getRelativeVectors();
@@ -65,12 +65,12 @@ public class EmbeddingGenerator {
                         alphas[slot++] = SiteOperatorBasis.alphaFromSymbol(sites.get(k).getSymbol());
                 }
 
-                raw.add(new Embedding(ttype, omIdx, indices, alphas));
+                raw.add(new EmbeddingData.Embedding(ttype, omIdx, indices, alphas));
             }
 
             Set<String>     seen    = new LinkedHashSet<>();
-            List<Embedding> deduped = new ArrayList<>();
-            for (Embedding e : raw) {
+            List<EmbeddingData.Embedding> deduped = new ArrayList<>();
+            for (EmbeddingData.Embedding e : raw) {
                 int[] sorted = e.getSiteIndices().clone();
                 Arrays.sort(sorted);
                 String key = e.getClusterType() + ":" + Arrays.toString(sorted);
@@ -181,25 +181,25 @@ public class EmbeddingGenerator {
     /**
      * Generates a list of embeddings for each global CVCF CF index.
      */
-    public static List<List<Embedding>> generateCfEmbeddings(
-            List<Embedding> baseEmbeddings,
+    public static List<List<EmbeddingData.Embedding>> generateCfEmbeddings(
+            List<EmbeddingData.Embedding> baseEmbeddings,
             ClusCoordListResult clusterData,
             int[][] cfBasisIndices) {
 
         if (cfBasisIndices == null || baseEmbeddings == null) return null;
 
         int ncf = cfBasisIndices.length;
-        List<List<Embedding>> cfEmbeddings = new ArrayList<>(ncf);
+        List<List<EmbeddingData.Embedding>> cfEmbeddings = new ArrayList<>(ncf);
 
-        Map<Integer, List<Embedding>> typeMap = new HashMap<>();
-        for (Embedding e : baseEmbeddings) {
+        Map<Integer, List<EmbeddingData.Embedding>> typeMap = new HashMap<>();
+        for (EmbeddingData.Embedding e : baseEmbeddings) {
             typeMap.computeIfAbsent(e.getClusterType(), k -> new ArrayList<>()).add(e);
         }
 
         for (int l = 0; l < ncf; l++) {
             int[] alphas = cfBasisIndices[l];
             int clusterSize = (alphas == null) ? 0 : alphas.length;
-            List<Embedding> matched = new ArrayList<>();
+            List<EmbeddingData.Embedding> matched = new ArrayList<>();
 
             if (clusterSize < 2) {
                 cfEmbeddings.add(matched);
@@ -209,10 +209,10 @@ public class EmbeddingGenerator {
             for (int t = 0; t < clusterData.getOrbitList().size(); t++) {
                 List<Cluster> orbit = clusterData.getOrbitList().get(t);
                 if (!orbit.isEmpty() && orbit.get(0).getAllSites().size() == clusterSize) {
-                    List<Embedding> typeEmbs = typeMap.get(t);
+                    List<EmbeddingData.Embedding> typeEmbs = typeMap.get(t);
                     if (typeEmbs != null) {
-                        for (Embedding base : typeEmbs) {
-                            matched.add(new Embedding(t, base.getOrbitMemberIndex(), base.getSiteIndices().clone(), alphas.clone()));
+                        for (EmbeddingData.Embedding base : typeEmbs) {
+                            matched.add(new EmbeddingData.Embedding(t, base.getOrbitMemberIndex(), base.getSiteIndices().clone(), alphas.clone()));
                         }
                     }
                     break;

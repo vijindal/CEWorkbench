@@ -1,7 +1,7 @@
 package org.ce.ui.gui;
 
-import org.ce.model.EngineConfig;
 import org.ce.model.ModelSession;
+import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.storage.Workspace.SystemId;
 
 import javax.swing.*;
@@ -129,7 +129,7 @@ public class SessionBar extends JPanel {
         }
         SystemId systemId   = context.getSystem();
         String   engineType = (String) engineCombo.getSelectedItem();
-        EngineConfig cfg    = new EngineConfig(engineType);
+        ModelSession.EngineConfig cfg    = new ModelSession.EngineConfig(engineType);
 
         building = true;
         rebuildBtn.setEnabled(false);

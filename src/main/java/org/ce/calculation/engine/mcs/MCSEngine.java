@@ -15,7 +15,6 @@ import org.ce.calculation.engine.mcs.MCSRunner;
 import org.ce.model.mcs.MCSUpdate;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.hamiltonian.CECTerm;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.result.EquilibriumState;
 
@@ -122,7 +121,7 @@ public class MCSEngine implements ThermodynamicEngine {
         MCResult result = builder.build().run();
 
         // [DEBUG] Temporary post-run diagnostic print
-        mcsDebugData.printMcsSummary(result);
+        MCResult.Debug.printMcsSummary(result);
 
         // Post-run statistics summary
         if (strSink != null) {

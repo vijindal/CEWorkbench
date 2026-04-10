@@ -6,7 +6,6 @@ import org.ce.calculation.workflow.ClusterIdentificationRequest;
 import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.hamiltonian.CECTerm;
 import org.ce.model.result.EquilibriumState;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +22,7 @@ public class CVMEngineOnTheFlyTest {
         cec.structurePhase = "BCC_A2";
         cec.model = "T"; 
         cec.elements = "Nb-Ti-V";
-        cec.cecTerms = new CECTerm[0]; 
+        cec.cecTerms = new CECEntry.CECTerm[0]; 
 
         double[] composition = {0.33, 0.33, 0.34};
         double temperature = 1000.0;

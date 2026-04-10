@@ -2,7 +2,6 @@ package org.ce.calculation.engine.mcs;
 
 import org.ce.model.mcs.MCSUpdate;
 import org.ce.model.mcs.EmbeddingData;
-import org.ce.model.mcs.Embedding;
 import org.ce.model.mcs.LatticeConfig;
 import org.ce.model.cluster.Cluster;
 

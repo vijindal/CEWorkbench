@@ -10,9 +10,8 @@ import org.ce.model.cluster.AllClusterData;
 import org.ce.model.cluster.CFIdentificationResult;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.hamiltonian.CECTerm;
 import org.ce.model.hamiltonian.NumericalCECTransformer;
-import org.ce.model.storage.HamiltonianStore;
+import org.ce.model.storage.DataStore;
 
 import java.io.IOException;
 import java.util.List;
@@ -24,9 +23,26 @@ import java.util.List;
  */
 public class CECManagementWorkflow {
 
-    private final HamiltonianStore store;
+    /**
+     * Holds metadata about a correlation function extracted from cluster data.
+     * Used during Hamiltonian scaffolding to enrich CECEntry.CECTerm with descriptive information.
+     */
+    private static class CFMetadata {
 
-    public CECManagementWorkflow(HamiltonianStore store) {
+        int numSites;
+        double multiplicity;
+        String description;
+
+        CFMetadata(int numSites, double multiplicity, String description) {
+            this.numSites = numSites;
+            this.multiplicity = multiplicity;
+            this.description = description;
+        }
+    }
+
+    private final DataStore.HamiltonianStore store;
+
+    public CECManagementWorkflow(DataStore.HamiltonianStore store) {
         this.store = store;
     }
 
@@ -47,10 +63,10 @@ public class CECManagementWorkflow {
             int ncf,
             CFMetadata[] cfMetadata) {
 
-        CECTerm[] terms = new CECTerm[ncf];
+        CECEntry.CECTerm[] terms = new CECEntry.CECTerm[ncf];
 
         for (int i = 0; i < ncf; i++) {
-            CECTerm term = new CECTerm();
+            CECEntry.CECTerm term = new CECEntry.CECTerm();
             term.name = "CF_" + i;
             term.a = 0.0;
             term.b = 0.0;
@@ -82,7 +98,7 @@ public class CECManagementWorkflow {
      * Creates a new empty CEC database and saves it to disk.
      *
      * @param hamiltonianId ID for the saved file — {elements}_{structure}_{model}, e.g. Nb-Ti_BCC_A2_T
-     * @param cfMetadata    optional CF metadata (numSites, multiplicity) for enriching CECTerms
+     * @param cfMetadata    optional CF metadata (numSites, multiplicity) for enriching CECEntry.CECTerms
      */
     public CECEntry createAndSaveCEC(
             String hamiltonianId,
@@ -129,7 +145,7 @@ public class CECManagementWorkflow {
             );
         }
 
-        for (CECTerm term : entry.cecTerms) {
+        for (CECEntry.CECTerm term : entry.cecTerms) {
             term.validate();
         }
     }
@@ -142,7 +158,7 @@ public class CECManagementWorkflow {
      * always stay in sync and cannot be accidentally mismatched by the caller.</p>
      *
      * <p>Also extracts CF metadata (numSites, multiplicity) from cluster data to enrich
-     * the scaffolded CECTerms with helpful descriptive information.</p>
+     * the scaffolded CECEntry.CECTerms with helpful descriptive information.</p>
      *
      * @param hamiltonianId ID for the saved Hamiltonian file, e.g. Nb-Ti_BCC_A2_T
      * @param elements      element string (e.g. "Nb-Ti")
@@ -183,9 +199,9 @@ public class CECManagementWorkflow {
         int ncf = basis.numNonPointCfs;
         List<String> eciNames = basis.eciNames;
 
-        CECTerm[] terms = new CECTerm[ncf];
+        CECEntry.CECTerm[] terms = new CECEntry.CECTerm[ncf];
         for (int i = 0; i < ncf; i++) {
-            CECTerm term = new CECTerm();
+            CECEntry.CECTerm term = new CECEntry.CECTerm();
             term.name = eciNames.get(i);
             term.a = 0.0;
             term.b = 0.0;
@@ -324,12 +340,12 @@ public class CECManagementWorkflow {
         }
 
         int ncf = binaryEntry.ncf;
-        CECTerm[] ternaryTerms = new CECTerm[ncf];
+        CECEntry.CECTerm[] ternaryTerms = new CECEntry.CECTerm[ncf];
 
         // Transform each cluster type (correlation function)
         for (int cfIdx = 0; cfIdx < ncf; cfIdx++) {
-            CECTerm binaryTerm = binaryEntry.cecTerms[cfIdx];
-            CECTerm ternaryTerm = new CECTerm();
+            CECEntry.CECTerm binaryTerm = binaryEntry.cecTerms[cfIdx];
+            CECEntry.CECTerm ternaryTerm = new CECEntry.CECTerm();
 
             // Copy metadata
             ternaryTerm.name = binaryTerm.name;

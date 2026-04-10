@@ -38,7 +38,7 @@ public class CECEvaluator {
                 label, cec.elements, cec.notes, cec.reference));
 
         int loadCount = 0;
-        for (CECTerm term : cec.cecTerms) {
+        for (CECEntry.CECTerm term : cec.cecTerms) {
             String termName = term.name;
             if (termName == null) continue;
 

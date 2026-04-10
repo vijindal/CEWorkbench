@@ -2,7 +2,7 @@ package org.ce;
 
 import org.ce.calculation.engine.cvm.CVMEngine;
 import org.ce.calculation.engine.mcs.MCSEngine;
-import org.ce.model.storage.HamiltonianStore;
+import org.ce.model.storage.DataStore;
 import org.ce.model.storage.Workspace;
 import org.ce.calculation.workflow.CalculationService;
 import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
@@ -25,7 +25,7 @@ import java.util.function.Consumer;
 public class CEWorkbenchContext {
 
     private final Workspace workspace;
-    private final HamiltonianStore hamiltonianStore;
+    private final DataStore.HamiltonianStore hamiltonianStore;
     private final CECManagementWorkflow cecWorkflow;
     private final CalculationService calculationService;
     private final CVMEngine cvmEngine;
@@ -46,7 +46,7 @@ public class CEWorkbenchContext {
      */
     public CEWorkbenchContext(Workspace workspace) {
         this.workspace = workspace;
-        this.hamiltonianStore = new HamiltonianStore(workspace);
+        this.hamiltonianStore = new DataStore.HamiltonianStore(workspace);
         this.cecWorkflow = new CECManagementWorkflow(hamiltonianStore);
         this.cvmEngine = new CVMEngine();
         this.mcsEngine = new MCSEngine();
@@ -66,7 +66,7 @@ public class CEWorkbenchContext {
         return workspace;
     }
 
-    public HamiltonianStore getHamiltonianStore() {
+    public DataStore.HamiltonianStore getHamiltonianStore() {
         return hamiltonianStore;
     }
 

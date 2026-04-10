@@ -4,7 +4,6 @@ import static org.ce.model.cluster.ClusterPrimitives.*;
 
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.hamiltonian.CECTerm;
 import org.ce.calculation.engine.ProgressEvent;
 import org.ce.model.result.ThermodynamicResult;
 import org.ce.model.storage.Workspace.SystemId;
@@ -315,12 +314,12 @@ public class OutputPanel extends JPanel {
             title.setText("CEC Editor  |  " + ref.elements + " / " + ref.structurePhase + " / " + ref.model);
 
             if (orthEntry != null && orthEntry.cecTerms != null) {
-                for (CECTerm term : orthEntry.cecTerms) {
+                for (CECEntry.CECTerm term : orthEntry.cecTerms) {
                     orthoModel.addRow(new Object[]{term.name, term.a, term.b});
                 }
             }
             if (cvcfEntry != null && cvcfEntry.cecTerms != null) {
-                for (CECTerm term : cvcfEntry.cecTerms) {
+                for (CECEntry.CECTerm term : cvcfEntry.cecTerms) {
                     cvcfModel.addRow(new Object[]{term.name, term.a, term.b});
                 }
             }

@@ -1,7 +1,6 @@
 package org.ce.calculation.engine.mcs;
 
 import org.ce.model.mcs.EmbeddingData;
-import org.ce.model.mcs.Embedding;
 import org.ce.model.mcs.LatticeConfig;
 import org.ce.model.mcs.CvCfEvaluator;
 import org.ce.model.cluster.Cluster;
@@ -23,7 +22,7 @@ public class MCSampler {
     private final double[]    eci;               // CVCF-ordered ECIs (0..numNonPointCfs-1)
     private final int[]       multiSiteEmbedCounts;
     private final CvCfBasis     basis;             // null-safe: CVCF transform unavailable if null
-    private final List<List<Embedding>> cfEmbeddings;
+    private final List<List<EmbeddingData.Embedding>> cfEmbeddings;
     private final double[][]    basisMatrix;       // Inden basis values for direct measurement
     private boolean             hmixWarnedOnce       = false;
 
@@ -53,7 +52,7 @@ public class MCSampler {
 
     public MCSampler(int N, int[] orbitSizes, List<List<Cluster>> orbits, double R,
                      double[] eci, int[] multiSiteEmbedCounts, CvCfBasis basis,
-                     List<List<Embedding>> cfEmbeddings, double[][] basisMatrix) {
+                     List<List<EmbeddingData.Embedding>> cfEmbeddings, double[][] basisMatrix) {
         if (N <= 0) throw new IllegalArgumentException("N must be > 0");
         if (R <= 0) throw new IllegalArgumentException("R must be > 0");
         this.N                    = N;

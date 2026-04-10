@@ -1,6 +1,8 @@
 package org.ce.model.storage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.ce.model.hamiltonian.CECEntry;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -8,8 +10,8 @@ import java.util.function.Function;
 
 /**
  * Generic storage class for JSON-serialized data.
- * 
- * <p>Parameterized by the type of data being stored and a path resolver 
+ *
+ * <p>Parameterized by the type of data being stored and a path resolver
  * function that maps an ID to a filesystem {@link Path}.</p>
  */
 public class DataStore<T> {
@@ -40,5 +42,15 @@ public class DataStore<T> {
         Files.createDirectories(file.getParent());
         mapper.writerWithDefaultPrettyPrinter()
               .writeValue(file.toFile(), data);
+    }
+
+    /**
+     * Storage class responsible for loading and saving Cluster Expansion Coefficient (CEC) databases.
+     */
+    public static class HamiltonianStore extends DataStore<CECEntry> {
+
+        public HamiltonianStore(Workspace workspace) {
+            super(workspace::hamiltonianFile, CECEntry.class);
+        }
     }
 }
