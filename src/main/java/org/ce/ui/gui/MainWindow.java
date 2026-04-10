@@ -77,7 +77,7 @@ public class MainWindow extends JFrame {
         java.util.function.Consumer<String> statusSink = this::postStatus;
         java.util.function.BiConsumer<CECEntry, CECEntry> cecResultSink = outputPanel::showCECResult;
         java.util.function.Function<CECEntry, Boolean> cecEditApplySink = outputPanel::applyCECEdits;
-        java.util.function.Consumer<org.ce.model.result.ThermodynamicResult> resultSink =
+        java.util.function.Consumer<org.ce.model.ThermodynamicResult> resultSink =
                 outputPanel::showResult;
         java.util.function.Consumer<ProgressEvent> chartSink = outputPanel::onChartEvent;
 

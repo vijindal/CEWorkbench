@@ -1,6 +1,6 @@
 package org.ce.calculation;
 
-import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ThermodynamicResult;
 
 import java.util.ArrayList;
 import java.util.EnumSet;

@@ -3,7 +3,7 @@ package org.ce.ui.gui;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
 import org.ce.model.ModelSession;
-import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ThermodynamicResult;
 import org.ce.calculation.workflow.CalculationService;
 
 import javax.swing.*;

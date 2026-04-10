@@ -6,7 +6,7 @@ import org.ce.calculation.workflow.ClusterIdentificationRequest;
 import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.result.EquilibriumState;
+import org.ce.model.ThermodynamicResult;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,7 +55,7 @@ public class CVMEngineOnTheFlyTest {
 
         // First run: calls identification
         long start1 = System.currentTimeMillis();
-        EquilibriumState state1 = engine.compute(input);
+        ThermodynamicResult.EquilibriumState state1 = engine.compute(input);
         long end1 = System.currentTimeMillis();
         
         System.out.println("First run (with identification) took: " + (end1 - start1) + " ms");
@@ -63,7 +63,7 @@ public class CVMEngineOnTheFlyTest {
 
         // Second run: should use cache
         long start2 = System.currentTimeMillis();
-        EquilibriumState state2 = engine.compute(input);
+        ThermodynamicResult.EquilibriumState state2 = engine.compute(input);
         long end2 = System.currentTimeMillis();
         
         System.out.println("Second run (cached) took: " + (end2 - start2) + " ms");

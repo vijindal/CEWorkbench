@@ -5,7 +5,7 @@ import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.storage.Workspace.SystemId;
 import org.ce.model.storage.DataStore.HamiltonianStore;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ThermodynamicResult;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
 import org.ce.calculation.workflow.CalculationService;

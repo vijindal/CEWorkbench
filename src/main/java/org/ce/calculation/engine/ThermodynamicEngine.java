@@ -1,6 +1,6 @@
 package org.ce.calculation.engine;
 
-import org.ce.model.result.EquilibriumState;
+import org.ce.model.ThermodynamicResult;
 
 /**
  * Interface for thermodynamic engines (CVM, Monte Carlo, etc.).
@@ -14,5 +14,5 @@ public interface ThermodynamicEngine {
      * @return equilibrium state with G, H, S, and thermodynamic properties
      * @throws Exception if calculation fails
      */
-    EquilibriumState compute(ThermodynamicInput input) throws Exception;
+    ThermodynamicResult.EquilibriumState compute(ThermodynamicInput input) throws Exception;
 }

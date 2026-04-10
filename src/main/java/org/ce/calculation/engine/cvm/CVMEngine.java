@@ -5,7 +5,7 @@ import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.calculation.engine.ThermodynamicEngine;
 import org.ce.calculation.engine.ThermodynamicInput;
-import org.ce.model.result.EquilibriumState;
+import org.ce.model.ThermodynamicResult;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
 
@@ -34,7 +34,7 @@ public class CVMEngine implements ThermodynamicEngine {
     private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
 
     @Override
-    public EquilibriumState compute(ThermodynamicInput input) throws Exception {
+    public ThermodynamicResult.EquilibriumState compute(ThermodynamicInput input) throws Exception {
         printHeader(input.progressSink);
 
         double temperature = input.temperature;
@@ -59,7 +59,7 @@ public class CVMEngine implements ThermodynamicEngine {
         validateConvergence(solverResult, input.progressSink);
         printEquilibriumResults(input.progressSink, solverResult);
 
-        EquilibriumState result = buildEquilibriumState(temperature, composition, solverResult);
+        ThermodynamicResult.EquilibriumState result = buildEquilibriumState(temperature, composition, solverResult);
         emit(input.progressSink, "================================================================================");
         return result;
     }
@@ -87,9 +87,9 @@ public class CVMEngine implements ThermodynamicEngine {
         );
     }
 
-    private EquilibriumState buildEquilibriumState(double temperature, double[] composition,
+    private ThermodynamicResult.EquilibriumState buildEquilibriumState(double temperature, double[] composition,
                                                     CVMSolver.EquilibriumResult result) {
-        return new EquilibriumState(
+        return new ThermodynamicResult.EquilibriumState(
                 temperature,
                 composition.clone(),
                 result.modelValues.H,

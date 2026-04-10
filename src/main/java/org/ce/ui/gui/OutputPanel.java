@@ -5,7 +5,7 @@ import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.calculation.engine.ProgressEvent;
-import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ThermodynamicResult;
 import org.ce.model.storage.Workspace.SystemId;
 
 import javax.swing.*;

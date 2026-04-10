@@ -16,7 +16,7 @@ import org.ce.model.mcs.MCSUpdate;
 import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
-import org.ce.model.result.EquilibriumState;
+import org.ce.model.ThermodynamicResult;
 
 import java.util.logging.Logger;
 
@@ -35,7 +35,7 @@ public class MCSEngine implements ThermodynamicEngine {
     private static final Logger LOG = Logger.getLogger(MCSEngine.class.getName());
 
     @Override
-    public EquilibriumState compute(ThermodynamicInput input) throws Exception {
+    public ThermodynamicResult.EquilibriumState compute(ThermodynamicInput input) throws Exception {
 
         // Cluster data must be pre-built by ModelSession — not re-identified here
         java.util.Objects.requireNonNull(input.clusterData,
@@ -159,7 +159,7 @@ public class MCSEngine implements ThermodynamicEngine {
             emitParameterRecommendations(strSink, result, L, nEquil, nAvg);
         }
 
-        return new EquilibriumState(
+        return new ThermodynamicResult.EquilibriumState(
                 result.getTemperature(),
                 result.getComposition(),
                 result.getHmixPerSite(),

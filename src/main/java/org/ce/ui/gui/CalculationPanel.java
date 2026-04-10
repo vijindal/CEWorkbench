@@ -2,7 +2,7 @@ package org.ce.ui.gui;
 
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.engine.ProgressEvent;
-import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 import org.ce.calculation.workflow.CalculationService;
 import org.ce.calculation.workflow.thermo.ThermodynamicRequest;

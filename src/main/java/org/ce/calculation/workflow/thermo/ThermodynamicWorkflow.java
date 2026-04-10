@@ -2,8 +2,7 @@ package org.ce.calculation.workflow.thermo;
 
 import org.ce.calculation.engine.ThermodynamicEngine;
 import org.ce.calculation.engine.ThermodynamicInput;
-import org.ce.model.result.EquilibriumState;
-import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 
 import java.util.Arrays;
@@ -69,7 +68,7 @@ public class ThermodynamicWorkflow {
         );
 
         ThermodynamicEngine engine = selectEngine(session.engineConfig.engineType);
-        EquilibriumState state = engine.compute(input);
+        ThermodynamicResult.EquilibriumState state = engine.compute(input);
         ThermodynamicResult result = ThermodynamicResult.from(state);
 
         if (request.progressSink != null) {
