@@ -1,4 +1,4 @@
-package org.ce.domain.engine;
+package org.ce.calculation.engine;
 
 /**
  * Structured progress events emitted by thermodynamic engines during computation.

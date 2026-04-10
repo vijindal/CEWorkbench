@@ -1,4 +1,4 @@
-package org.ce.domain.result;
+package org.ce.model.result;
 
 /**
  * Engine-independent thermodynamic result.

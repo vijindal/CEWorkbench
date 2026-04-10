@@ -1,4 +1,4 @@
-package org.ce.domain.cluster.cvcf;
+package org.ce.model.cluster.cvcf;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -7,19 +7,19 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
-import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.ClusterKeys.CFIndex;
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.ClusterMath;
-import org.ce.domain.cluster.LinearAlgebra;
-import org.ce.domain.cluster.ClusterPrimitives.Position;
-import org.ce.domain.cluster.ClusterPrimitives.Sublattice;
-import org.ce.domain.cluster.ClusterPrimitives.Site;
-import org.ce.domain.cluster.ClusterKeys.SiteOp;
-import org.ce.domain.cluster.ClusterKeys.SiteOpProductKey;
-import org.ce.domain.cluster.SubstituteRules;
+import org.ce.model.cluster.CFIdentificationResult;
+import org.ce.model.cluster.ClusterKeys.CFIndex;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.Cluster;
+import org.ce.model.cluster.ClusterIdentificationResult;
+import org.ce.model.cluster.ClusterMath;
+import org.ce.model.cluster.LinearAlgebra;
+import org.ce.model.cluster.ClusterPrimitives.Position;
+import org.ce.model.cluster.ClusterPrimitives.Sublattice;
+import org.ce.model.cluster.ClusterPrimitives.Site;
+import org.ce.model.cluster.ClusterKeys.SiteOp;
+import org.ce.model.cluster.ClusterKeys.SiteOpProductKey;
+import org.ce.model.cluster.SubstituteRules;
 
 /**
  * Generates CVCF transformation matrices dynamically from physical definitions.

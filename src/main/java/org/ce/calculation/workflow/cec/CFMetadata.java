@@ -1,4 +1,4 @@
-package org.ce.workflow.cec;
+package org.ce.calculation.workflow.cec;
 
 /**
  * Holds metadata about a correlation function extracted from cluster data.

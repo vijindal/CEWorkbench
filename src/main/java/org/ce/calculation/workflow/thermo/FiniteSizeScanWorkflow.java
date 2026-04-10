@@ -1,7 +1,8 @@
-package org.ce.workflow.thermo;
+package org.ce.calculation.workflow.thermo;
 
-import org.ce.domain.engine.ProgressEvent;
-import org.ce.domain.result.ThermodynamicResult;
+import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ModelSession;
 
 import java.util.function.Consumer;
 
@@ -13,13 +14,8 @@ import java.util.function.Consumer;
  *
  * <pre>  O(N) = O(∞) + A/N</pre>
  *
- * <p>and reports the extrapolated thermodynamic-limit values with uncertainties
- * for ⟨H⟩/site, ⟨E⟩/site, Cv, and all correlation functions.</p>
- *
- * <p><b>BCC L-value rationale:</b> L must be even for B2 supercell compatibility
- * (2-atom primitive cell). L=12/16/24 gives an 8× range in N, ensuring the
- * 1/N fit is well-conditioned. L=24 (27648 sites) alone has sub-percent
- * finite-size error for most BCC alloys away from phase transitions.</p>
+ * <p>Uses a pre-built {@link ModelSession} so cluster identification and Hamiltonian
+ * loading happen only once across all three L-value runs.</p>
  */
 public class FiniteSizeScanWorkflow {
 
@@ -39,8 +35,7 @@ public class FiniteSizeScanWorkflow {
      *         hold the extrapolated (∞-limit) values and their uncertainties.
      */
     public ThermodynamicResult run(
-            String clusterId,
-            String hamiltonianId,
+            ModelSession session,
             double temperature,
             double[] composition,
             int nEquil,
@@ -65,10 +60,9 @@ public class FiniteSizeScanWorkflow {
                 i + 1, nRuns, L, (int) N[i]));
 
             ThermodynamicRequest req = new ThermodynamicRequest(
-                clusterId, hamiltonianId, temperature, composition,
-                "MCS", strSink, evtSink, L, nEquil, nAvg);
+                temperature, composition, strSink, evtSink, L, nEquil, nAvg);
 
-            results[i] = thermoWorkflow.runCalculation(req);
+            results[i] = thermoWorkflow.runCalculation(session, req);
         }
 
         return extrapolateAndReport(lValues, N, invN, results, strSink);
@@ -85,7 +79,6 @@ public class FiniteSizeScanWorkflow {
 
         int nRuns = results.length;
 
-        // ── Collect per-L observables ─────────────────────────────────────────
         double[] H    = new double[nRuns];
         double[] sigH = new double[nRuns];
         double[] Cv   = new double[nRuns];
@@ -97,20 +90,17 @@ public class FiniteSizeScanWorkflow {
             sigH[i] = Double.isNaN(r.stdEnthalpy) || r.stdEnthalpy < 1e-12
                         ? Math.abs(r.enthalpy) * 0.005 : r.stdEnthalpy;
             Cv[i]   = Double.isNaN(r.heatCapacity) ? 0.0 : r.heatCapacity;
-            sigCv[i] = 0.1 * Math.max(1e-8, Cv[i]);   // rough 10% if stdCv not available
+            sigCv[i] = 0.1 * Math.max(1e-8, Cv[i]);
         }
 
-        // ── Fit ⟨H⟩ vs 1/N ───────────────────────────────────────────────────
         double[] fitH  = weightedLinearFit(invN, H, sigH);
         double hInf    = fitH[0];
         double sigHInf = fitH[1];
         double hSlope  = fitH[2];
 
-        // ── Fit Cv vs 1/N ────────────────────────────────────────────────────
         double[] fitCv = weightedLinearFit(invN, Cv, sigCv);
         double cvInf   = fitCv[0];
 
-        // ── Summary table ─────────────────────────────────────────────────────
         if (sink != null) {
             sink.accept("\n  ══ Finite-Size Scaling: O(N) = O(∞) + A/N ══════════════════════");
             sink.accept(String.format("  %-5s  %-8s  %-25s  %-20s",
@@ -127,7 +117,6 @@ public class FiniteSizeScanWorkflow {
                 "(convergence scale N* ≈ %.0f sites)", hSlope, Math.abs(hSlope / hInf)));
         }
 
-        // ── CFs ──────────────────────────────────────────────────────────────
         double[] extrapCFs    = null;
         double[] extrapStdCFs = null;
 
@@ -174,20 +163,16 @@ public class FiniteSizeScanWorkflow {
         return new ThermodynamicResult(
                 results[0].temperature,
                 results[0].composition,
-                hInf,           // gibbsEnergy (H proxy — G not directly available from MCS)
-                Double.NaN,     // entropy
-                hInf,           // enthalpy = extrapolated ⟨H⟩/site
-                sigHInf,        // stdEnthalpy = σ from 1/N fit
-                cvInf,          // heatCapacity = extrapolated Cv
-                null,           // optimizedCFs
+                hInf,
+                Double.NaN,
+                hInf,
+                sigHInf,
+                cvInf,
+                null,
                 extrapCFs,
                 extrapStdCFs
         );
     }
-
-    // =========================================================================
-    // Statistics
-    // =========================================================================
 
     /**
      * Weighted linear fit: y = a + b*x, with weights w_i = 1/σ_i².

@@ -1,18 +1,14 @@
-package org.ce.domain.engine.cvm;
+package org.ce.model.cvm;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.ClusterVariableEvaluator;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.ClusterMath;
-import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.workflow.ClusterIdentificationWorkflow;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterVariableEvaluator;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cluster.CFIdentificationResult;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.ClusterIdentificationResult;
+import org.ce.model.cluster.ClusterMath;
 
 import java.util.List;
-import java.util.function.Consumer;
 
 /**
  * Physical model for the Cluster Variation Method (CVM).
@@ -87,30 +83,6 @@ public class CVMGibbsModel {
         this.basis = basis;
         this.ncf = basis.numNonPointCfs;
         this.tcf = basis.totalCfs();
-    }
-
-    /**
-     * Factory method that creates a CVMGibbsModel by resolving cluster data from ThermodynamicInput.
-     */
-    public static CVMGibbsModel fromThermodynamicInput(ThermodynamicInput input, Consumer<String> progressSink) {
-        if (progressSink != null) {
-            progressSink.accept("  [NOTE] Starting Always Fresh Structural Identification...");
-        }
-        AllClusterData clusterData = ClusterIdentificationWorkflow.identify(
-                new ClusterIdentificationRequest(input),
-                progressSink
-        );
-        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(
-                input.cec.structurePhase,
-                input.cec.model,
-                input.composition.length
-        );
-        return new CVMGibbsModel(
-                clusterData.getDisorderedClusterResult(),
-                clusterData.getDisorderedCFResult(),
-                clusterData.getCMatrixResult(),
-                basis
-        );
     }
 
     /**
@@ -250,7 +222,6 @@ public class CVMGibbsModel {
         int orthNcf = orthTcf - nxcf;             // # orthogonal non-point CFs
 
         // ── Step 1: K-1 orthogonal point CFs from composition ───────────────
-        // pointCF[k] = ⟨σ^(k+1)⟩ = Σ_i x_i · basis_i^(k+1)   k = 0 … nxcf-1
         double[] basisVec = ClusterMath.buildBasis(K);
         double[] pointCF  = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
@@ -260,7 +231,6 @@ public class CVMGibbsModel {
         }
 
         // ── Step 2: orthogonal non-point random CFs ──────────────────────────
-        // u_rand[col] = Π_{b ∈ cfBasisIndices[col]} pointCF[b-1]   (b is 1-based power)
         double[] uNonPoint = new double[orthNcf];
         for (int col = 0; col < orthNcf; col++) {
             double val = 1.0;
@@ -269,24 +239,21 @@ public class CVMGibbsModel {
         }
 
         // ── Step 3: full orthogonal vector [u_non-point | u_point | 1.0] ────
-        // Point CFs are placed at their correct columns using cfBasisIndices.
-        // The last entry is the empty-cluster = 1.0, matching T's row count.
         double[] uPoint = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
             int col = orthNcf + k;
-            int power = orthCfBasisIndices[col][0]; // single σ-power decoration
+            int power = orthCfBasisIndices[col][0];
             uPoint[k] = pointCF[power - 1];
         }
 
         double[][] tInv = basis.Tinv;
-        int tRows = tInv[0].length;                // columns of Tinv = rows of T
+        int tRows = tInv[0].length;
 
-        // Build u_orth_full of length tRows
         double[] uOrthFull = new double[tRows];
         System.arraycopy(uNonPoint, 0, uOrthFull, 0, orthNcf);
         System.arraycopy(uPoint,    0, uOrthFull, orthNcf, nxcf);
         if (tRows == orthTcf + 1) {
-            uOrthFull[tRows - 1] = 1.0;            // empty-cluster row = 1
+            uOrthFull[tRows - 1] = 1.0;
         } else if (tRows != orthTcf) {
             throw new IllegalStateException(
                 "T row count mismatch: T.rows=" + tRows
@@ -295,8 +262,6 @@ public class CVMGibbsModel {
         }
 
         // ── Step 4: transform to CVCF ────────────────────────────────────────
-        // v_full[j] = Σ_i Tinv[j][i] · uOrthFull[i]   for j = 0 … totalCfs()-1
-        // The last K entries (point variables in CVCF basis) equal the mole fractions.
         double[] vFull = new double[tcf];
         for (int j = 0; j < tcf; j++) {
             double sum = 0.0;
@@ -305,9 +270,6 @@ public class CVMGibbsModel {
             vFull[j] = sum;
         }
 
-        // Override the point-variable entries with exact mole fractions
-        // (the T_inv rows for point variables should already recover x_i exactly,
-        // but we set them explicitly to avoid any floating-point drift)
         for (int i = 0; i < K; i++) vFull[ncf + i] = moleFractions[i];
 
         return vFull;
@@ -337,7 +299,7 @@ public class CVMGibbsModel {
                 }
             }
         }
-        return (fmin >= 1.0) ? 1.0 : (0.1 * fmin); // Margin factor
+        return (fmin >= 1.0) ? 1.0 : (0.1 * fmin);
     }
 
     private double[][][] updateCVInternal(double[] u, double[] moleFractions) {

@@ -1,6 +1,6 @@
-package org.ce.domain.engine;
+package org.ce.calculation.engine;
 
-import org.ce.domain.result.EquilibriumState;
+import org.ce.model.result.EquilibriumState;
 
 /**
  * Interface for thermodynamic engines (CVM, Monte Carlo, etc.).

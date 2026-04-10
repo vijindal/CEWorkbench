@@ -1,4 +1,4 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
 /**
  * Minimal linear algebra utilities for thermodynamic solvers.

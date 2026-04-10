@@ -1,12 +1,10 @@
-package org.ce.domain.engine.mcs;
+package org.ce.model.mcs;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import static org.ce.domain.cluster.ClusterResults.*;
+import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-
-import org.ce.domain.cluster.Cluster;
+import org.ce.model.cluster.Cluster;
 import java.util.*;
 import java.util.logging.Logger;
 
@@ -60,7 +58,6 @@ public class EmbeddingGenerator {
                 int        anchorIdx = template.getAnchorIndex();
                 int[]      alphas    = new int[sites.size()];
 
-                // Build alphas[] in the same order as indices[]: anchor site first, then others
                 int slot = 0;
                 alphas[slot++] = SiteOperatorBasis.alphaFromSymbol(sites.get(anchorIdx).getSymbol());
                 for (int k = 0; k < sites.size(); k++) {
@@ -168,7 +165,7 @@ public class EmbeddingGenerator {
         private final Vector3D[] relativeVectors;
 
         ClusterTemplate(int clusterType, int orbitMemberIndex,
-                        Vector3D[] relativeVectors, int anchorIndex) {
+                Vector3D[] relativeVectors, int anchorIndex) {
             this.clusterType      = clusterType;
             this.orbitMemberIndex = orbitMemberIndex;
             this.relativeVectors  = relativeVectors;
@@ -183,11 +180,9 @@ public class EmbeddingGenerator {
 
     /**
      * Generates a list of embeddings for each global CVCF CF index.
-     * For each CF index l, we find the embeddings of its underlying cluster type
-     * and decorate them with the specific alpha indices from cfBasisIndices[l].
      */
     public static List<List<Embedding>> generateCfEmbeddings(
-            List<Embedding> baseEmbeddings, // All deduped embeddings from generateEmbeddings
+            List<Embedding> baseEmbeddings,
             ClusCoordListResult clusterData,
             int[][] cfBasisIndices) {
 
@@ -196,14 +191,11 @@ public class EmbeddingGenerator {
         int ncf = cfBasisIndices.length;
         List<List<Embedding>> cfEmbeddings = new ArrayList<>(ncf);
 
-        // Build a map: (clusterType, member) -> List<Embedding>
-        // But since we want to enforce new decorations, we just need the site indices.
         Map<Integer, List<Embedding>> typeMap = new HashMap<>();
         for (Embedding e : baseEmbeddings) {
             typeMap.computeIfAbsent(e.getClusterType(), k -> new ArrayList<>()).add(e);
         }
 
-        // For each CF l, use its cfBasisIndices[l] to find a matching cluster type t.
         for (int l = 0; l < ncf; l++) {
             int[] alphas = cfBasisIndices[l];
             int clusterSize = (alphas == null) ? 0 : alphas.length;
@@ -214,7 +206,6 @@ public class EmbeddingGenerator {
                 continue;
             }
 
-            // Heuristic for BCC_A2: cluster size identifies the type
             for (int t = 0; t < clusterData.getOrbitList().size(); t++) {
                 List<Cluster> orbit = clusterData.getOrbitList().get(t);
                 if (!orbit.isEmpty() && orbit.get(0).getAllSites().size() == clusterSize) {

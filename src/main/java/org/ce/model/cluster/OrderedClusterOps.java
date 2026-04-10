@@ -1,7 +1,7 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
-import static org.ce.domain.cluster.ClusterResults.*;
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterResults.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,7 +1,7 @@
-package org.ce.domain.hamiltonian;
+package org.ce.model.hamiltonian;
 
 import java.util.*;
-import org.ce.domain.cluster.LinearAlgebra;
+import org.ce.model.cluster.LinearAlgebra;
 
 /**
  * Numerical CEC–CVM Transformer: basis transformation from lower-order (K_low) to higher-order (K_high) systems.

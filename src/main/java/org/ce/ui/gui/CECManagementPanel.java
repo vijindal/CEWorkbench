@@ -1,7 +1,7 @@
 package org.ce.ui.gui;
 
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.workflow.cec.CECManagementWorkflow;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.calculation.workflow.cec.CECManagementWorkflow;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -304,16 +304,20 @@ public class CECManagementPanel extends JPanel {
                     CECEntry entry = get();
                     currentEntry = entry;
                     currentHamiltonianId = hamiltonianId;
-                    
+
                     // Pure CVCF management — pass null for orthogonal entry.
                     resultSink.accept(null, entry);
-                    
+
                     appCtx.log("Loaded " + entry.ncf + " terms.");
                     appCtx.log("Elements: " + entry.elements
                             + " | Structure: " + entry.structurePhase
                             + " | Model: " + entry.model);
                     appCtx.log("Edit a and b values in the table, then click 'Write File'.");
-                    statusSink.accept("Loaded " + hamiltonianId + " (" + entry.ncf + " terms)");
+                    statusSink.accept("Loaded " + hamiltonianId + " — building session...");
+
+                    // Sync system identity and build session
+                    context.setSystem(entry.elements, entry.structurePhase, entry.model);
+                    buildSession(entry.elements, entry.structurePhase, entry.model);
                 } catch (Exception ex) {
                     appCtx.log("Error: " + ex.getMessage());
                     statusSink.accept("Error: " + ex.getMessage());
@@ -321,6 +325,42 @@ public class CECManagementPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    /** Asynchronously builds a ModelSession and registers it on the WorkbenchContext. */
+    private void buildSession(String elements, String structure, String model) {
+        org.ce.model.storage.Workspace.SystemId sysId =
+                new org.ce.model.storage.Workspace.SystemId(elements, structure, model);
+
+        SwingWorker<org.ce.model.ModelSession, String> sw = new SwingWorker<>() {
+            @Override
+            protected org.ce.model.ModelSession doInBackground() throws Exception {
+                return appCtx.getSessionBuilder().build(
+                        sysId,
+                        org.ce.model.EngineConfig.cvm(),
+                        this::publish);
+            }
+
+            @Override
+            protected void process(java.util.List<String> chunks) {
+                chunks.forEach(appCtx::log);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    org.ce.model.ModelSession session = get();
+                    context.setActiveSession(session);
+                    statusSink.accept("Session ready — " + session.label());
+                    appCtx.log("Session ready: " + session.label());
+                } catch (Exception ex) {
+                    String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    statusSink.accept("Session build failed: " + msg);
+                    appCtx.log("Session build failed: " + msg);
+                }
+            }
+        };
+        sw.execute();
     }
 
     private void saveCEC() {
@@ -407,8 +447,8 @@ public class CECManagementPanel extends JPanel {
                 }
 
                 // Create species mapping
-                org.ce.domain.hamiltonian.NumericalCECTransformer.SpeciesMapping mapping =
-                    new org.ce.domain.hamiltonian.NumericalCECTransformer.SpeciesMapping();
+                org.ce.model.hamiltonian.NumericalCECTransformer.SpeciesMapping mapping =
+                    new org.ce.model.hamiltonian.NumericalCECTransformer.SpeciesMapping();
 
                 // Map binary species to ternary species by name
                 for (int b = 0; b < binaryElems.length; b++) {

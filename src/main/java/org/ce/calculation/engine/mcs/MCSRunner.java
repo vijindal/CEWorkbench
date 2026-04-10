@@ -1,14 +1,16 @@
-package org.ce.domain.engine.mcs;
+package org.ce.calculation.engine.mcs;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import static org.ce.domain.cluster.ClusterResults.*;
-
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-
-import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.model.mcs.Embedding;
+import org.ce.model.mcs.EmbeddingData;
+import org.ce.model.mcs.EmbeddingGenerator;
+import org.ce.model.mcs.LatticeConfig;
+import org.ce.model.mcs.CvCfEvaluator;
+import org.ce.model.cluster.Cluster;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
+import org.ce.model.cluster.cvcf.CvCfBasis;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -95,7 +97,7 @@ public class MCSRunner {
         double[] eciOrth = buildEciByOrbitType(eci, tc, basis);
 
         // [DEBUG] Diagnostic print of Hamiltonian terms and orbit multiplicities
-        mcsDebugData.printEciInfo(eci, eciOrth, basis, N, orbitSizes);
+        MCResult.Debug.printEciInfo(eci, eciOrth, basis, N, orbitSizes);
 
         MCEngine engine = new MCEngine(emb, eciOrth, orbits, numComp, T, nEquil, nAvg, R, rng);
         if (updateListener    != null) engine.setUpdateListener(updateListener);

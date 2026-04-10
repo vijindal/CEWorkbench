@@ -1,12 +1,12 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
-import static org.ce.domain.cluster.ClusterKeys.*;
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterKeys.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.cluster.cvcf.CvCfBasisTransformer;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cluster.cvcf.CvCfBasisTransformer;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

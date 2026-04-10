@@ -1,20 +1,20 @@
-package org.ce.workflow;
+package org.ce.calculation.workflow;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.ClusterIdentificationResult;
-import org.ce.domain.cluster.ClusterIdentifier;
-import org.ce.domain.cluster.CFIdentifier;
-import org.ce.domain.cluster.SpaceGroup;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.storage.InputLoader;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.CFIdentificationResult;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.Cluster;
+import org.ce.model.cluster.ClusterIdentificationResult;
+import org.ce.model.cluster.ClusterIdentifier;
+import org.ce.model.cluster.CFIdentifier;
+import org.ce.model.cluster.SpaceGroup;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.storage.InputLoader;
 
 /**
  * Orchestrates the full cluster and CF identification workflow.
@@ -110,7 +110,7 @@ public class ClusterIdentificationWorkflow {
         emit(progressSink, "  [NOTE] Generating transformation matrix dynamically from CV definitions...");
         CvCfBasis cvcfBasis = CvCfBasis.dynamic(structurePhase, clusterResult, cfResult, orthMatrix, model, progressSink);
 
-        CMatrix.Result cMatrix = org.ce.domain.cluster.cvcf.CvCfBasisTransformer.transform(orthMatrix,
+        CMatrix.Result cMatrix = org.ce.model.cluster.cvcf.CvCfBasisTransformer.transform(orthMatrix,
                 cvcfBasis);
         cMatrix.printSummary("Final CVCF Result (Minimized Hamiltonian Basis)", progressSink);
 

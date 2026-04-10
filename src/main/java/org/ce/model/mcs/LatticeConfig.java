@@ -1,4 +1,4 @@
-package org.ce.domain.engine.mcs;
+package org.ce.model.mcs;
 
 import java.util.Arrays;
 import java.util.Random;
@@ -42,7 +42,7 @@ public class LatticeConfig {
 
     public int getN()               { return occ.length; }
     public int getNumComp()         { return numComp; }
-    SiteOperatorBasis getBasis() { return basis; }
+    public SiteOperatorBasis getBasis() { return basis; }
 
     public void randomise(double[] xFrac, Random rng) {
         if (xFrac.length != numComp)

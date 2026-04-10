@@ -1,18 +1,18 @@
-package org.ce.workflow.cec;
+package org.ce.calculation.workflow.cec;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
+import static org.ce.model.cluster.AllClusterData.ClusterData;
 
-import static org.ce.domain.cluster.ClusterResults.*;
+import static org.ce.model.cluster.ClusterResults.*;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECTerm;
-import org.ce.domain.hamiltonian.NumericalCECTransformer;
-import org.ce.storage.HamiltonianStore;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.CFIdentificationResult;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECTerm;
+import org.ce.model.hamiltonian.NumericalCECTransformer;
+import org.ce.model.storage.HamiltonianStore;
 
 import java.io.IOException;
 import java.util.List;
@@ -168,13 +168,13 @@ public class CECManagementWorkflow {
         }
 
         // Run fresh identification to get metadata
-        org.ce.workflow.ClusterIdentificationRequest request = org.ce.workflow.ClusterIdentificationRequest.builder()
+        org.ce.calculation.workflow.ClusterIdentificationRequest request = org.ce.calculation.workflow.ClusterIdentificationRequest.builder()
                 .structurePhase(structurePhase)
                 .model(model)
                 .numComponents(numComponents)
                 .build();
 
-        AllClusterData clusterData = org.ce.workflow.ClusterIdentificationWorkflow.identify(request, null);
+        AllClusterData clusterData = org.ce.calculation.workflow.ClusterIdentificationWorkflow.identify(request, null);
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
@@ -225,7 +225,7 @@ public class CECManagementWorkflow {
             return null;
         }
 
-        List<List<List<org.ce.domain.cluster.Cluster>>> coordData = grouped.getCoordData();
+        List<List<List<org.ce.model.cluster.Cluster>>> coordData = grouped.getCoordData();
         List<List<List<Double>>> multiplicityData = grouped.getMultiplicityData();
 
         if (coordData == null || multiplicityData == null) {
@@ -236,12 +236,12 @@ public class CECManagementWorkflow {
         CFMetadata[] metadata = new CFMetadata[ncf];
 
         for (int cf = 0; cf < ncf && cf < coordData.size(); cf++) {
-            List<List<org.ce.domain.cluster.Cluster>> cfGroups = coordData.get(cf);
+            List<List<org.ce.model.cluster.Cluster>> cfGroups = coordData.get(cf);
             List<List<Double>> cfMults = multiplicityData.get(cf);
 
             if (cfGroups != null && !cfGroups.isEmpty() && cfMults != null && !cfMults.isEmpty()) {
                 // Get first cluster in first group to count sites
-                org.ce.domain.cluster.Cluster firstCluster = cfGroups.get(0).get(0);
+                org.ce.model.cluster.Cluster firstCluster = cfGroups.get(0).get(0);
                 int numSites = firstCluster.getAllSites().size();
 
                 // Get multiplicity from first group
@@ -392,7 +392,7 @@ public class CECManagementWorkflow {
     }
 
     /** Saves a Hamiltonian entry to the store under the given ID. */
-    public void saveHamiltonian(String hamiltonianId, org.ce.domain.hamiltonian.CECEntry entry)
+    public void saveHamiltonian(String hamiltonianId, org.ce.model.hamiltonian.CECEntry entry)
             throws java.io.IOException {
         store.save(hamiltonianId, entry);
     }

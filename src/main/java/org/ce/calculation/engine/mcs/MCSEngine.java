@@ -1,23 +1,23 @@
-package org.ce.domain.engine.mcs;
+package org.ce.calculation.engine.mcs;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
+import static org.ce.model.cluster.AllClusterData.ClusterData;
 
-import static org.ce.domain.cluster.ClusterResults.*;
+import static org.ce.model.cluster.ClusterResults.*;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.engine.ProgressEvent;
-import org.ce.domain.engine.ThermodynamicEngine;
-import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.domain.engine.mcs.MCResult;
-import org.ce.domain.engine.mcs.MCSRunner;
-import org.ce.domain.engine.mcs.MCSUpdate;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECTerm;
-import org.ce.domain.hamiltonian.CECEvaluator;
-import org.ce.domain.result.EquilibriumState;
+import org.ce.model.cluster.CMatrix;
+import org.ce.calculation.engine.ProgressEvent;
+import org.ce.calculation.engine.ThermodynamicEngine;
+import org.ce.calculation.engine.ThermodynamicInput;
+import org.ce.calculation.engine.mcs.MCResult;
+import org.ce.calculation.engine.mcs.MCSRunner;
+import org.ce.calculation.engine.mcs.MCEngine.MCSUpdate;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECTerm;
+import org.ce.model.hamiltonian.CECEvaluator;
+import org.ce.model.result.EquilibriumState;
 
 import java.util.logging.Logger;
 
@@ -37,9 +37,12 @@ public class MCSEngine implements ThermodynamicEngine {
 
     @Override
     public EquilibriumState compute(ThermodynamicInput input) throws Exception {
- 
-        // Resolve cluster data (Always Fresh)
-        org.ce.domain.cluster.AllClusterData allClusterData = resolveClusterData(input);
+
+        // Cluster data must be pre-built by ModelSession — not re-identified here
+        java.util.Objects.requireNonNull(input.clusterData,
+                "MCSEngine requires clusterData pre-built in ModelSession");
+
+        org.ce.model.cluster.AllClusterData allClusterData = input.clusterData;
 
         ClusCoordListResult clusterData =
                 allClusterData.getDisorderedClusterResult().getDisClusterData();
@@ -246,16 +249,6 @@ public class MCSEngine implements ThermodynamicEngine {
         if (!anyIssue) {
             sink.accept("  ✓  Statistical parameters look sufficient (n_eff ≥ 100, nEquil ≥ 20·τ_int)");
         }
-    }
-
-    private org.ce.domain.cluster.AllClusterData resolveClusterData(ThermodynamicInput input) {
-        if (input.progressSink != null) {
-            input.progressSink.accept("  [NOTE] Starting Always Fresh Structural Identification...");
-        }
-        org.ce.workflow.ClusterIdentificationRequest request = 
-                new org.ce.workflow.ClusterIdentificationRequest(input, "MCS");
-
-        return org.ce.workflow.ClusterIdentificationWorkflow.identify(request, input.progressSink);
     }
 
     /** Helper: returns 0 if value is NaN, otherwise returns the value. */

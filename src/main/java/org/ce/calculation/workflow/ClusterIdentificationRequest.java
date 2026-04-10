@@ -1,8 +1,8 @@
-package org.ce.workflow;
+package org.ce.calculation.workflow;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-import org.ce.domain.cluster.SpaceGroup;
-import org.ce.storage.InputLoader;
+import static org.ce.model.cluster.ClusterPrimitives.*;
+import org.ce.model.cluster.SpaceGroup;
+import org.ce.model.storage.InputLoader;
 
 /**
  * Configuration request for cluster and correlation function identification.
@@ -32,15 +32,15 @@ public class ClusterIdentificationRequest {
     /**
      * Constructor for CVM calculation. 
      */
-    public ClusterIdentificationRequest(org.ce.domain.engine.ThermodynamicInput input) {
+    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicInput input) {
         this(input, "CVM");
     }
 
     /**
      * Constructor for specific engine types (e.g., MCS).
      */
-    public ClusterIdentificationRequest(org.ce.domain.engine.ThermodynamicInput input, String engineType) {
-        org.ce.domain.hamiltonian.CECEntry cec = input.cec;
+    public ClusterIdentificationRequest(org.ce.calculation.engine.ThermodynamicInput input, String engineType) {
+        org.ce.model.hamiltonian.CECEntry cec = input.cec;
         this.structurePhase = cec.structurePhase;
         this.model = sanitize(cec.model);
         this.numComponents = input.composition.length;
@@ -56,10 +56,10 @@ public class ClusterIdentificationRequest {
 
         // Extract transformation from symmetry group immediately
         try {
-            org.ce.domain.cluster.SpaceGroup sg = org.ce.storage.InputLoader.parseSpaceGroup(this.disorderedSymmetryGroup);
+            org.ce.model.cluster.SpaceGroup sg = org.ce.model.storage.InputLoader.parseSpaceGroup(this.disorderedSymmetryGroup);
             this.transformationMatrix = sg.getRotateMat();
             double[] translateMat = sg.getTranslateMat();
-            this.translationVector = new org.ce.domain.cluster.ClusterPrimitives.Vector3D(translateMat[0], translateMat[1], translateMat[2]);
+            this.translationVector = new org.ce.model.cluster.ClusterPrimitives.Vector3D(translateMat[0], translateMat[1], translateMat[2]);
         } catch (Exception e) {
             throw new RuntimeException("Failed to extract transformation from symmetry group: " + this.disorderedSymmetryGroup, e);
         }

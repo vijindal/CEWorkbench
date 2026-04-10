@@ -1,4 +1,4 @@
-package org.ce.domain.engine.mcs;
+package org.ce.model.mcs;
 
 import java.util.List;
 
@@ -40,7 +40,6 @@ public final class CvCfEvaluator {
                 double prod  = 1.0;
                 for (int k = 0; k < sites.length; k++) {
                     int occ = config.getOccupation(sites[k]);
-                    // basisMatrix[occ][alpha-1]
                     prod *= basisMatrix[occ][alphas[k] - 1];
                 }
                 sum += prod;
@@ -54,7 +53,7 @@ public final class CvCfEvaluator {
      * Helper to build the basis value lookup table needed for measureCVsFromConfig.
      */
     public static double[][] buildBasisValues(int numComp) {
-        double[] sequence = org.ce.domain.cluster.ClusterMath.buildBasis(numComp);
+        double[] sequence = org.ce.model.cluster.ClusterMath.buildBasis(numComp);
         double[][] values = new double[numComp][numComp - 1];
         for (int occ = 0; occ < numComp; occ++) {
             for (int alpha = 1; alpha <= numComp - 1; alpha++) {

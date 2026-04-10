@@ -1,28 +1,20 @@
-package org.ce.workflow.thermo;
+package org.ce.calculation.workflow.thermo;
+
+import org.ce.calculation.engine.ProgressEvent;
+
+import java.util.function.Consumer;
 
 /**
  * Request describing a thermodynamic calculation.
  *
- * <p>Two IDs are required because cluster geometry and the Hamiltonian
- * are stored separately with different naming conventions:</p>
- * <ul>
- *   <li>{@code clusterId} -- element-agnostic, e.g. {@code BCC_A2_T_bin}</li>
- *   <li>{@code hamiltonianId} -- element-specific, e.g. {@code Nb-Ti_BCC_A2_T}</li>
- * </ul>
+ * <p>Contains only calculation parameters (T, composition, MCS params, progress sinks).
+ * System identity, cluster data, Hamiltonian, and engine type are all held by the
+ * {@link org.ce.model.ModelSession} passed separately to the workflow.</p>
  */
-import org.ce.domain.engine.ProgressEvent;
-
-import java.util.function.Consumer;
-
 public class ThermodynamicRequest {
 
-    public final String clusterId;
-    public final String hamiltonianId;
     public final double temperature;
     public final double[] composition;
-    public final String engineType;
-    /** CVM basis mode: "CVCF" (default) or "ORTHO". Ignored for non-CVM engines. */
-    public final String cvmBasisMode;
     /** Optional sink for real-time text progress messages. May be null. */
     public final Consumer<String> progressSink;
     /** Optional sink for structured engine events (chart data). May be null. */
@@ -35,116 +27,41 @@ public class ThermodynamicRequest {
     public final int mcsNAvg;
 
     public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
             double temperature,
             double[] composition,
-            String engineType,
-            String cvmBasisMode,
             Consumer<String> progressSink,
             Consumer<ProgressEvent> eventSink,
             int mcsL,
             int mcsNEquil,
             int mcsNAvg) {
 
-        this.clusterId     = clusterId;
-        this.hamiltonianId = hamiltonianId;
-        this.temperature   = temperature;
-        this.composition   = composition;
-        this.engineType    = engineType;
-        this.cvmBasisMode  = normalizeCvmBasisMode(cvmBasisMode);
-        this.progressSink  = progressSink;
-        this.eventSink     = eventSink;
-        this.mcsL          = mcsL;
-        this.mcsNEquil     = mcsNEquil;
-        this.mcsNAvg       = mcsNAvg;
+        this.temperature  = temperature;
+        this.composition  = composition;
+        this.progressSink = progressSink;
+        this.eventSink    = eventSink;
+        this.mcsL         = mcsL;
+        this.mcsNEquil    = mcsNEquil;
+        this.mcsNAvg      = mcsNAvg;
     }
 
     public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
             double temperature,
             double[] composition,
-            String engineType,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink,
-            int mcsL,
-            int mcsNEquil,
-            int mcsNAvg) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF",
-                progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg);
-    }
-
-    public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            String cvmBasisMode,
             Consumer<String> progressSink,
             Consumer<ProgressEvent> eventSink) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
-                progressSink, eventSink, 4, 1000, 2000);
+        this(temperature, composition, progressSink, eventSink, 4, 1000, 2000);
     }
 
     public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
             double temperature,
             double[] composition,
-            String engineType,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF",
-                progressSink, eventSink, 4, 1000, 2000);
-    }
-
-    public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            String cvmBasisMode,
             Consumer<String> progressSink) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode,
-                progressSink, null);
+        this(temperature, composition, progressSink, null, 4, 1000, 2000);
     }
 
     public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
             double temperature,
-            double[] composition,
-            String engineType,
-            Consumer<String> progressSink) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF", progressSink, null);
-    }
-
-    public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType,
-            String cvmBasisMode) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, cvmBasisMode, null, null);
-    }
-
-    public ThermodynamicRequest(
-            String clusterId,
-            String hamiltonianId,
-            double temperature,
-            double[] composition,
-            String engineType) {
-        this(clusterId, hamiltonianId, temperature, composition, engineType, "CVCF", null, null);
-    }
-
-    private static String normalizeCvmBasisMode(String mode) {
-        if (mode == null || mode.isBlank()) {
-            return "CVCF";
-        }
-        return "ORTHO".equalsIgnoreCase(mode) ? "ORTHO" : "CVCF";
+            double[] composition) {
+        this(temperature, composition, null, null, 4, 1000, 2000);
     }
 }

@@ -1,8 +1,8 @@
-package org.ce.domain.cluster.cvcf;
+package org.ce.model.cluster.cvcf;
 
 import java.util.List;
 import java.util.Map;
-import org.ce.domain.cluster.LinearAlgebra;
+import org.ce.model.cluster.LinearAlgebra;
 
 /**
  * Hardcoded CVCF basis transformation matrices for BCC_A2 (T model of CVM).

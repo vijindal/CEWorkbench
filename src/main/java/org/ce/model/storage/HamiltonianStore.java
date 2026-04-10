@@ -1,6 +1,6 @@
-package org.ce.storage;
+package org.ce.model.storage;
 
-import org.ce.domain.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECEntry;
 
 /**
  * Storage class responsible for loading and saving Cluster Expansion Coefficient (CEC) databases.

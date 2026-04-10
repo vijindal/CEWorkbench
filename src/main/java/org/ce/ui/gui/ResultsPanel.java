@@ -1,6 +1,6 @@
 package org.ce.ui.gui;
 
-import org.ce.domain.result.ThermodynamicResult;
+import org.ce.model.result.ThermodynamicResult;
 
 import javax.swing.*;
 import java.awt.*;

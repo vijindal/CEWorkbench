@@ -1,7 +1,12 @@
-package org.ce.domain.engine.mcs;
+package org.ce.calculation.engine.mcs;
 
-import org.ce.domain.cluster.Cluster;
+import org.ce.model.mcs.EmbeddingData;
+import org.ce.model.mcs.Embedding;
+import org.ce.model.mcs.LatticeConfig;
+import org.ce.model.cluster.Cluster;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CancellationException;
@@ -102,6 +107,108 @@ public class MCEngine {
 
         LOG.fine("MCEngine.run — done: acceptRate=" + String.format("%.3f", step.acceptRate()));
         return buildResult(config, sampler, step.acceptRate(), currentEnergy);
+    }
+
+    // -------------------------------------------------------------------------
+    // Inner classes
+    // -------------------------------------------------------------------------
+
+    /** Efficient rolling window statistics calculator. */
+    private static final class RollingWindow {
+
+        private final Deque<Double> window;
+        private final int maxSize;
+        private double sum = 0.0;
+        private double sumSquares = 0.0;
+
+        RollingWindow(int maxSize) {
+            if (maxSize <= 0) throw new IllegalArgumentException("maxSize must be positive");
+            this.maxSize = maxSize;
+            this.window  = new ArrayDeque<>();
+        }
+
+        void add(double value) {
+            if (window.size() >= maxSize) {
+                double removed = window.removeFirst();
+                sum -= removed;
+                sumSquares -= removed * removed;
+            }
+            window.addLast(value);
+            sum += value;
+            sumSquares += value * value;
+        }
+
+        double getMean() {
+            if (window.isEmpty()) return 0.0;
+            return sum / window.size();
+        }
+
+        double getStdDev() {
+            if (window.size() < 2) return 0.0;
+            double mean     = getMean();
+            double variance = (sumSquares / window.size()) - (mean * mean);
+            if (variance < 0) variance = 0;
+            return Math.sqrt(variance);
+        }
+
+        void clear() {
+            window.clear();
+            sum = 0.0;
+            sumSquares = 0.0;
+        }
+    }
+
+    /** Real-time update event emitted each N sweeps during a simulation run. */
+    public static class MCSUpdate {
+
+        public enum Phase { EQUILIBRATION, AVERAGING }
+
+        private final int      step;
+        private final double   E_total;
+        private final double   deltaE;
+        private final double   sigmaDE;
+        private final double   meanDE;
+        private final Phase    phase;
+        private final double   acceptanceRate;
+        private final long     timestampMs;
+        private final long     elapsedMs;
+        private final double[] cfs;
+
+        public MCSUpdate(int step, double E_total, double deltaE, double sigmaDE, double meanDE,
+                         Phase phase, double acceptanceRate, long timestampMs, long elapsedMs) {
+            this(step, E_total, deltaE, sigmaDE, meanDE, phase, acceptanceRate, timestampMs, elapsedMs, null);
+        }
+
+        public MCSUpdate(int step, double E_total, double deltaE, double sigmaDE, double meanDE,
+                         Phase phase, double acceptanceRate, long timestampMs, long elapsedMs, double[] cfs) {
+            this.step           = step;
+            this.E_total        = E_total;
+            this.deltaE         = deltaE;
+            this.sigmaDE        = sigmaDE;
+            this.meanDE         = meanDE;
+            this.phase          = phase;
+            this.acceptanceRate = acceptanceRate;
+            this.timestampMs    = timestampMs;
+            this.elapsedMs      = elapsedMs;
+            this.cfs            = cfs != null ? cfs.clone() : null;
+        }
+
+        public int      getStep()           { return step; }
+        public double   getE_total()        { return E_total; }
+        public double   getDeltaE()         { return deltaE; }
+        public double   getSigmaDE()        { return sigmaDE; }
+        public double   getMeanDE()         { return meanDE; }
+        public Phase    getPhase()          { return phase; }
+        public double   getAcceptanceRate() { return acceptanceRate; }
+        public long     getTimestampMs()    { return timestampMs; }
+        public long     getElapsedMs()      { return elapsedMs; }
+        public double[] getCfs()            { return cfs != null ? cfs.clone() : null; }
+
+        @Override
+        public String toString() {
+            return String.format("MCSUpdate{step=%d, E=%.4f, phase=%s, acceptance=%.1f%%, elapsed=%dms}",
+                    step, E_total, phase, acceptanceRate * 100, elapsedMs);
+        }
     }
 
     private void emitUpdate(int sweepNum, double currentEnergy, double sweepDeltaE,

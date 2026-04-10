@@ -1,8 +1,9 @@
-package org.ce.domain.engine.cvm;
+package org.ce.calculation.engine.cvm;
 
-import org.ce.domain.cluster.LinearAlgebra;
-import org.ce.domain.engine.ProgressEvent;
-import org.ce.domain.engine.cvm.CVMGibbsModel.ModelResult;
+import org.ce.model.cluster.LinearAlgebra;
+import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.cvm.CVMGibbsModel;
+import org.ce.model.cvm.CVMGibbsModel.ModelResult;
 
 import java.util.ArrayList;
 import java.util.List;

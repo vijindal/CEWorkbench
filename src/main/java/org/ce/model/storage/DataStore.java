@@ -1,4 +1,4 @@
-package org.ce.storage;
+package org.ce.model.storage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;

@@ -1,4 +1,4 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;

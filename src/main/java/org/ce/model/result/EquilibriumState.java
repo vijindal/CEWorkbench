@@ -1,4 +1,4 @@
-package org.ce.domain.result;
+package org.ce.model.result;
 
 /**
  * Represents the thermodynamic equilibrium state

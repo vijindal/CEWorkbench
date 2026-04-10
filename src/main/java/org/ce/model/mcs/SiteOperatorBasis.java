@@ -1,6 +1,4 @@
-package org.ce.domain.engine.mcs;
-
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+package org.ce.model.mcs;
 
 /**
  * Orthogonal point-function basis for an n-component system.
@@ -41,10 +39,7 @@ public class SiteOperatorBasis {
     }
 
     private static double[][] buildBasis(int n) {
-        // SiteOperatorBasis uses phi_alpha(sigma) = sigma^alpha
-        // where sigma is the symmetric integer sequence from ClusterMath.
-        // This is the Inden (1992) basis, matching the T-matrix transform.
-        double[] sequence = org.ce.domain.cluster.ClusterMath.buildBasis(n);
+        double[] sequence = org.ce.model.cluster.ClusterMath.buildBasis(n);
         double[][] basis = new double[n - 1][n];
         for (int alpha = 1; alpha <= n - 1; alpha++) {
             for (int s = 0; s < n; s++) {

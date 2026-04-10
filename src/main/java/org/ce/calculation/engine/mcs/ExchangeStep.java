@@ -1,6 +1,8 @@
-package org.ce.domain.engine.mcs;
+package org.ce.calculation.engine.mcs;
 
-import org.ce.domain.cluster.Cluster;
+import org.ce.model.mcs.EmbeddingData;
+import org.ce.model.mcs.LatticeConfig;
+import org.ce.model.cluster.Cluster;
 
 import java.util.ArrayList;
 import java.util.List;

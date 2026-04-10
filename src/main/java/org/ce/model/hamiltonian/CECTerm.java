@@ -1,6 +1,6 @@
-package org.ce.domain.hamiltonian;
+package org.ce.model.hamiltonian;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
 /**
  * Represents one Cluster Expansion coefficient term in the CEC database.

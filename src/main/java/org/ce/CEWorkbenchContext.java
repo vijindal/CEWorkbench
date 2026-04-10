@@ -1,15 +1,16 @@
 package org.ce;
 
-import org.ce.domain.engine.cvm.CVMEngine;
-import org.ce.domain.engine.mcs.MCSEngine;
-import org.ce.storage.HamiltonianStore;
-import org.ce.storage.Workspace;
-import org.ce.workflow.CalculationService;
-import org.ce.workflow.ClusterIdentificationWorkflow;
-import org.ce.workflow.ClusterIdentificationRequest;
-import org.ce.workflow.cec.CECManagementWorkflow;
-import org.ce.workflow.thermo.ThermodynamicWorkflow;
-import org.ce.domain.cluster.AllClusterData;
+import org.ce.calculation.engine.cvm.CVMEngine;
+import org.ce.calculation.engine.mcs.MCSEngine;
+import org.ce.model.storage.HamiltonianStore;
+import org.ce.model.storage.Workspace;
+import org.ce.calculation.workflow.CalculationService;
+import org.ce.calculation.workflow.ClusterIdentificationWorkflow;
+import org.ce.calculation.workflow.ClusterIdentificationRequest;
+import org.ce.calculation.workflow.cec.CECManagementWorkflow;
+import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.ModelSession;
 
 import java.io.IOException;
 import java.util.function.Consumer;
@@ -29,6 +30,7 @@ public class CEWorkbenchContext {
     private final CalculationService calculationService;
     private final CVMEngine cvmEngine;
     private final MCSEngine mcsEngine;
+    private final ModelSession.Builder sessionBuilder;
     private Consumer<String> logSink = System.out::println;
     private Runnable logClearer = null;
 
@@ -50,9 +52,10 @@ public class CEWorkbenchContext {
         this.mcsEngine = new MCSEngine();
         
         ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                cecWorkflow, cvmEngine, mcsEngine
+                cvmEngine, mcsEngine
         );
         this.calculationService = new CalculationService(thermoWorkflow);
+        this.sessionBuilder = new ModelSession.Builder(cecWorkflow);
     }
 
     // =========================================================================
@@ -73,6 +76,10 @@ public class CEWorkbenchContext {
 
     public CalculationService getCalculationService() {
         return calculationService;
+    }
+
+    public ModelSession.Builder getSessionBuilder() {
+        return sessionBuilder;
     }
 
     /**

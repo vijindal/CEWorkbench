@@ -25,7 +25,9 @@
       "Bash(git reset:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(./gradlew compileJava)"
+      "Bash(./gradlew compileJava)",
+      "Bash(npm install:*)",
+      "Bash(claude --version)"
     ]
   }
 }

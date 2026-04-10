@@ -1,72 +1,66 @@
-package org.ce.workflow.thermo;
+package org.ce.calculation.workflow.thermo;
 
-import org.ce.domain.engine.ThermodynamicEngine;
-import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.domain.result.EquilibriumState;
-import org.ce.domain.result.ThermodynamicResult;
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.workflow.cec.CECManagementWorkflow;
+import org.ce.calculation.engine.ThermodynamicEngine;
+import org.ce.calculation.engine.ThermodynamicInput;
+import org.ce.model.result.EquilibriumState;
+import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ModelSession;
 
 import java.util.Arrays;
-import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
- * Workflow responsible for thermodynamic calculations.
+ * Calculation-layer workflow for thermodynamic calculations.
  *
- * It loads the required scientific data and delegates
- * the computation to thermodynamic engines.
+ * <p>Accepts a pre-built {@link ModelSession} (which already holds cluster data,
+ * Hamiltonian, and resolved basis) and a {@link ThermodynamicRequest} (which
+ * carries only calculation parameters: T, composition, MCS params, progress sinks).
+ * No cluster identification or Hamiltonian loading occurs here.</p>
  */
 public class ThermodynamicWorkflow {
 
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
 
-    private final CECManagementWorkflow cecWorkflow;
     private final ThermodynamicEngine cvmEngine;
     private final ThermodynamicEngine mcsEngine;
 
     public ThermodynamicWorkflow(
-            CECManagementWorkflow cecWorkflow,
             ThermodynamicEngine cvmEngine,
             ThermodynamicEngine mcsEngine) {
 
-        this.cecWorkflow = cecWorkflow;
         this.cvmEngine = cvmEngine;
         this.mcsEngine = mcsEngine;
     }
 
-
     /**
-     * Runs a thermodynamic calculation.
+     * Runs a thermodynamic calculation using pre-built session state.
+     *
+     * <p>No cluster identification or Hamiltonian loading occurs here — both are
+     * already available on {@code session}.</p>
+     *
+     * @param session pre-built model session holding cluster data, ECI, and basis
+     * @param request calculation parameters (T, composition, MCS params, sinks)
      */
-    public ThermodynamicResult runCalculation(ThermodynamicRequest request) throws Exception {
+    public ThermodynamicResult runCalculation(
+            ModelSession session,
+            ThermodynamicRequest request) throws Exception {
 
         LOG.info("ThermodynamicWorkflow.runCalculation — ENTER");
-        LOG.info("  clusterId: " + request.clusterId);
-        LOG.info("  hamiltonianId: " + request.hamiltonianId);
+        LOG.info("  session: " + session.label());
         LOG.info("  temperature: " + request.temperature + " K");
         LOG.info("  composition: " + Arrays.toString(request.composition));
-        LOG.info("  engineType: " + request.engineType);
-        LOG.info("  cvmBasisMode: " + request.cvmBasisMode);
+        LOG.info("  engineType: " + session.engineConfig.engineType);
 
-        String resolvedHamiltonianId = resolveHamiltonianIdForEngine(
-                request.hamiltonianId, request.engineType, request.cvmBasisMode, request.progressSink);
-        
-        LOG.fine("STAGE 3: Load Hamiltonian (ECI coefficients)...");
-        emit(request.progressSink, "STAGE 3: Load Hamiltonian (ECI coefficients)");
-        CECEntry cec = cecWorkflow.loadAndValidateCEC(request.clusterId, resolvedHamiltonianId);
-        emit(request.progressSink, "  Loaded Hamiltonian: " + resolvedHamiltonianId);
-        LOG.fine("  ✓ Loaded " + resolvedHamiltonianId);
-
-        String systemName = (cec != null) ? cec.elements + "_" + cec.structurePhase : "unknown";
+        emit(request.progressSink, "STAGE 3: Using pre-loaded Hamiltonian '"
+                + session.resolvedHamiltonianId + "'");
 
         ThermodynamicInput input = new ThermodynamicInput(
-                null, // clusterData resolved on-the-fly by engine
-                cec,
+                session.clusterData,
+                session.cecEntry,
                 request.temperature,
                 request.composition,
-                resolvedHamiltonianId,
-                systemName,
+                session.resolvedHamiltonianId,
+                session.label(),
                 request.progressSink,
                 request.eventSink,
                 request.mcsL,
@@ -74,25 +68,14 @@ public class ThermodynamicWorkflow {
                 request.mcsNAvg
         );
 
-        ThermodynamicEngine engine;
-
-        switch (request.engineType) {
-            case "CVM":
-                engine = cvmEngine;
-                break;
-            case "MCS":
-                engine = mcsEngine;
-                break;
-            default:
-                throw new IllegalArgumentException("Unknown engine: " + request.engineType);
-        }
-
+        ThermodynamicEngine engine = selectEngine(session.engineConfig.engineType);
         EquilibriumState state = engine.compute(input);
         ThermodynamicResult result = ThermodynamicResult.from(state);
 
         if (request.progressSink != null) {
             emit(request.progressSink, "");
-            emit(request.progressSink, "  RESULTS AT " + request.temperature + " K (composition: " + Arrays.toString(request.composition) + ")");
+            emit(request.progressSink, "  RESULTS AT " + request.temperature
+                    + " K (composition: " + Arrays.toString(request.composition) + ")");
             emit(request.progressSink, "  " + "-".repeat(60));
             emit(request.progressSink, String.format("  Gibbs Energy (G): %15.6f J/mol", result.gibbsEnergy));
             emit(request.progressSink, String.format("  Enthalpy (H):     %15.6f J/mol", result.enthalpy));
@@ -110,69 +93,20 @@ public class ThermodynamicWorkflow {
             emit(request.progressSink, "");
         }
 
-        LOG.info("ThermodynamicWorkflow.runCalculation — EXIT: G=" + String.format("%.4e", state.getFreeEnergy())
-                + " J/mol");
+        LOG.info("ThermodynamicWorkflow.runCalculation — EXIT: G="
+                + String.format("%.4e", state.getFreeEnergy()) + " J/mol");
         return result;
     }
 
-    /**
-     * For CVM runs prefer CVCF Hamiltonians when available.
-     * Examples:
-     *   Nb-Ti_BCC_A2_T      -> Nb-Ti_BCC_A2_T_CVCF (preferred)
-     *   Nb-Ti_BCC_A2_T      -> Nb-Ti_BCC_A2_CVCF   (legacy fallback)
-     */
-    private String resolveHamiltonianIdForEngine(
-            String requestedHamiltonianId,
-            String engineType,
-            String cvmBasisMode,
-            Consumer<String> progressSink) {
-        if (!"CVM".equalsIgnoreCase(engineType)) {
-            return requestedHamiltonianId;
-        }
-        if (requestedHamiltonianId == null || requestedHamiltonianId.isBlank()) {
-            return requestedHamiltonianId;
-        }
-        if ("ORTHO".equalsIgnoreCase(cvmBasisMode)) {
-            emit(progressSink, "CVM mode: using ORTHO Hamiltonian '" + requestedHamiltonianId + "'");
-            LOG.info("CVM mode: using ORTHO Hamiltonian '" + requestedHamiltonianId + "'");
-            return requestedHamiltonianId;
-        }
-        if (requestedHamiltonianId.endsWith("_CVCF")) {
-            return requestedHamiltonianId;
-        }
-
-        String preferredId = requestedHamiltonianId + "_CVCF";
-        if (cecWorkflow.hamiltonianExists(preferredId)) {
-            emit(progressSink, "CVM mode: using CVCF Hamiltonian '" + preferredId
-                    + "' instead of '" + requestedHamiltonianId + "'");
-            LOG.info("CVM mode: using CVCF Hamiltonian '" + preferredId
-                    + "' instead of '" + requestedHamiltonianId + "'");
-            return preferredId;
-        }
-
-        int lastUnderscore = requestedHamiltonianId.lastIndexOf('_');
-        if (lastUnderscore > 0) {
-            String legacyId = requestedHamiltonianId.substring(0, lastUnderscore) + "_CVCF";
-            if (cecWorkflow.hamiltonianExists(legacyId)) {
-                emit(progressSink, "CVM mode: using CVCF Hamiltonian '" + legacyId
-                        + "' instead of '" + requestedHamiltonianId + "'");
-                LOG.info("CVM mode: using CVCF Hamiltonian '" + legacyId
-                        + "' instead of '" + requestedHamiltonianId + "'");
-                return legacyId;
-            }
-        }
-
-        emit(progressSink, "CVM mode: CVCF Hamiltonian not found (tried '" + preferredId
-                + "' and legacy pattern), falling back to '" + requestedHamiltonianId + "'");
-        LOG.warning("CVM mode: CVCF Hamiltonian not found (tried '" + preferredId
-                + "' and legacy pattern), falling back to '" + requestedHamiltonianId + "'");
-        return requestedHamiltonianId;
+    private ThermodynamicEngine selectEngine(String engineType) {
+        return switch (engineType) {
+            case "CVM" -> cvmEngine;
+            case "MCS" -> mcsEngine;
+            default -> throw new IllegalArgumentException("Unknown engine: " + engineType);
+        };
     }
 
-    private static void emit(Consumer<String> progressSink, String line) {
-        if (progressSink != null) {
-            progressSink.accept(line);
-        }
+    private static void emit(java.util.function.Consumer<String> sink, String line) {
+        if (sink != null) sink.accept(line);
     }
-
 }

@@ -1,10 +1,6 @@
-package org.ce.domain.engine.mcs;
+package org.ce.calculation.engine.mcs;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
-
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-
-import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.model.cluster.cvcf.CvCfBasis;
 import java.util.Arrays;
 
 /**

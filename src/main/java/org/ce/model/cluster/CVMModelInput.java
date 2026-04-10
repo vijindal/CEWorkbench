@@ -1,4 +1,4 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
 /**
  * Domain-level immutable input contract for CVM engine/model execution.

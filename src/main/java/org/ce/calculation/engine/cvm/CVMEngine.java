@@ -1,11 +1,13 @@
-package org.ce.domain.engine.cvm;
+package org.ce.calculation.engine.cvm;
 
-import org.ce.domain.cluster.cvcf.CvCfBasis;
-import org.ce.domain.engine.ThermodynamicEngine;
-import org.ce.domain.engine.ThermodynamicInput;
-import org.ce.domain.result.EquilibriumState;
-import org.ce.domain.hamiltonian.CECEntry;
-import org.ce.domain.hamiltonian.CECEvaluator;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CVMGibbsModel;
+import org.ce.calculation.engine.ThermodynamicEngine;
+import org.ce.calculation.engine.ThermodynamicInput;
+import org.ce.model.result.EquilibriumState;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECEvaluator;
 
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -44,7 +46,12 @@ public class CVMEngine implements ThermodynamicEngine {
 
         validateInputs(temperature, composition);
         CvCfBasis basis = getBasis(cec, composition.length);
-        CVMGibbsModel gibbsModel = CVMGibbsModel.fromThermodynamicInput(input, input.progressSink);
+        AllClusterData clusterData = input.clusterData;
+        CVMGibbsModel gibbsModel = new CVMGibbsModel(
+                clusterData.getDisorderedClusterResult(),
+                clusterData.getDisorderedCFResult(),
+                clusterData.getCMatrixResult(),
+                basis);
 
         double[] eci = evaluateEci(cec, temperature, basis, input.progressSink);
         CVMSolver.EquilibriumResult solverResult = runSolver(gibbsModel, composition, temperature, eci, input);

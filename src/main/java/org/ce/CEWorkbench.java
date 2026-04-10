@@ -1,5 +1,6 @@
 package org.ce;
 
+import org.ce.CEWorkbenchContext;
 import org.ce.ui.gui.MainWindow;
 import javax.swing.*;
 

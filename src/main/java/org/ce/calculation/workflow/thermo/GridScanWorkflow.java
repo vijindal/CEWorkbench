@@ -1,15 +1,16 @@
-package org.ce.workflow.thermo;
+package org.ce.calculation.workflow.thermo;
 
-import org.ce.domain.result.ThermodynamicResult;
+import org.ce.model.result.ThermodynamicResult;
+import org.ce.model.ModelSession;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Performs 2D scan (e.g., Temperature vs Composition).
+ * Performs 2D scan (Temperature × Composition).
  *
- * <p>Orchestrates a grid of single-point calculations, varying two parameters
- * simultaneously to build 2D thermodynamic maps.</p>
+ * <p>Uses a pre-built {@link ModelSession} so cluster identification and
+ * Hamiltonian loading happen only once for the entire grid.</p>
  */
 public class GridScanWorkflow {
 
@@ -22,51 +23,26 @@ public class GridScanWorkflow {
     /**
      * Scans temperature and composition (2D grid).
      *
-     * <p>Returns a 2D list where grid[i][j] corresponds to
-     * temperature T_i and composition x_j.</p>
-     *
-     * @param systemId system identifier
-     * @param tStart starting temperature
-     * @param tEnd ending temperature
-     * @param tStep temperature step size
-     * @param xStart starting mole fraction of component B
-     * @param xEnd ending mole fraction of component B
-     * @param xStep mole fraction step size
-     * @param engineType "CVM" or "MCS"
-     * @return 2D grid of results [temperature][composition]
+     * @return 2D list where {@code grid.get(i).get(j)} corresponds to T_i and x_j
      */
     public List<List<ThermodynamicResult>> scanTX(
-            String clusterId,
-            String hamiltonianId,
+            ModelSession session,
             double tStart,
             double tEnd,
             double tStep,
             double xStart,
             double xEnd,
-            double xStep,
-            String engineType) throws Exception {
+            double xStep) throws Exception {
 
         List<List<ThermodynamicResult>> grid = new ArrayList<>();
 
         for (double T = tStart; T <= tEnd; T += tStep) {
-
             List<ThermodynamicResult> row = new ArrayList<>();
-
             for (double x = xStart; x <= xEnd; x += xStep) {
-
-                double[] composition = new double[]{1.0 - x, x};
-
-                ThermodynamicRequest request = new ThermodynamicRequest(
-                        clusterId,
-                        hamiltonianId,
-                        T,
-                        composition,
-                        engineType
-                );
-
-                row.add(thermoWorkflow.runCalculation(request));
+                double[] comp = new double[]{1.0 - x, x};
+                row.add(thermoWorkflow.runCalculation(session,
+                        new ThermodynamicRequest(T, comp)));
             }
-
             grid.add(row);
         }
 

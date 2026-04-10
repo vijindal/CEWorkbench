@@ -1,4 +1,4 @@
-package org.ce.domain.cluster.cvcf;
+package org.ce.model.cluster.cvcf;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -6,12 +6,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.IntFunction;
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.cluster.ClusterMath;
-import org.ce.domain.cluster.LinearAlgebra;
-import org.ce.domain.cluster.CFIdentificationResult;
-import org.ce.domain.cluster.CMatrix;
-import org.ce.domain.cluster.ClusterIdentificationResult;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterMath;
+import org.ce.model.cluster.LinearAlgebra;
+import org.ce.model.cluster.CFIdentificationResult;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.ClusterIdentificationResult;
 
 /**
  * Holds all data for one (structure, model, numComponents) CVCF basis combination.

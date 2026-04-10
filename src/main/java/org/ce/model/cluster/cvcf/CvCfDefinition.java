@@ -1,4 +1,4 @@
-package org.ce.domain.cluster.cvcf;
+package org.ce.model.cluster.cvcf;
 
 import java.util.ArrayList;
 import java.util.Collections;

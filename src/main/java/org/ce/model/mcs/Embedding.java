@@ -1,4 +1,4 @@
-package org.ce.domain.engine.mcs;
+package org.ce.model.mcs;
 
 import java.util.Arrays;
 

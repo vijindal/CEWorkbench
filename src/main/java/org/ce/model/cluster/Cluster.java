@@ -1,6 +1,6 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.ArrayList;

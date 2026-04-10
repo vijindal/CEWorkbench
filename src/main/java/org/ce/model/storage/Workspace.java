@@ -1,4 +1,4 @@
-package org.ce.storage;
+package org.ce.model.storage;
 
 import java.nio.file.Path;
 

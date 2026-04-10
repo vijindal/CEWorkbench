@@ -1,6 +1,6 @@
-package org.ce.domain.cluster;
+package org.ce.model.cluster;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
+import static org.ce.model.cluster.ClusterPrimitives.*;
 
 import java.util.Arrays;
 import java.util.List;

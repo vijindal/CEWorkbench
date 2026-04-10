@@ -1,9 +1,7 @@
-package org.ce.domain.engine;
+package org.ce.calculation.engine;
 
-import static org.ce.domain.cluster.AllClusterData.ClusterData;
-
-import org.ce.domain.cluster.AllClusterData;
-import org.ce.domain.hamiltonian.CECEntry;
+import org.ce.model.cluster.AllClusterData;
+import org.ce.model.hamiltonian.CECEntry;
 
 import java.util.function.Consumer;
 
@@ -32,7 +30,10 @@ public class ThermodynamicInput {
     /** MCS averaging sweeps (default 2000) */
     public final int mcsNAvg;
 
-    /** Full constructor for specialists (e.g. MCS or pre-identified CVM). */
+    /**
+     * Full constructor — {@code clusterData} must be non-null (pre-built by
+     * {@link org.ce.model.ModelSession}).
+     */
     public ThermodynamicInput(
             AllClusterData clusterData,
             CECEntry cec,
@@ -46,6 +47,8 @@ public class ThermodynamicInput {
             int mcsNEquil,
             int mcsNAvg) {
 
+        java.util.Objects.requireNonNull(clusterData,
+                "clusterData must be pre-built by ModelSession — not null");
         this.clusterData  = clusterData;
         this.cec          = cec;
         this.temperature  = temperature;
@@ -59,16 +62,5 @@ public class ThermodynamicInput {
         this.mcsNAvg      = mcsNAvg;
     }
 
-    /** Primary constructor for thermodynamic calculations with progress updates. */
-    public ThermodynamicInput(
-            CECEntry cec, double temperature, double[] composition,
-            String systemId, String systemName, Consumer<String> progressSink) {
-        this(null, cec, temperature, composition, systemId, systemName, progressSink, null, 4, 1000, 2000);
-    }
-
-    /** Minimal constructor for thermodynamic calculations. */
-    public ThermodynamicInput(
-            CECEntry cec, double temperature, double[] composition, String systemId, String systemName) {
-        this(null, cec, temperature, composition, systemId, systemName, null, null, 4, 1000, 2000);
-    }
 }
+

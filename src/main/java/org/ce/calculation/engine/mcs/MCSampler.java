@@ -1,9 +1,11 @@
-package org.ce.domain.engine.mcs;
+package org.ce.calculation.engine.mcs;
 
-import static org.ce.domain.cluster.ClusterPrimitives.*;
-
-import org.ce.domain.cluster.Cluster;
-import org.ce.domain.cluster.cvcf.CvCfBasis;
+import org.ce.model.mcs.EmbeddingData;
+import org.ce.model.mcs.Embedding;
+import org.ce.model.mcs.LatticeConfig;
+import org.ce.model.mcs.CvCfEvaluator;
+import org.ce.model.cluster.Cluster;
+import org.ce.model.cluster.cvcf.CvCfBasis;
 
 import java.util.List;
 import java.util.ArrayList;

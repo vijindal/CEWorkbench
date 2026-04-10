@@ -1,6 +1,6 @@
-package org.ce.domain.cluster.cvcf;
+package org.ce.model.cluster.cvcf;
 
-import org.ce.domain.cluster.CMatrix;
+import org.ce.model.cluster.CMatrix;
 
 import java.util.ArrayList;
 import java.util.List;
