@@ -67,8 +67,7 @@ public class ThermodynamicWorkflow {
         );
 
         ThermodynamicEngine engine = selectEngine(session.engineConfig.engineType);
-        ThermodynamicResult.EquilibriumState state = engine.compute(input);
-        ThermodynamicResult result = ThermodynamicResult.from(state);
+        ThermodynamicResult result = engine.compute(input);
 
         if (request.progressSink != null) {
             emit(request.progressSink, "");
@@ -92,7 +91,7 @@ public class ThermodynamicWorkflow {
         }
 
         LOG.info("ThermodynamicWorkflow.runCalculation — EXIT: G="
-                + String.format("%.4e", state.getFreeEnergy()) + " J/mol");
+                + String.format("%.4e", result.gibbsEnergy) + " J/mol");
         return result;
     }
 

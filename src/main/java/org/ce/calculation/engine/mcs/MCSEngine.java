@@ -34,7 +34,7 @@ public class MCSEngine implements ThermodynamicEngine {
     private static final Logger LOG = Logger.getLogger(MCSEngine.class.getName());
 
     @Override
-    public ThermodynamicResult.EquilibriumState compute(ThermodynamicEngine.Input input) throws Exception {
+    public ThermodynamicResult compute(ThermodynamicEngine.Input input) throws Exception {
 
         // Cluster data must be pre-built by ModelSession — not re-identified here
         java.util.Objects.requireNonNull(input.clusterData,
@@ -158,13 +158,13 @@ public class MCSEngine implements ThermodynamicEngine {
             emitParameterRecommendations(strSink, result, L, nEquil, nAvg);
         }
 
-        return new ThermodynamicResult.EquilibriumState(
+        return new ThermodynamicResult(
                 result.getTemperature(),
                 result.getComposition(),
-                result.getHmixPerSite(),
-                Double.NaN,                 // freeEnergy — not available from canonical MCS
+                Double.NaN,                 // gibbsEnergy — not available from canonical MCS
+                result.getHmixPerSite(),    // enthalpy
                 Double.NaN,                 // entropy — not available from canonical MCS
-                result.getStdHmixPerSite(), // enthalpy std error from MCS
+                result.getStdHmixPerSite(), // stdEnthalpy
                 result.getCvJackknife(),    // heat capacity from jackknife
                 null,                       // optimizedCFs (CVM only)
                 result.getAvgCFs(),         // mean correlation functions

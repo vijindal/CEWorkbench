@@ -33,7 +33,7 @@ public class CVMEngine implements ThermodynamicEngine {
     private static final Logger LOG = Logger.getLogger(CVMEngine.class.getName());
 
     @Override
-    public ThermodynamicResult.EquilibriumState compute(ThermodynamicEngine.Input input) throws Exception {
+    public ThermodynamicResult compute(ThermodynamicEngine.Input input) throws Exception {
         printHeader(input.progressSink);
 
         double temperature = input.temperature;
@@ -58,7 +58,7 @@ public class CVMEngine implements ThermodynamicEngine {
         validateConvergence(solverResult, input.progressSink);
         printEquilibriumResults(input.progressSink, solverResult);
 
-        ThermodynamicResult.EquilibriumState result = buildEquilibriumState(temperature, composition, solverResult);
+        ThermodynamicResult result = buildEquilibriumState(temperature, composition, solverResult);
         emit(input.progressSink, "================================================================================");
         return result;
     }
@@ -86,16 +86,16 @@ public class CVMEngine implements ThermodynamicEngine {
         );
     }
 
-    private ThermodynamicResult.EquilibriumState buildEquilibriumState(double temperature, double[] composition,
+    private ThermodynamicResult buildEquilibriumState(double temperature, double[] composition,
                                                     CVMSolver.EquilibriumResult result) {
-        return new ThermodynamicResult.EquilibriumState(
+        return new ThermodynamicResult(
                 temperature,
                 composition.clone(),
-                result.modelValues.H,
-                result.modelValues.G,
-                result.modelValues.S,
-                Double.NaN,
-                Double.NaN,
+                result.modelValues.G,  // gibbsEnergy
+                result.modelValues.H,  // enthalpy
+                result.modelValues.S,  // entropy
+                Double.NaN,            // stdEnthalpy
+                Double.NaN,            // heatCapacity
                 result.u,
                 null,
                 null

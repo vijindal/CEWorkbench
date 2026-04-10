@@ -54,20 +54,20 @@ public class CVMEngineOnTheFlyTest {
 
         // First run: calls identification
         long start1 = System.currentTimeMillis();
-        ThermodynamicResult.EquilibriumState state1 = engine.compute(input);
+        ThermodynamicResult result1 = engine.compute(input);
         long end1 = System.currentTimeMillis();
-        
+
         System.out.println("First run (with identification) took: " + (end1 - start1) + " ms");
-        assertNotNull(state1);
+        assertNotNull(result1);
 
         // Second run: should use cache
         long start2 = System.currentTimeMillis();
-        ThermodynamicResult.EquilibriumState state2 = engine.compute(input);
+        ThermodynamicResult result2 = engine.compute(input);
         long end2 = System.currentTimeMillis();
-        
+
         System.out.println("Second run (cached) took: " + (end2 - start2) + " ms");
-        assertNotNull(state2);
-        
+        assertNotNull(result2);
+
         assertTrue((end2 - start2) < (end1 - start1), "Cached run should be faster");
     }
 }

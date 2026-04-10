@@ -21,7 +21,7 @@ public interface ThermodynamicEngine {
      * @return equilibrium state with G, H, S, and thermodynamic properties
      * @throws Exception if calculation fails
      */
-    ThermodynamicResult.EquilibriumState compute(Input input) throws Exception;
+    ThermodynamicResult compute(Input input) throws Exception;
 
     /**
      * Bundles all inputs required for thermodynamic calculations.
