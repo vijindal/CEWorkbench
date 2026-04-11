@@ -98,27 +98,30 @@ Responsibilities:
 
 ## 3.3 engine
 
-**Note:** In the actual implementation, the domain (model) layer is split into physics evaluators and the calculation layer holds the algorithm drivers. See section 3.5.
+**In the actual implementation, both physics evaluators AND algorithm drivers are in the model layer.**
 
 Physics evaluators (model layer):
 
     CVMGibbsModel   — CVM Gibbs functional; evaluates G/H/S/gradients given (T, x, CFs)
+    LocalEnergyCalc — MCS cluster-expansion energy calculator (static utility)
     LatticeConfig   — MCS supercell occupation state
     EmbeddingData   — pre-computed site→cluster-instance map
     SiteOperatorBasis — evaluates φ_α(σ) basis functions
     CvCfEvaluator   — measures CVCF variables from a LatticeConfig
 
-Algorithm drivers (calculation layer):
+Algorithm drivers (model layer):
 
-    ThermodynamicEngine  — interface
-    CVMEngine / CVMSolver — Newton–Raphson loop; calls CVMGibbsModel.evaluate()
-    MCSEngine / MCEngine  — Metropolis sweep loop; calls model-layer objects
+    CVMSolver       — Newton–Raphson loop; calls CVMGibbsModel.evaluate()
+    MCEngine        — Metropolis sweep loop (equilibration + averaging); calls LocalEnergyCalc
+    MCSampler       — accumulates statistics (tau_int, block averaging, jackknife Cv)
+    MCSRunner       — BCC supercell geometry setup; ECI transformation
+    ExchangeStep    — Metropolis accept/reject for one exchange trial
 
-Responsibilities of physics evaluators:
+Responsibilities:
 
-    hold persistent state (cluster geometry, ECI, lattice topology)
-    respond to queries with thermodynamic quantities
-    do not drive loops or decide convergence
+    Physics evaluators: stateless; respond to queries with thermodynamic quantities
+    Algorithm drivers: own loops and convergence decisions; coordinate physics evaluators
+    Both persist for the duration of a session, reused across all calculation points
 
 ------------------------------------------------------------------------
 
@@ -137,49 +140,49 @@ Responsibilities:
 
 ------------------------------------------------------------------------
 
-# 4. Workflow Layer
+# 4. Workflow Layer (Thin Dispatcher)
 
-The workflow layer **coordinates domain operations**.
+The workflow layer **coordinates model-layer operations without intermediary engine classes**.
 
-    org.ce.workflow
+    org.ce.calculation.workflow
 
 Classes:
 
-    CalculationService
-    ClusterIdentificationWorkflow
-    ThermodynamicWorkflow
+    CalculationService        — public API for GUI and CLI
+    ThermodynamicWorkflow     — inlines CVM and MCS dispatch directly to model-layer optimizers
+    CECManagementWorkflow     — Hamiltonian scaffold/load/validate/save
 
 Responsibilities:
 
-    load required data
-    construct engines
-    run calculations
-    coordinate domain objects
+    route calculation requests to model-layer optimizers (CVMSolver, MCSRunner)
+    stream progress events
+    return results to UI
 
-No physics is implemented here.
+No physics is implemented here; no algorithm loops; direct call-through to model layer.
 
 ------------------------------------------------------------------------
 
-# 5. Storage Layer
+# 5. Storage Layer (Part of Model)
 
-Handles **all disk IO and data persistence**.
+Handles **all disk IO and data persistence** as part of the model layer.
 
-    org.ce.storage
+    org.ce.model.storage
 
 Classes:
 
-    ClusterDataStore
-    HamiltonianStore
-    Workspace
+    Workspace           — file path resolution, workspace layout
+    InputLoader         — cluster file parsing
+    HamiltonianStore    — JSON persistence for ECIs
+    DataStore           — unified storage interface
 
 Responsibilities:
 
-    read JSON files
-    write JSON files
+    read cluster files
+    read/write JSON files
     resolve file paths
     manage caches
 
-This layer replaces repositories, registries, and adapters.
+Storage is part of the model layer because the model objects own their persistence.
 
 ------------------------------------------------------------------------
 
@@ -215,27 +218,38 @@ The UI interacts with the system through **CalculationService**.
 # 7. Final Package Structure
 
     org.ce
-    ├─ model                         (physics evaluators + persistent state + disk I/O)
+    ├─ model                         (physics evaluators, optimizers, persistent state, disk I/O)
     │  ├─ cluster                    (cluster geometry, CF basis, C-matrix, CVCF)
     │  │  └─ cvcf
-    │  ├─ cvm                        (CVMGibbsModel — Gibbs functional evaluator)
-    │  ├─ mcs                        (LatticeConfig, EmbeddingData, Embedding,
-    │  │                              EmbeddingGenerator, SiteOperatorBasis,
-    │  │                              CvCfEvaluator, Vector3D)
+    │  ├─ cvm
+    │  │  ├─ CVMGibbsModel           (Gibbs functional evaluator)
+    │  │  └─ CVMSolver               (Newton–Raphson minimizer — algorithm driver)
+    │  ├─ mcs
+    │  │  ├─ LatticeConfig           (supercell occupation state)
+    │  │  ├─ EmbeddingData, Embedding, EmbeddingGenerator
+    │  │  ├─ SiteOperatorBasis       (basis function evaluator)
+    │  │  ├─ CvCfEvaluator           (correlation function measurer)
+    │  │  ├─ Vector3D                (lattice position arithmetic)
+    │  │  ├─ MCEngine                (sweep loop driver)
+    │  │  ├─ MCSampler               (statistics accumulator)
+    │  │  ├─ MCSRunner               (geometry + ECI transform)
+    │  │  ├─ ExchangeStep            (Metropolis step)
+    │  │  ├─ LocalEnergyCalc         (energy evaluator)
+    │  │  └─ MCResult                (result DTO)
     │  ├─ hamiltonian                (CECEntry, CECTerm, CECEvaluator)
-    │  ├─ result                     (EquilibriumState, ThermodynamicResult)
+    │  ├─ result                     (ThermodynamicResult)
     │  └─ storage                    (Workspace, InputLoader, HamiltonianStore, DataStore)
     │
-    ├─ calculation                   (algorithm drivers — use model, produce results)
+    ├─ calculation                   (thin dispatcher — no intermediate engine classes)
     │  ├─ engine
-    │  │  ├─ cvm                     (CVMEngine, CVMSolver)
-    │  │  └─ mcs                     (MCSEngine, MCSRunner, MCEngine, ExchangeStep,
-    │  │                              MCSampler, LocalEnergyCalc, MCResult, MCSUpdate)
+    │  │  └─ ProgressEvent           (UI-facing event type)
     │  └─ workflow
-    │     ├─ CalculationService
-    │     ├─ ClusterIdentificationWorkflow
-    │     ├─ cec                     (CECManagementWorkflow)
-    │     └─ thermo                  (ThermodynamicWorkflow, LineScanWorkflow, ...)
+    │     ├─ CalculationService      (public API)
+    │     ├─ CECManagementWorkflow   (Hamiltonian management)
+    │     └─ thermo
+    │        ├─ ThermodynamicWorkflow (inlines CVM/MCS dispatch)
+    │        ├─ LineScanWorkflow, GridScanWorkflow, FiniteSizeScanWorkflow
+    │        └─ ThermodynamicRequest, ThermodynamicData
     │
     └─ ui
        ├─ gui

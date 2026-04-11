@@ -50,29 +50,32 @@ org.ce
 │   ├─ EngineConfig.java     "CVM" or "MCS"
 │   ├─ cluster/              Cluster geometry, CF basis, C-matrix, CVCF
 │   │   └─ cvcf/             CVCF basis and transformation
-│   ├─ cvm/                  CVM physics evaluator
-│   │   └─ CVMGibbsModel     Gibbs free energy functional; evaluates G/H/S/gradients given (T, x, CFs)
-│   ├─ mcs/                  MCS lattice model — supercell state and physics evaluators
+│   ├─ cvm/                  CVM Gibbs functional + Newton-Raphson minimizer
+│   │   ├─ CVMGibbsModel     Physics evaluator; evaluates G/H/S/gradients given (T, x, CFs)
+│   │   └─ CVMSolver         Algorithm driver; owns NR loop, convergence logic
+│   ├─ mcs/                  MCS supercell state + physics evaluators + algorithm drivers
 │   │   ├─ LatticeConfig     Atomic occupation array; mutable supercell state
 │   │   ├─ EmbeddingData     Pre-computed site→embedding map for supercell
 │   │   ├─ Embedding         One cluster instance mapped onto lattice sites
 │   │   ├─ EmbeddingGenerator Builds EmbeddingData from cluster data + lattice positions
 │   │   ├─ SiteOperatorBasis  Evaluates orthogonal basis functions φ_α(σ)
 │   │   ├─ CvCfEvaluator     Measures CVCF cluster variables from a LatticeConfig
-│   │   └─ Vector3D          3D vector for lattice position arithmetic
+│   │   ├─ Vector3D          3D vector for lattice position arithmetic
+│   │   ├─ MCEngine          Algorithm driver; owns equilibration+averaging sweep loop
+│   │   ├─ MCSampler         Algorithm driver; owns tau_int, block averaging, jackknife Cv
+│   │   ├─ MCSRunner         Algorithm driver; owns BCC geometry, ECI transform
+│   │   ├─ ExchangeStep      Algorithm driver; owns Metropolis accept/reject
+│   │   ├─ LocalEnergyCalc   Physics evaluator; computes ΔE (static utility)
+│   │   └─ MCResult          Immutable result DTO
 │   ├─ hamiltonian/          CECEntry, CECTerm, CECEvaluator
 │   ├─ result/               ThermodynamicResult, EquilibriumState
 │   └─ storage/              Workspace, InputLoader, HamiltonianStore, DataStore
 │
-├─ calculation/              Algorithm drivers and workflow orchestration
-│   ├─ engine/               ThermodynamicEngine, ThermodynamicInput, ProgressEvent
-│   │   ├─ cvm/              CVMEngine (NR loop), CVMSolver
-│   │   └─ mcs/              MCSEngine, MCSRunner, MCEngine, ExchangeStep,
-│   │                        MCSampler, LocalEnergyCalc, RollingWindow,
-│   │                        MCResult, MCSUpdate, mcsDebugData
-│   └─ workflow/             CalculationService, ClusterIdentificationWorkflow, ...
-│       ├─ cec/              CECManagementWorkflow (Hamiltonian scaffold/load/save)
-│       └─ thermo/           ThermodynamicWorkflow, LineScanWorkflow, GridScanWorkflow, ...
+├─ calculation/              Workflow orchestration (thin dispatcher to model-layer optimizers)
+│   ├─ engine/               ProgressEvent (UI-facing event type)
+│   └─ workflow/             CalculationService, CECManagementWorkflow
+│       └─ thermo/           ThermodynamicWorkflow (inlines CVM/MCS dispatch),
+│                            LineScanWorkflow, GridScanWorkflow, ...
 │
 └─ ui/
     ├─ cli/   Main.java
@@ -84,9 +87,9 @@ org.ce
 
 ## Layer roles
 
-**`model/`** — Static, persistent physics evaluators. Built once from system info and live for the duration of a calculation. Given (T, composition, CFs) they evaluate and return thermodynamic quantities. They hold state and respond to queries — they do not drive loops or decide what inputs to use next.
+**`model/`** — Physics evaluators AND optimizers. Physics evaluators (e.g., `CVMGibbsModel`, `LocalEnergyCalc`) are stateless and respond to queries. Optimizers (e.g., `CVMSolver`, `MCSampler`, `MCEngine`) own algorithm loops and convergence decisions. Both are in the model layer because optimization is part of the physics workflow. Model objects are built once from system info and live for the duration of a calculation.
 
-**`calculation/`** — Active algorithm drivers. Receive calculation parameters, drive algorithms using model objects. Own loops, convergence decisions, and iteration. For example, `CVMSolver` drives the Newton–Raphson loop calling `CVMGibbsModel.evaluate()` repeatedly; `MCEngine` drives the sweep loop calling model-layer objects at each step.
+**`calculation/`** — Thin dispatcher layer. `ThermodynamicWorkflow` inlines CVM and MCS dispatch directly to model-layer optimizers. No intermediate engine classes; optimizers are called directly. Receives calculation parameters, orchestrates the workflow, returns results.
 
 **`ui/`** — Collects user inputs (system info + calculation parameters), triggers model build, passes calculation parameters to calculation layer, presents results. No business logic.
 
@@ -188,9 +191,10 @@ private static void emit(Consumer<String> sink, String msg) {
 
 ## What not to do
 
-- Do not call `ClusterIdentificationWorkflow.identify()` inside engines or workflow classes — it belongs only in `ModelSession.Builder.build()`.
+- Do not call `AllClusterData.identify()` inside optimizers or workflow classes — it belongs only in `ModelSession.Builder.build()`.
 - Do not add fields to `ThermodynamicRequest` for system identity — it holds only calculation parameters (T, composition, MCS params, sinks). Session state lives in `ModelSession`.
 - Do not store mutable state in `ModelSession` — it is shared read-only across all scan points.
+- Do not add calculation-layer classes to `ModelSession.Builder` — it should only import from model layer (after move: no calculation-layer imports).
 - Do not use `JScrollPane` as the top-level wrapper for `GridBagLayout` forms in Nimbus dark theme — the viewport background renders incorrectly. Use `add(buildForm(), BorderLayout.NORTH)` instead.
 - Do not call `SwingWorker.get()` on the EDT outside of `done()`.
 - Do not bypass `context.setSystem()` when changing system identity in a GUI panel — it is the only way to propagate changes and invalidate the session.
@@ -203,12 +207,12 @@ private static void emit(Consumer<String> sink, String msg) {
 |------|-----|
 | `model/ModelSession.java` | Session contract + Builder — most important class |
 | `model/storage/Workspace.java` | ID derivation, path layout |
-| `model/cvm/CVMGibbsModel.java` | CVM Gibbs functional — evaluates G/H/S/gradients given (T, x, CFs) |
-| `calculation/engine/cvm/CVMEngine.java` | CVM pipeline orchestration — constructs CVMGibbsModel, drives NR loop |
-| `calculation/engine/cvm/CVMSolver.java` | Newton–Raphson loop, tolerance, convergence |
-| `calculation/workflow/thermo/ThermodynamicWorkflow.java` | Calculation layer entry point |
+| `model/cvm/CVMGibbsModel.java` | CVM physics evaluator — evaluates G/H/S/gradients given (T, x, CFs) |
+| `model/cvm/CVMSolver.java` | CVM optimizer — owns Newton–Raphson loop, convergence logic |
+| `model/mcs/MCEngine.java` | MCS optimizer — owns equilibration+averaging sweep loop |
+| `model/mcs/MCSampler.java` | MCS statistics — owns tau_int, block averaging, jackknife Cv |
+| `calculation/workflow/thermo/ThermodynamicWorkflow.java` | Thin dispatcher — inlines CVM/MCS dispatch to model-layer optimizers |
 | `calculation/workflow/CalculationService.java` | Public API used by GUI and CLI |
 | `ui/gui/WorkbenchContext.java` | GUI session state, listeners |
 | `ui/gui/CalculationPanel.java` | GUI calculation entry point |
 | `CEWorkbenchContext.java` | App wiring — how layers connect |
-| `cvm_calculation_trace.md` | Full CVM data flow trace |

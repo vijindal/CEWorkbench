@@ -96,10 +96,11 @@ Static, persistent physics evaluators. Built once from system info (elements, st
 | `model` | `ModelSession`, `EngineConfig` | Immutable session holding pre-computed cluster data, Hamiltonian, and CVCF basis for one system identity |
 | `model.cluster` | `ClusterIdentifier`, `CFIdentifier`, `CMatrix`, `AllClusterData`, `ClusterVariableEvaluator`, `ClusterPrimitives` | Cluster geometry, CF basis construction, C-matrix, correlation function evaluation |
 | `model.cluster.cvcf` | `CvCfBasis`, `CvCfBasisTransformer`, `CvCfMatrixGenerator`, `CvCfDefinition` | CVCF basis and transformation machinery |
-| `model.cvm` | `CVMGibbsModel` | CVM Gibbs free energy functional; given (T, composition, CFs) evaluates G, H, S, gradient, Hessian |
-| `model.mcs` | `LatticeConfig`, `EmbeddingData`, `Embedding`, `EmbeddingGenerator`, `SiteOperatorBasis`, `CvCfEvaluator`, `Vector3D` | MCS supercell state and physics evaluators; hold lattice topology, evaluate cluster variables from configuration |
+| `model.cvm` | `CVMGibbsModel`, `CVMSolver` | CVM Gibbs functional evaluator + Newton–Raphson minimizer (NR loop, convergence logic) |
+| `model.mcs` | `LatticeConfig`, `EmbeddingData`, `Embedding`, `EmbeddingGenerator`, `SiteOperatorBasis`, `CvCfEvaluator`, `Vector3D`, `MCEngine`, `MCSampler`, `MCSRunner`, `ExchangeStep`, `LocalEnergyCalc`, `MCResult` | MCS supercell state, physics evaluators, algorithm drivers (equilibration+averaging loops, statistics, Metropolis step) |
 | `model.hamiltonian` | `CECEntry`, `CECTerm`, `CECEvaluator` | ECI model objects; `CECEvaluator` computes `eci[i] = a + b·T` |
-| `model.result` | `ThermodynamicResult`, `EquilibriumState` | Output value objects |
+| `model` | `ThermodynamicInput` | Bundled input to CVM/MCS optimizers |
+| `model.result` | `ThermodynamicResult` | Output value object (unified; no EquilibriumState wrapper) |
 | `model.storage` | `Workspace`, `InputLoader`, `HamiltonianStore`, `DataStore` | All disk I/O — path resolution, cluster file parsing, JSON persistence |
 
 **`ModelSession` is the session contract.** It is built once per (elements, structure, model) identity by `ModelSession.Builder`, which runs cluster identification, resolves the Hamiltonian, and looks up the CVCF basis. All calculations within a session reuse this pre-computed state — no redundant disk reads or re-identification.
@@ -110,10 +111,8 @@ Active algorithm drivers. Accepts a `ModelSession`; drives algorithms using mode
 
 | Package | Key Classes | Role |
 |---------|-------------|------|
-| `calculation.engine` | `ThermodynamicEngine`, `ThermodynamicInput`, `ProgressEvent` | Engine interface and input bundle |
-| `calculation.engine.cvm` | `CVMEngine`, `CVMSolver` | CVM: constructs `CVMGibbsModel`, drives Newton–Raphson minimisation loop |
-| `calculation.engine.mcs` | `MCSEngine`, `MCSRunner`, `MCEngine`, `ExchangeStep`, `MCSampler`, `LocalEnergyCalc`, `MCResult`, `MCSUpdate` | Monte Carlo: drives equilibration + averaging sweep loops using model-layer lattice objects |
-| `calculation.workflow` | `CalculationService`, `ClusterIdentificationWorkflow`, `ClusterIdentificationRequest` | High-level façade; Type-1a orchestration |
+| `calculation.engine` | `ProgressEvent` | UI-facing event type for progress streaming |
+| `calculation.workflow` | `CalculationService`, `ThermodynamicWorkflow` | High-level façade; inlines CVM/MCS dispatch directly to model-layer optimizers |
 | `calculation.workflow.cec` | `CECManagementWorkflow`, `CFMetadata` | Type-1b: scaffold, load, validate, save Hamiltonian |
 | `calculation.workflow.thermo` | `ThermodynamicWorkflow`, `LineScanWorkflow`, `GridScanWorkflow`, `FiniteSizeScanWorkflow`, `ThermodynamicRequest` | Type-2: single-point, temperature/composition/grid scans, finite-size scaling |
 
@@ -205,6 +204,7 @@ src/main/java/org/ce
 ├─ CEWorkbenchContext.java
 │
 ├─ model/
+│  ├─ ThermodynamicInput.java    (bundled input to optimizers)
 │  ├─ EngineConfig.java
 │  ├─ ModelSession.java          (+ nested Builder)
 │  ├─ cluster/
@@ -221,7 +221,8 @@ src/main/java/org/ce
 │  │     ├─ CvCfMatrixGenerator.java
 │  │     └─ CvCfDefinition.java
 │  ├─ cvm/
-│  │  └─ CVMGibbsModel.java      (Gibbs functional; evaluates G/H/S/gradients given T, x, CFs)
+│  │  ├─ CVMGibbsModel.java      (Gibbs functional; evaluates G/H/S/gradients)
+│  │  └─ CVMSolver.java          (Newton–Raphson loop; NR minimizer)
 │  ├─ mcs/
 │  │  ├─ LatticeConfig.java      (mutable supercell occupation array)
 │  │  ├─ EmbeddingData.java      (pre-computed site→embedding map)
@@ -229,7 +230,13 @@ src/main/java/org/ce
 │  │  ├─ EmbeddingGenerator.java (builds EmbeddingData from cluster data)
 │  │  ├─ SiteOperatorBasis.java  (evaluates φ_α(σ) basis functions)
 │  │  ├─ CvCfEvaluator.java      (measures CVCF variables from LatticeConfig)
-│  │  └─ Vector3D.java           (3D vector for lattice arithmetic)
+│  │  ├─ Vector3D.java           (3D vector for lattice arithmetic)
+│  │  ├─ MCEngine.java           (equilibration+averaging sweep loop)
+│  │  ├─ MCSampler.java          (accumulates statistics; tau_int, block avg, jackknife)
+│  │  ├─ MCSRunner.java          (geometry setup; ECI transform)
+│  │  ├─ ExchangeStep.java       (Metropolis exchange trial)
+│  │  ├─ LocalEnergyCalc.java    (ΔE computation)
+│  │  └─ MCResult.java           (immutable result from completed MCS run)
 │  ├─ hamiltonian/
 │  │  ├─ CECEntry.java
 │  │  ├─ CECTerm.java
@@ -246,32 +253,12 @@ src/main/java/org/ce
 │
 ├─ calculation/
 │  ├─ engine/
-│  │  ├─ ThermodynamicEngine.java
-│  │  ├─ ThermodynamicInput.java
-│  │  ├─ ProgressEvent.java
-│  │  ├─ cvm/
-│  │  │  ├─ CVMEngine.java       (constructs CVMGibbsModel, drives NR loop)
-│  │  │  └─ CVMSolver.java
-│  │  └─ mcs/
-│  │     ├─ MCSEngine.java       (top-level orchestrator, implements ThermodynamicEngine)
-│  │     ├─ MCSRunner.java       (assembles model objects, owns ECI transform)
-│  │     ├─ MCEngine.java        (drives equilibration + averaging sweep loops)
-│  │     ├─ ExchangeStep.java    (Metropolis exchange attempt)
-│  │     ├─ MCSampler.java       (accumulates statistics across sweeps)
-│  │     ├─ LocalEnergyCalc.java (ΔE computation per step)
-│  │     ├─ RollingWindow.java   (rolling statistics for sweep monitoring)
-│  │     ├─ MCResult.java        (immutable result from completed simulation)
-│  │     ├─ MCSUpdate.java       (real-time streaming event)
-│  │     └─ mcsDebugData.java
+│  │  └─ ProgressEvent.java      (UI-facing event type)
 │  └─ workflow/
 │     ├─ CalculationService.java
-│     ├─ ClusterIdentificationWorkflow.java
-│     ├─ ClusterIdentificationRequest.java
-│     ├─ cec/
-│     │  ├─ CECManagementWorkflow.java
-│     │  └─ CFMetadata.java
+│     ├─ CECManagementWorkflow.java (Hamiltonian scaffold/load/save)
 │     └─ thermo/
-│        ├─ ThermodynamicWorkflow.java
+│        ├─ ThermodynamicWorkflow.java  (inlines CVM/MCS dispatch to model-layer optimizers)
 │        ├─ LineScanWorkflow.java
 │        ├─ GridScanWorkflow.java
 │        ├─ FiniteSizeScanWorkflow.java
