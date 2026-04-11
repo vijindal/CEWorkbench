@@ -58,7 +58,21 @@ public class MCSRunner {
         this.cmatResult        = b.cmatResult;
     }
 
-    public MCResult run() {
+    /**
+     * Holds the result and sampler from an MCS run.
+     * The sampler contains raw time series for post-processing by the calculation layer.
+     */
+    public static final class MCSRunResult {
+        public final MCResult result;
+        public final MCSampler sampler;
+
+        public MCSRunResult(MCResult result, MCSampler sampler) {
+            this.result = result;
+            this.sampler = sampler;
+        }
+    }
+
+    public MCSRunResult run() {
         Random rng = new Random(seed);
 
         List<Vector3D> positions = (customPositions != null) ? customPositions : buildBCCPositions(L);
@@ -106,7 +120,7 @@ public class MCSRunner {
         MCResult result = engine.run(config, sampler);
         LOG.fine(String.format("MCSRunner.run — EXIT: acceptRate=%.3f, <E>/site=%.6f",
                 result.getAcceptRate(), result.getEnergyPerSite()));
-        return result;
+        return new MCSRunResult(result, sampler);
     }
 
     /**

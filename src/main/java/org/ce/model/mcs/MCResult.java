@@ -46,14 +46,14 @@ public class MCResult {
     }
 
     // New 21-arg constructor with all statistics fields
-    MCResult(double temperature, double[] composition, double[] avgCFs,
-             double energyPerSite, double hmixPerSite, double heatCapacityPerSite,
-             double acceptRate, long nEquilSweeps, long nAvgSweeps,
-             int supercellSize, int nSites,
-             double tauInt, double statInefficiency, int nEff,
-             int blockSizeUsed, int nBlocks,
-             double stdEnergyPerSite, double stdHmixPerSite, double[] stdCFs,
-             double cvJackknife, double cvStdErr) {
+    public MCResult(double temperature, double[] composition, double[] avgCFs,
+                    double energyPerSite, double hmixPerSite, double heatCapacityPerSite,
+                    double acceptRate, long nEquilSweeps, long nAvgSweeps,
+                    int supercellSize, int nSites,
+                    double tauInt, double statInefficiency, int nEff,
+                    int blockSizeUsed, int nBlocks,
+                    double stdEnergyPerSite, double stdHmixPerSite, double[] stdCFs,
+                    double cvJackknife, double cvStdErr) {
         this.temperature         = temperature;
         this.composition         = composition.clone();
         this.avgCFs              = avgCFs.clone();

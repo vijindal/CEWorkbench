@@ -102,9 +102,6 @@ public class MCEngine {
             }
         }
 
-        // Compute statistics from stored time series
-        sampler.computeStatistics(T);
-
         LOG.fine("MCEngine.run — done: acceptRate=" + String.format("%.3f", step.acceptRate()));
         return buildResult(config, sampler, step.acceptRate(), currentEnergy);
     }
@@ -174,22 +171,16 @@ public class MCEngine {
         double[] cfs  = sampler.meanCFs();
         double   hmix = sampler.meanHmixPerSite();
         int      N    = config.getN();
+        double   cv   = sampler.heatCapacityPerSite(T);
 
-        // Use corrected energy from time average if available, otherwise fallback
-        double energy = Double.isNaN(sampler.meanEnergyPerSite())
-                ? currentEnergy / N               // fallback for < 4 samples
-                : sampler.meanEnergyPerSite();    // true ⟨E⟩/N
-
-        // Use jackknife Cv if available, otherwise fallback to old estimator
-        double cv = Double.isNaN(sampler.cvJackknife())
-                ? sampler.heatCapacityPerSite(T)  // old estimator as fallback
-                : sampler.cvJackknife();
+        // Return result with only mean quantities and raw time series for post-processing.
+        // Statistics (τ_int, block averages, SEM, jackknife Cv) are computed in the
+        // calculation layer by MCSStatisticsProcessor.
+        double energy = currentEnergy / N;   // crude average
 
         return new MCResult(T, config.composition(), cfs, energy, hmix, cv,
                 acceptRate, nEquil, nAvg, L, N,
-                sampler.getTauInt(), sampler.getStatInefficiency(), sampler.getNEff(),
-                sampler.getBlockSizeUsed(), sampler.getNBlocks(),
-                sampler.stdEnergyPerSite(), sampler.stdHmixPerSite(),
-                sampler.stdCFs(), sampler.cvJackknife(), sampler.cvStdErr());
+                Double.NaN, Double.NaN, 0, 0, 0,
+                Double.NaN, Double.NaN, null, Double.NaN, Double.NaN);
     }
 }

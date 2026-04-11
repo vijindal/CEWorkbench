@@ -6,6 +6,7 @@ import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMSolver;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
+import org.ce.model.mcs.MCSampler;
 import org.ce.calculation.engine.ProgressEvent;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.cluster.CMatrix;
@@ -202,7 +203,43 @@ public class ThermodynamicWorkflow {
             });
         }
 
-        MCResult result = builder.build().run();
+        MCSRunner.MCSRunResult runResult = builder.build().run();
+        MCResult baseResult = runResult.result;
+        MCSampler sampler = runResult.sampler;
+
+        // Compute statistics from raw time series in the calculation layer
+        MCSStatisticsProcessor statsProcessor = new MCSStatisticsProcessor(
+                baseResult.getNSites(),
+                GAS_CONSTANT,
+                request.temperature,
+                sampler.getSeriesHmix(),
+                sampler.getSeriesE(),
+                sampler.getSeriesCF());
+        statsProcessor.computeStatistics();
+
+        // Rebuild MCResult with computed statistics
+        MCResult result = new MCResult(
+                baseResult.getTemperature(),
+                baseResult.getComposition(),
+                baseResult.getAvgCFs(),
+                baseResult.getEnergyPerSite(),
+                baseResult.getHmixPerSite(),
+                baseResult.getHeatCapacityPerSite(),
+                baseResult.getAcceptRate(),
+                baseResult.getNEquilSweeps(),
+                baseResult.getNAvgSweeps(),
+                baseResult.getSupercellSize(),
+                baseResult.getNSites(),
+                statsProcessor.getTauInt(),
+                statsProcessor.getStatInefficiency(),
+                statsProcessor.getNEff(),
+                statsProcessor.getBlockSizeUsed(),
+                statsProcessor.getNBlocks(),
+                statsProcessor.getStdEnergyPerSite(),
+                statsProcessor.getStdHmixPerSite(),
+                statsProcessor.getStdCFs(),
+                statsProcessor.getCvJackknife(),
+                statsProcessor.getCvStdErr());
 
         // [DEBUG] Temporary post-run diagnostic print
         MCResult.Debug.printMcsSummary(result);
