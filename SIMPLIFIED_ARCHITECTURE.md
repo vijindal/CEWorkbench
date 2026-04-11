@@ -140,25 +140,25 @@ Responsibilities:
 
 ------------------------------------------------------------------------
 
-# 4. Workflow Layer (Thin Dispatcher)
+# 4. Calculation Layer (Metadata & Dispatch)
 
-The workflow layer **coordinates model-layer operations without intermediary engine classes**.
+The calculation layer **provides metadata for UI discovery and dispatches execution requests**.
 
-    org.ce.calculation.workflow
+    org.ce.calculation
 
 Classes:
 
-    CalculationService        — public API for GUI and CLI
-    ThermodynamicWorkflow     — inlines CVM and MCS dispatch directly to model-layer optimizers
-    CECManagementWorkflow     — Hamiltonian scaffold/load/validate/save
+    CalculationRegistry       — discovery: what can be calculated and required parameters
+    CalculationDescriptor     — vocabulary for Properties, Modes, and Parameters
+    CalculationService        — unified facade for model construction and calculation dispatch
+    ThermodynamicWorkflow     — internal driver for CVM and MCS optimizers
 
 Responsibilities:
 
-    route calculation requests to model-layer optimizers (CVMSolver, MCSRunner)
-    stream progress events
-    return results to UI
-
-No physics is implemented here; no algorithm loops; direct call-through to model layer.
+    Define the "Calculation Vocabulary" shared by UI and CLI.
+    Provide the "Source of Truth" for valid engine/property/mode combinations.
+    Manage the lifecycle of ModelSession (Model Construction).
+    Route specifications to model-layer optimizers (CVMSolver, MCSRunner).
 
 ------------------------------------------------------------------------
 
@@ -261,25 +261,24 @@ The UI interacts with the system through **CalculationService**.
 
 When the user runs a thermodynamic calculation:
 
-    ┌─ UI layer ──────────────────────────────────────────────────┐
-    │  GUI / CLI                                                  │
-    │   provides: system info + calculation parameters            │
-    │   receives: EquilibriumState → display / store results      │
-    └──────────────┬──────────────────────────▲───────────────────┘
-                   ↓                          │ EquilibriumState
-    ┌─ calculation layer ─────────────────────┼───────────────────┐
-    │  CalculationService                     │                   │
-    │   ↓                                     │                   │
-    │  ThermodynamicWorkflow                  │                   │
-    │   ↓                                     │                   │
-    │  CVMEngine / MCSEngine  ────────────────┘                   │
-    │   │ query (T, x, CFs)        ▲ G, ∇G, ∇²G / sweep result  │
-    └───┼──────────────────────────┼─────────────────────────────-┘
-        ↓                          │
-    ┌─ model layer ────────────────────────────────────────────── ┐
-    │  CVMGibbsModel / LatticeConfig / EmbeddingData etc.        │
-    │   (pre-built from system info; persist for full session)    │
-    └─────────────────────────────────────────────────────────────┘
+    ┌─ UI layer ────────────────────────────────────────────────────────┐
+    │  GUI / CLI                                                        │
+    │   provides: ModelSpecifications + CalculationSpecifications       │
+    │   receives: ThermodynamicResult → display / store results          │
+    └──────────────┬───────────────────────────────▲────────────────────┘
+                   ↓                               │ ThermodynamicResult
+    ┌─ calculation layer (CalculationService) ─────┼────────────────────┐
+    │   1. getOrBuildSession(ModelSpecifications)  │                    │
+    │   2. execute(CalculationSpecifications)       │                    │
+    │      ↓                                       │                    │
+    │   internal workflow (CVM/MCS)  ──────────────┘                    │
+    │      │ query (T, x, CFs)        ▲ Result data (G, H, S...)        │
+    └──┬───┼──────────────────────────┼─────────────────────────────────┘
+       ↓   │                          │
+    ┌─ model layer ─────────────────────────────────────────────────────┐
+    │  CVMGibbsModel / LatticeConfig / EmbeddingData etc.               │
+    │   (pre-built from modelSpecs; persists for the full execution)    │
+    └───────────────────────────────────────────────────────────────────┘
 
     Rules:
     - Model layer never communicates with UI directly.

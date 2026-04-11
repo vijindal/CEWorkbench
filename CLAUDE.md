@@ -71,27 +71,30 @@ org.ce
 │   ├─ result/               ThermodynamicResult, EquilibriumState
 │   └─ storage/              Workspace, InputLoader, HamiltonianStore, DataStore
 │
-├─ calculation/              Workflow orchestration (thin dispatcher to model-layer optimizers)
-│   ├─ engine/               ProgressEvent (UI-facing event type)
-│   └─ workflow/             CalculationService, CECManagementWorkflow
-│       └─ thermo/           ThermodynamicWorkflow (inlines CVM/MCS dispatch),
-│                            LineScanWorkflow, GridScanWorkflow, ...
+├─ calculation/              Metadata providers and unified calculation dispatcher
+│   ├─ CalculationDescriptor.java   Vocabulary: Property, Mode, Parameter
+│   ├─ CalculationSpecifications.java Value object for calculation parameters
+│   ├─ CalculationRegistry.java     Discovery: provides available options per engine
+│   └─ workflow/             Unified CalculationService + specialized scans
+│       ├─ CalculationService.java  Unified entry point (execute/executeScan)
+│       └─ thermo/           ThermodynamicWorkflow, LineScanWorkflow, etc.
 │
 └─ ui/
-    ├─ cli/   Main.java
-    └─ gui/   MainWindow, WorkbenchContext, CalculationPanel,
-              DataPreparationPanel, CECManagementPanel, OutputPanel, ...
+    ├─ cli/   Main.java      Redesigned to use unified service entry points
+    └─ gui/   MainWindow, DynamicCalculationPanel (unified), OutputPanel...
 ```
 
 **Dependency rule:** `ui` → `calculation` → `model`. Never reverse. `model` has no upward deps.
 
 ## Layer roles
 
-**`model/`** — Physics evaluators AND optimizers. Physics evaluators (e.g., `CVMGibbsModel`, `LocalEnergyCalc`) are stateless and respond to queries. Optimizers (e.g., `CVMSolver`, `MCSampler`, `MCEngine`) own algorithm loops and convergence decisions. Both are in the model layer because optimization is part of the physics workflow. Model objects are built once from system info and live for the duration of a calculation.
+**`model/`** — Physics evaluators AND optimizers. Evaluators (e.g., `CVMGibbsModel`) are queried for properties. Optimizers (e.g., `CVMSolver`, `MCEngine`) own algorithm loops and convergence logic. Both belong in the model layer.
 
-**`calculation/`** — Thin dispatcher layer. `ThermodynamicWorkflow` inlines CVM and MCS dispatch directly to model-layer optimizers. No intermediate engine classes; optimizers are called directly. Receives calculation parameters, orchestrates the workflow, returns results.
+**`calculation/`** — **Discovery and Dispatch Layer.**
+1.  **Discovery**: Provides `CalculationRegistry` which the UI uses to "discover" what can be calculated and what parameters are needed.
+2.  **Dispatch**: `CalculationService` acts as the unified facade. It manages `ModelSession` construction ("Model Construction Role") and routes specifications to model-layer optimizers ("Execution Role").
 
-**`ui/`** — Collects user inputs (system info + calculation parameters), triggers model build, passes calculation parameters to calculation layer, presents results. No business logic.
+**`ui/`** — Specification-driven. Collects inputs into `ModelSpecifications` and `CalculationSpecifications`, then dispatches via the unified service.
 
 ---
 

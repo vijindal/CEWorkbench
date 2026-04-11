@@ -88,30 +88,20 @@ public class MainWindow extends JFrame {
         CECManagementPanel cecPanel = new CECManagementPanel(
                 appCtx, context, statusSink, cecResultSink, cecEditApplySink);
 
-        CalculationPanel calcPanel = new CalculationPanel(
+        DynamicCalculationPanel calcPanel = new DynamicCalculationPanel(
                 appCtx, context, statusSink, resultSink, chartSink, quantityModel);
-
-        LineScanPanel lineScanPanel = new LineScanPanel(
-                appCtx, context, statusSink, logSink, outputPanel, quantityModel);
-
-        MapPanel mapPanel = new MapPanel(
-                appCtx, context, statusSink, logSink, outputPanel, quantityModel);
 
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();
         explorerPanel.addCard(dataPrepPanel, 0);
         explorerPanel.addCard(cecPanel,      1);
         explorerPanel.addCard(calcPanel,     2);
-        explorerPanel.addCard(lineScanPanel, 3);
-        explorerPanel.addCard(mapPanel,      4);
 
         // ── activity bar ──────────────────────────────────────────────────────
         Runnable[] navCallbacks = {
             () -> navigate(0),
             () -> navigate(1),
             () -> navigate(2),
-            () -> navigate(3),
-            () -> navigate(4),
         };
         activityBar = new ActivityBar(navCallbacks);
 
@@ -143,7 +133,7 @@ public class MainWindow extends JFrame {
         add(centre,    BorderLayout.CENTER);
         add(statusBar, BorderLayout.SOUTH);
 
-        navigate(2);    // start on Calculation panel
+        navigate(2);    // start on Thermodynamics panel
     }
 
     // =========================================================================

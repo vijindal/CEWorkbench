@@ -111,10 +111,10 @@ Active algorithm drivers. Accepts a `ModelSession`; drives algorithms using mode
 
 | Package | Key Classes | Role |
 |---------|-------------|------|
-| `calculation.engine` | `ProgressEvent` | UI-facing event type for progress streaming |
-| `calculation.workflow` | `CalculationService`, `ThermodynamicWorkflow` | High-level façade; inlines CVM/MCS dispatch directly to model-layer optimizers |
-| `calculation.workflow.cec` | `CECManagementWorkflow`, `CFMetadata` | Type-1b: scaffold, load, validate, save Hamiltonian |
-| `calculation.workflow.thermo` | `ThermodynamicWorkflow`, `LineScanWorkflow`, `GridScanWorkflow`, `FiniteSizeScanWorkflow`, `ThermodynamicRequest` | Type-2: single-point, temperature/composition/grid scans, finite-size scaling |
+| `calculation` | `CalculationDescriptor`, `CalculationSpecifications`, `CalculationRegistry` | **Discovery-based Metadata**: Defines Property, Mode, and Parameter vocabularies; provides available options for a given engine. |
+| `calculation.workflow` | `CalculationService` | **Unified Entry Point**: Orchestrates model construction (`execute`) and result dispatching (`executeScan`). |
+| `calculation.workflow.cec` | `CECManagementWorkflow` | Type-1b: scaffold, load, validate, save Hamiltonian. |
+| `calculation.workflow.thermo` | `ThermodynamicWorkflow`, `LineScanWorkflow`, `GridScanWorkflow`, `FiniteSizeScanWorkflow` | Type-2 internal implementation: single-point, temperature/composition/grid scans, finite-size scaling. |
 
 ### UI Layer — `org.ce.ui`
 
@@ -252,18 +252,17 @@ src/main/java/org/ce
 │     └─ DataStore.java
 │
 ├─ calculation/
-│  ├─ engine/
-│  │  └─ ProgressEvent.java      (UI-facing event type)
+│  ├─ CalculationDescriptor.java
+│  ├─ CalculationSpecifications.java
+│  ├─ CalculationRegistry.java
 │  └─ workflow/
 │     ├─ CalculationService.java
 │     ├─ CECManagementWorkflow.java (Hamiltonian scaffold/load/save)
 │     └─ thermo/
-│        ├─ ThermodynamicWorkflow.java  (inlines CVM/MCS dispatch to model-layer optimizers)
+│        ├─ ThermodynamicWorkflow.java
 │        ├─ LineScanWorkflow.java
 │        ├─ GridScanWorkflow.java
-│        ├─ FiniteSizeScanWorkflow.java
-│        ├─ ThermodynamicRequest.java
-│        └─ ThermodynamicData.java
+│        └─ FiniteSizeScanWorkflow.java
 │
 └─ ui/
    ├─ cli/
