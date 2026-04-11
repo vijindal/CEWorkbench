@@ -1,6 +1,6 @@
 package org.ce.calculation.workflow.thermo;
 
-import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.ProgressEvent;
 
 import java.util.function.Consumer;
 

@@ -1,7 +1,7 @@
 package org.ce.ui.gui;
 
 import org.ce.calculation.QuantityDescriptor;
-import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.ProgressEvent;
 import org.ce.model.hamiltonian.CECEntry;
 
 import javax.swing.*;

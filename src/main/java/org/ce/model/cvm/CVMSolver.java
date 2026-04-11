@@ -1,7 +1,7 @@
 package org.ce.model.cvm;
 
 import org.ce.model.cluster.LinearAlgebra;
-import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMGibbsModel.ModelResult;
 

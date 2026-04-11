@@ -2,12 +2,12 @@ package org.ce.calculation.workflow.thermo;
 
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
+import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMSolver;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.mcs.MCSampler;
-import org.ce.calculation.engine.ProgressEvent;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.cluster.CMatrix;
 import org.ce.model.cluster.ClusterResults.ClusCoordListResult;

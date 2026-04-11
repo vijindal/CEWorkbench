@@ -1,6 +1,6 @@
 package org.ce.calculation.workflow;
 
-import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 import org.ce.calculation.workflow.thermo.ScanWorkflows;

@@ -1,10 +1,11 @@
-package org.ce.calculation.engine;
+package org.ce.model;
 
 /**
- * Structured progress events emitted by thermodynamic engines during computation.
+ * Structured progress events emitted by optimizers during computation.
  *
- * <p>Consumed by the UI layer to drive live chart updates. Text log messages continue
- * to flow through the separate {@code Consumer<String>} progressSink.</p>
+ * <p>Produced by the model layer (optimizers emit progress during long computations).
+ * Consumed by the calculation and UI layers to drive live feedback (charts, progress bars).
+ * Text log messages continue to flow through the separate {@code Consumer<String>} progressSink.</p>
  */
 public abstract class ProgressEvent {
 
@@ -55,7 +56,7 @@ public abstract class ProgressEvent {
      * One Newton-Raphson iteration — emitted by CVM post-hoc from the stored iteration
      * trace after convergence.
      *
-     * <p>Note: on solver failure {@code CVMPhaseModel.create()} throws before the trace
+     * <p>Note: on solver failure {@code CVMGibbsModel.evaluate()} throws before the trace
      * is readable, so chart events are only emitted on successful convergence.</p>
      */
     public static final class CvmIteration extends ProgressEvent {
