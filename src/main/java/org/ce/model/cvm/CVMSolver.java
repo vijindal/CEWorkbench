@@ -4,6 +4,7 @@ import org.ce.model.cluster.LinearAlgebra;
 import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMGibbsModel.ModelResult;
+import org.ce.model.cvm.CVMEquilibriumState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,23 +17,44 @@ public class CVMSolver {
 
     private static final int MAX_ITER = 400;
     private static final double TOLX = 1.0e-12;
+    private static final double R_GAS = 8.3144598;  // J/(mol·K)
 
+    /**
+     * Result of CVM equilibrium calculation.
+     *
+     * <p>Separates thermodynamic contract (state) from solver metadata (convergence info, trace).
+     * The calculation layer should check {@link #converged} before using {@link #state}.</p>
+     */
     public static final class EquilibriumResult {
-        public final double[] u;
-        public final ModelResult modelValues;
-        public final int iterations;
-        public final double finalGradientNorm;
+
+        /** The thermodynamic equilibrium state. Use this in the calculation layer. */
+        public final CVMEquilibriumState state;
+
+        /** Solver metadata: convergence flag. Check this before using state. */
         public final boolean converged;
+
+        /** Solver metadata: iteration count. */
+        public final int iterations;
+
+        /** Solver metadata: final gradient norm ||∇G||. */
+        public final double finalGradientNorm;
+
+        /** Debug trace: iteration snapshots. Only populated for diagnostics. */
         public final List<IterationSnapshot> trace;
 
-        public EquilibriumResult(double[] u, ModelResult modelValues, int iterations,
-                                 double finalGradientNorm, boolean converged,
-                                 List<IterationSnapshot> trace) {
-            this.u = u;
-            this.modelValues = modelValues;
+        /**
+         * @param state thermodynamic equilibrium state (u, G/H/S)
+         * @param converged convergence flag
+         * @param iterations iteration count at convergence/failure
+         * @param finalGradientNorm final ||∇G|| norm
+         * @param trace iteration snapshots for debugging (may be empty)
+         */
+        public EquilibriumResult(CVMEquilibriumState state, boolean converged, int iterations,
+                                 double finalGradientNorm, List<IterationSnapshot> trace) {
+            this.state = state;
+            this.converged = converged;
             this.iterations = iterations;
             this.finalGradientNorm = finalGradientNorm;
-            this.converged = converged;
             this.trace = trace;
         }
     }
@@ -92,7 +114,8 @@ public class CVMSolver {
 
             // Convergence check
             if (errf <= tolerance) {
-                return new EquilibriumResult(u, current, its, errf, true, trace);
+                CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, R_GAS);
+                return new EquilibriumResult(state, true, its, errf, trace);
             }
 
             try {
@@ -115,15 +138,18 @@ public class CVMSolver {
                 // X-convergence check
                 if (errx <= TOLX) {
                     current = model.evaluate(u, moleFractions, temperature, eci);
-                    return new EquilibriumResult(u, current, its, errf, true, trace);
+                    CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, R_GAS);
+                    return new EquilibriumResult(state, true, its, errf, trace);
                 }
 
             } catch (Exception e) {
-                return new EquilibriumResult(u, current, its, errf, false, trace);
+                CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, R_GAS) : null;
+                return new EquilibriumResult(state, false, its, errf, trace);
             }
         }
 
-        return new EquilibriumResult(u, current, MAX_ITER, errf, false, trace);
+        CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, R_GAS) : null;
+        return new EquilibriumResult(state, false, MAX_ITER, errf, trace);
     }
 
     /** Overload for cases where progress reporting is not needed. */

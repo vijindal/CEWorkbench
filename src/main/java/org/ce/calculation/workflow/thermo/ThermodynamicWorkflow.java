@@ -5,6 +5,7 @@ import org.ce.model.ModelSession;
 import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMSolver;
+import org.ce.model.cvm.CVMEquilibriumState;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.hamiltonian.CECEvaluator;
@@ -114,16 +115,19 @@ public class ThermodynamicWorkflow {
                 progressSink, request.eventSink);
 
         validateConvergence(solverResult, progressSink);
-        printEquilibriumResults(progressSink, solverResult);
+
+        // Extract thermodynamic state from solver result
+        CVMEquilibriumState eqState = solverResult.state;
+        printEquilibriumResults(progressSink, eqState);
 
         ThermodynamicResult result = new ThermodynamicResult(
                 temperature, composition.clone(),
-                solverResult.modelValues.G,  // gibbsEnergy
-                solverResult.modelValues.H,  // enthalpy
-                solverResult.modelValues.S,  // entropy
-                Double.NaN, Double.NaN,      // stdEnthalpy, heatCapacity
-                solverResult.u,              // optimizedCFs
-                null, null                   // avgCFs, stdCFs
+                eqState.getGibbsEnergy(),     // gibbsEnergy
+                eqState.getEnthalpy(),        // enthalpy
+                eqState.getEntropy(),         // entropy
+                Double.NaN, Double.NaN,       // stdEnthalpy, heatCapacity
+                eqState.getCFs(),             // optimizedCFs
+                null, null                    // avgCFs, stdCFs
         );
 
         emit(progressSink, "================================================================================");
@@ -301,12 +305,12 @@ public class ThermodynamicWorkflow {
         emit(sink, "  - Composition:    [" + formatArray(composition) + "]");
     }
 
-    private void printEquilibriumResults(Consumer<String> sink, CVMSolver.EquilibriumResult result) {
+    private void printEquilibriumResults(Consumer<String> sink, CVMEquilibriumState state) {
         emit(sink, "\nEQUILIBRIUM RESULTS");
         emit(sink, "-------------------");
-        emit(sink, String.format("  - G(eq): %.6e J/mol", result.modelValues.G));
-        emit(sink, String.format("  - H(eq): %.6e J/mol", result.modelValues.H));
-        emit(sink, String.format("  - S(eq): %.6e J/(mol·K)", result.modelValues.S));
+        emit(sink, String.format("  - G(eq): %.6e J/mol", state.getGibbsEnergy()));
+        emit(sink, String.format("  - H(eq): %.6e J/mol", state.getEnthalpy()));
+        emit(sink, String.format("  - S(eq): %.6e J/(mol·K)", state.getEntropy()));
     }
 
     private void validateInputs(double temperature, double[] composition) {
