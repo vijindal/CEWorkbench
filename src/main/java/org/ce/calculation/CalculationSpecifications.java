@@ -27,6 +27,7 @@ public final class CalculationSpecifications {
         this.mode = Objects.requireNonNull(mode);
     }
 
+
     /**
      * Sets a parameter value. This should be used by the UI layer after
      * collecting user input.

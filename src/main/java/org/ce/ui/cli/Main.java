@@ -177,7 +177,7 @@ public class Main {
                 double tStart = 1000.0, tEnd = 1000.0, tStep = 100.0;
 
                 ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
-                CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.LINE_SCAN);
+                CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
                 calcSpecs.set(Parameter.COMPOSITION, composition);
                 calcSpecs.set(Parameter.T_START, tStart);
                 calcSpecs.set(Parameter.T_END, tEnd);
@@ -189,10 +189,10 @@ public class Main {
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
-                service.executeScan(modelSpecs, calcSpecs, sink);
+                service.executeScan(modelSpecs, calcSpecs, sink, null);
                 
                 // For the CLI table output, we call executeScan to get the full list
-                List<ThermodynamicResult> results = service.executeScan(modelSpecs, calcSpecs, sink);
+                List<ThermodynamicResult> results = service.executeScan(modelSpecs, calcSpecs, sink, null);
 
                 System.out.print(ResultFormatter.table(results));
             }
@@ -250,11 +250,11 @@ public class Main {
             Consumer<String> sink = verbose ? System.out::println : null;
 
             ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
-            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.SINGLE_POINT);
+            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
             calcSpecs.set(Parameter.TEMPERATURE, temp);
             calcSpecs.set(Parameter.COMPOSITION, composition);
 
-            ThermodynamicResult result = service.execute(modelSpecs, calcSpecs, sink);
+            ThermodynamicResult result = (ThermodynamicResult) service.execute(modelSpecs, calcSpecs, sink, null);
 
             System.out.println("System: " + modelSpecs);
             System.out.println();
@@ -288,12 +288,12 @@ public class Main {
             Consumer<String> sink = verbose ? System.out::println : null;
 
             ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
-            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.SINGLE_POINT);
+            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
             calcSpecs.set(Parameter.TEMPERATURE, temp);
             calcSpecs.set(Parameter.COMPOSITION, composition);
             calcSpecs.set(Parameter.FIXED_CORRELATIONS, cfs);
 
-            ThermodynamicResult result = service.execute(modelSpecs, calcSpecs, sink);
+            ThermodynamicResult result = (ThermodynamicResult) service.execute(modelSpecs, calcSpecs, sink, null);
 
             System.out.println("System: " + modelSpecs);
             System.out.print("Requested CFs: [");

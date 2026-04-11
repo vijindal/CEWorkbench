@@ -46,7 +46,7 @@ public class CEWorkbenchContext {
 
         ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow();
         this.sessionBuilder = new ModelSession.Builder(hamiltonianStore);
-        this.calculationService = new CalculationService(thermoWorkflow, sessionBuilder);
+        this.calculationService = new CalculationService(sessionBuilder, thermoWorkflow);
     }
 
     // =========================================================================

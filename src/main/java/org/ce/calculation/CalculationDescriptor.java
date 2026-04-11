@@ -41,9 +41,7 @@ public final class CalculationDescriptor {
      * The dimensionality or "shape" of the calculation.
      */
     public enum Mode {
-        SINGLE_POINT("Single Point"),
-        LINE_SCAN("Line Scan"),
-        GRID_SCAN("Grid Scan / Map"),
+        ANALYSIS("Analysis"),
         FINITE_SIZE_SCALING("Finite-Size Scaling (FSS)");
 
         public final String displayName;
@@ -59,12 +57,17 @@ public final class CalculationDescriptor {
     public static final class Parameter {
         public static final Parameter TEMPERATURE = new Parameter("Temperature", Double.class, 1000.0);
         public static final Parameter COMPOSITION = new Parameter("Composition", double[].class, null);
-        public static final Parameter T_START      = new Parameter("T Start", Double.class, 500.0);
-        public static final Parameter T_END        = new Parameter("T End", Double.class, 1500.0);
-        public static final Parameter T_STEP       = new Parameter("T Step", Double.class, 50.0);
-        public static final Parameter X_START      = new Parameter("X Start", Double.class, 0.05);
-        public static final Parameter X_END        = new Parameter("X End", Double.class, 0.95);
-        public static final Parameter X_STEP       = new Parameter("X Step", Double.class, 0.05);
+        public static final Parameter T_START      = new Parameter("T Start", Double.class, 1000.0);
+        public static final Parameter T_END        = new Parameter("T End", Double.class, 1000.0);
+        public static final Parameter T_STEP       = new Parameter("T Step", Double.class, 100.0);
+        public static final Parameter X_START      = new Parameter("X Start", Double.class, 0.5);
+        public static final Parameter X_END        = new Parameter("X End", Double.class, 0.5);
+        public static final Parameter X_STEP       = new Parameter("X Step", Double.class, 0.1);
+
+        public static final Parameter X_STARTS     = new Parameter("X Starts", double[].class, null);
+        public static final Parameter X_ENDS       = new Parameter("X Ends", double[].class, null);
+        public static final Parameter X_STEPS      = new Parameter("X Steps", double[].class, null);
+
         public static final Parameter MCS_L        = new Parameter("Lattice Size L", Integer.class, 4);
         public static final Parameter MCS_NEQUIL   = new Parameter("Equil. Sweeps", Integer.class, 1000);
         public static final Parameter MCS_NAVG     = new Parameter("Avg. Sweeps", Integer.class, 2000);

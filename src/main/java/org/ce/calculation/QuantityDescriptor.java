@@ -135,6 +135,13 @@ public enum QuantityDescriptor {
             listeners.forEach(Runnable::run);
         }
 
+        /** Clears existing selection and sets {@code q} exclusively. */
+        public void setExclusive(QuantityDescriptor q) {
+            selected.clear();
+            selected.add(q);
+            listeners.forEach(Runnable::run);
+        }
+
         /** Returns {@code true} when {@code q} is currently selected. */
         public boolean isSelected(QuantityDescriptor q) {
             return selected.contains(q);

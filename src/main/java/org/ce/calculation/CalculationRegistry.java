@@ -43,11 +43,7 @@ public final class CalculationRegistry {
             return Arrays.asList(Mode.FINITE_SIZE_SCALING);
         }
         
-        List<Mode> modes = new ArrayList<>(Arrays.asList(Mode.SINGLE_POINT, Mode.LINE_SCAN));
-        if (engine.isCvm()) {
-            modes.add(Mode.GRID_SCAN); // Maps currently CVM only
-        }
-        return modes;
+        return Arrays.asList(Mode.ANALYSIS);
     }
 
     /**
@@ -58,28 +54,17 @@ public final class CalculationRegistry {
 
         // Basic conditions
         switch (mode) {
-            case SINGLE_POINT:
+            case ANALYSIS:
+                requirements.add(Parameter.T_START);
+                requirements.add(Parameter.T_END);
+                requirements.add(Parameter.T_STEP);
+                requirements.add(Parameter.X_STARTS);
+                requirements.add(Parameter.X_ENDS);
+                requirements.add(Parameter.X_STEPS);
+                break;
             case FINITE_SIZE_SCALING:
                 requirements.add(Parameter.TEMPERATURE);
                 requirements.add(Parameter.COMPOSITION);
-                break;
-            case LINE_SCAN:
-                // UI handles selection between T-scan and x-scan internally for now,
-                // but let's provide all common scan params
-                requirements.add(Parameter.T_START);
-                requirements.add(Parameter.T_END);
-                requirements.add(Parameter.T_STEP);
-                requirements.add(Parameter.X_START);
-                requirements.add(Parameter.X_END);
-                requirements.add(Parameter.X_STEP);
-                break;
-            case GRID_SCAN:
-                requirements.add(Parameter.T_START);
-                requirements.add(Parameter.T_END);
-                requirements.add(Parameter.T_STEP);
-                requirements.add(Parameter.X_START);
-                requirements.add(Parameter.X_END);
-                requirements.add(Parameter.X_STEP);
                 break;
         }
 

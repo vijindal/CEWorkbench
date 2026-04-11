@@ -64,7 +64,7 @@ public class MainWindow extends JFrame {
         HeaderBar header = new HeaderBar(context);
 
         // ── output panel (always visible on the right) ────────────────────────
-        OutputPanel outputPanel = new OutputPanel(context);
+        OutputPanel outputPanel = new OutputPanel(context, quantityModel);
 
         // ── sinks wired to the output panel ───────────────────────────────────
         // Unified log sink: GUI output box + CLI terminal
@@ -77,8 +77,30 @@ public class MainWindow extends JFrame {
         java.util.function.Consumer<String> statusSink = this::postStatus;
         java.util.function.BiConsumer<CECEntry, CECEntry> cecResultSink = outputPanel::showCECResult;
         java.util.function.Function<CECEntry, Boolean> cecEditApplySink = outputPanel::applyCECEdits;
-        java.util.function.Consumer<org.ce.model.ThermodynamicResult> resultSink =
-                outputPanel::showResult;
+        java.util.function.Consumer<Object> resultSink = result -> {
+            if (result instanceof org.ce.model.ThermodynamicResult) {
+                outputPanel.showResult((org.ce.model.ThermodynamicResult) result);
+            } else if (result instanceof java.util.List) {
+                java.util.List<?> list = (java.util.List<?>) result;
+                if (!list.isEmpty()) {
+                    if (list.get(0) instanceof org.ce.model.ThermodynamicResult) {
+                        @SuppressWarnings("unchecked")
+                        java.util.List<org.ce.model.ThermodynamicResult> results =
+                                (java.util.List<org.ce.model.ThermodynamicResult>) list;
+                        // Detect scan type (T vs X)
+                        boolean tVaries = results.size() > 1 &&
+                                Math.abs(results.get(0).temperature - results.get(results.size() - 1).temperature) > 1e-3;
+                        outputPanel.showLineScanResult(results, tVaries ? "T" : "X");
+                        logSink.accept("\n" + org.ce.calculation.ResultFormatter.table(results));
+                    } else if (list.get(0) instanceof java.util.List) {
+                        @SuppressWarnings("unchecked")
+                        java.util.List<java.util.List<org.ce.model.ThermodynamicResult>> grid =
+                                (java.util.List<java.util.List<org.ce.model.ThermodynamicResult>>) list;
+                        outputPanel.showMapResult(grid);
+                    }
+                }
+            }
+        };
         java.util.function.Consumer<ProgressEvent> chartSink = outputPanel::onChartEvent;
 
         // ── parameter panels (go into the explorer) ───────────────────────────
