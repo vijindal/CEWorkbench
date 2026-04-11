@@ -1,17 +1,16 @@
 package org.ce.calculation.workflow.thermo;
 
 import org.ce.model.ThermodynamicResult;
-import org.ce.model.ThermodynamicInput;
 import org.ce.model.ModelSession;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMSolver;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.calculation.engine.ProgressEvent;
-import org.ce.model.cluster.cvcf.CvCfBasis;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.cluster.CMatrix;
 import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
+import org.ce.model.cluster.cvcf.CvCfBasis;
 
 import java.util.Arrays;
 import java.util.logging.Logger;
@@ -58,23 +57,9 @@ public class ThermodynamicWorkflow {
         emit(request.progressSink, "STAGE 3: Using pre-loaded Hamiltonian '"
                 + session.resolvedHamiltonianId + "'");
 
-        ThermodynamicInput input = new ThermodynamicInput(
-                session.clusterData,
-                session.cecEntry,
-                request.temperature,
-                request.composition,
-                session.resolvedHamiltonianId,
-                session.label(),
-                request.progressSink,
-                request.eventSink,
-                request.mcsL,
-                request.mcsNEquil,
-                request.mcsNAvg
-        );
-
         ThermodynamicResult result = switch (session.engineConfig.engineType) {
-            case "CVM" -> runCvm(input, request.progressSink);
-            case "MCS" -> runMcs(input, request.progressSink);
+            case "CVM" -> runCvm(session, request);
+            case "MCS" -> runMcs(session, request);
             default -> throw new IllegalArgumentException("Unknown engine: " + session.engineConfig.engineType);
         };
 
@@ -104,30 +89,29 @@ public class ThermodynamicWorkflow {
         return result;
     }
 
-    private ThermodynamicResult runCvm(ThermodynamicInput input, Consumer<String> progressSink)
+    private ThermodynamicResult runCvm(ModelSession session, ThermodynamicRequest request)
             throws Exception {
+        Consumer<String> progressSink = request.progressSink;
         printCvmHeader(progressSink);
 
-        double temperature = input.temperature;
-        double[] composition = input.composition;
+        double temperature = request.temperature;
+        double[] composition = request.composition;
 
-        printInputParameters(progressSink, input.systemId, input.systemName,
-                            input.cec.structurePhase, temperature, composition);
+        printInputParameters(progressSink, session.resolvedHamiltonianId, session.label(),
+                            session.cecEntry.structurePhase, temperature, composition);
 
         validateInputs(temperature, composition);
-        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(
-                input.cec.structurePhase, input.cec.model, composition.length);
 
         CVMGibbsModel gibbsModel = new CVMGibbsModel(
-                input.clusterData.getDisorderedClusterResult(),
-                input.clusterData.getDisorderedCFResult(),
-                input.clusterData.getCMatrixResult(),
-                basis);
+                session.clusterData.getDisorderedClusterResult(),
+                session.clusterData.getDisorderedCFResult(),
+                session.clusterData.getCMatrixResult(),
+                session.cvcfBasis);
 
-        double[] eci = evaluateEci(input.cec, temperature, basis, progressSink);
+        double[] eci = evaluateEci(session.cecEntry, temperature, session.cvcfBasis, progressSink);
         CVMSolver.EquilibriumResult solverResult = new CVMSolver().minimize(
                 gibbsModel, composition, temperature, eci, 1.0e-5,
-                progressSink, input.eventSink);
+                progressSink, request.eventSink);
 
         validateConvergence(solverResult, progressSink);
         printEquilibriumResults(progressSink, solverResult);
@@ -146,54 +130,47 @@ public class ThermodynamicWorkflow {
         return result;
     }
 
-    private ThermodynamicResult runMcs(ThermodynamicInput input, Consumer<String> progressSink)
+    private ThermodynamicResult runMcs(ModelSession session, ThermodynamicRequest request)
             throws Exception {
 
-        java.util.Objects.requireNonNull(input.clusterData,
-                "MCSEngine requires clusterData pre-built in ModelSession");
-
+        Consumer<String> progressSink = request.progressSink;
         ClusCoordListResult clusterData =
-                input.clusterData.getDisorderedClusterResult().getDisClusterData();
+                session.clusterData.getDisorderedClusterResult().getDisClusterData();
 
         // Validate C-matrix dimensions match basis
-        String structurePhase = input.cec.structurePhase;
-        String model = input.cec.model;
-        int numComponents = input.composition.length;
-        var basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, model, numComponents);
-
-        CMatrix.Result cmatResult = input.clusterData.getCMatrixResult();
+        CMatrix.Result cmatResult = session.clusterData.getCMatrixResult();
         cmatResult.validateCols(
-                basis.totalCfs(),
-                "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
-                + " + " + basis.numComponents + " point variables)"
+                session.cvcfBasis.totalCfs(),
+                "C-matrix dimension mismatch (basis.numNonPointCfs=" + session.cvcfBasis.numNonPointCfs
+                + " + " + session.cvcfBasis.numComponents + " point variables)"
         );
-        LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
+        LOG.fine("✓ C-matrix dimensions valid: " + session.cvcfBasis.totalCfs() + " columns");
 
-        double[] eci = CECEvaluator.evaluate(input.cec, input.temperature, basis, "MCS");
+        double[] eci = CECEvaluator.evaluate(session.cecEntry, request.temperature, session.cvcfBasis, "MCS");
 
-        int L           = input.mcsL;
-        int nEquil      = input.mcsNEquil;
-        int nAvg        = input.mcsNAvg;
+        int L           = request.mcsL;
+        int nEquil      = request.mcsNEquil;
+        int nAvg        = request.mcsNAvg;
         int totalSweeps = nEquil + nAvg;
         int N           = 2 * L * L * L;  // BCC sites
 
         MCSRunner.Builder builder = MCSRunner.builder()
                 .clusterData(clusterData)
                 .eci(eci)
-                .numComp(input.composition.length)
-                .T(input.temperature)
-                .composition(input.composition)
+                .numComp(request.composition.length)
+                .T(request.temperature)
+                .composition(request.composition)
                 .nEquil(nEquil)
                 .nAvg(nAvg)
                 .L(L)
                 .seed(System.currentTimeMillis())
                 .R(GAS_CONSTANT)
-                .basis(basis)
+                .basis(session.cvcfBasis)
                 .cmatResult(cmatResult)
                 .cancellationCheck(Thread.currentThread()::isInterrupted);
 
-        Consumer<String> strSink = input.progressSink;
-        Consumer<ProgressEvent> evtSink = input.eventSink;
+        Consumer<String> strSink = progressSink;
+        Consumer<ProgressEvent> evtSink = request.eventSink;
 
         if (strSink != null || evtSink != null) {
             if (strSink != null) {
