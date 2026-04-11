@@ -171,16 +171,44 @@ public class MCEngine {
         double[] cfs  = sampler.meanCFs();
         double   hmix = sampler.meanHmixPerSite();
         int      N    = config.getN();
-        double   cv   = sampler.heatCapacityPerSite(T);
-
-        // Return result with only mean quantities and raw time series for post-processing.
-        // Statistics (τ_int, block averages, SEM, jackknife Cv) are computed in the
-        // calculation layer by MCSStatisticsProcessor.
         double energy = currentEnergy / N;   // crude average
 
-        return new MCResult(T, config.composition(), cfs, energy, hmix, cv,
-                acceptRate, nEquil, nAvg, L, N,
-                Double.NaN, Double.NaN, 0, 0, 0,
-                Double.NaN, Double.NaN, null, Double.NaN, Double.NaN);
+        // Return raw simulation output with time series for post-processing.
+        // Statistics (τ_int, block averages, SEM, jackknife Cv) are computed in the
+        // calculation layer by MCSStatisticsProcessor.
+        return new MCResult(
+                T,                      // temperature
+                config.composition(),   // composition
+                nEquil,                 // nEquilSweeps
+                nAvg,                   // nAvgSweeps
+                L,                      // supercellSize
+                N,                      // nSites
+                acceptRate,             // acceptRate
+                energy,                 // energyPerSite
+                hmix,                   // hmixPerSite
+                cfs,                    // avgCFs
+                toArray(sampler.getSeriesHmix()),  // seriesHmix (raw time series)
+                toArray(sampler.getSeriesE()),     // seriesE (raw time series)
+                toArray2D(sampler.getSeriesCF())   // seriesCF (raw time series)
+        );
+    }
+
+    // Helper methods to convert List<Double> to arrays
+    private static double[] toArray(List<Double> list) {
+        if (list == null || list.isEmpty()) return null;
+        double[] arr = new double[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            arr[i] = list.get(i);
+        }
+        return arr;
+    }
+
+    private static double[][] toArray2D(List<Double>[] lists) {
+        if (lists == null || lists.length == 0) return null;
+        double[][] arr = new double[lists.length][];
+        for (int i = 0; i < lists.length; i++) {
+            arr[i] = toArray(lists[i]);
+        }
+        return arr;
     }
 }

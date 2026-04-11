@@ -1,111 +1,174 @@
 package org.ce.model.mcs;
 
-import static org.ce.model.cluster.ClusterPrimitives.*;
-
-import org.ce.model.cluster.cvcf.CvCfBasis;
 import java.util.Arrays;
 
-/** Immutable result from a completed Monte Carlo simulation. */
+/**
+ * Immutable raw simulation output from MCEngine.
+ *
+ * <p>Contains only what the simulator produces: mean quantities from averaging sweeps,
+ * acceptance rate, and raw time series arrays for calculation-layer post-processing
+ * (statistical analysis, error bars, derived quantities).</p>
+ *
+ * <p>No statistics fields (τ_int, SEM, jackknife Cv). Those are computed by
+ * {@link org.ce.calculation.workflow.thermo.MCSStatisticsProcessor}.</p>
+ */
 public class MCResult {
 
+    // ===== Simulation Parameters =====
     private final double   temperature;
     private final double[] composition;
-    private final double[] avgCFs;
-    private final double   energyPerSite;
-    private final double   hmixPerSite;
-    private final double   heatCapacityPerSite;
-    private final double   acceptRate;
     private final long     nEquilSweeps;
     private final long     nAvgSweeps;
     private final int      supercellSize;
     private final int      nSites;
 
-    // Statistics fields (publication-quality)
-    private final double   tauInt;            // integrated autocorrelation time (sweeps)
-    private final double   statInefficiency;  // s = 1 + 2·τ_int
-    private final int      nEff;              // effective independent samples
-    private final int      blockSizeUsed;     // auto-determined block size
-    private final int      nBlocks;
-    private final double   stdEnergyPerSite;
-    private final double   stdHmixPerSite;
-    private final double[] stdCFs;
-    private final double   cvJackknife;       // unbiased Cv from jackknife
-    private final double   cvStdErr;          // jackknife SEM of Cv
+    // ===== Mean Quantities (from averaging sweeps) =====
+    private final double   acceptRate;
+    private final double   energyPerSite;      // ⟨E⟩/N
+    private final double   hmixPerSite;         // ⟨H⟩/N from ECI
+    private final double[] avgCFs;              // mean CVCF correlation functions
 
-    // Backward-compatible 11-arg constructor — delegates to new 21-arg with NaN/0 defaults
-    MCResult(double temperature, double[] composition, double[] avgCFs,
-             double energyPerSite, double hmixPerSite, double heatCapacityPerSite,
-             double acceptRate, long nEquilSweeps, long nAvgSweeps,
-             int supercellSize, int nSites) {
-        this(temperature, composition, avgCFs,
-             energyPerSite, hmixPerSite, heatCapacityPerSite,
-             acceptRate, nEquilSweeps, nAvgSweeps,
-             supercellSize, nSites,
-             Double.NaN, Double.NaN, 0, 0, 0,
-             Double.NaN, Double.NaN, null, Double.NaN, Double.NaN);
+    // ===== Raw Time Series (for calculation-layer statistics) =====
+    private final double[] seriesHmix;          // Hmix per sweep (J, not J/site)
+    private final double[] seriesE;             // total energy per sweep (J)
+    private final double[][] seriesCF;          // CVCF per sweep [numCF][nAvg]
+
+    /**
+     * Constructs MCResult from simulation parameters and raw time series.
+     *
+     * @param temperature in K
+     * @param composition mole fractions
+     * @param nEquilSweeps equilibration sweep count
+     * @param nAvgSweeps averaging sweep count
+     * @param supercellSize L (for BCC: N = 2L³)
+     * @param nSites total sites in supercell (N)
+     * @param acceptRate acceptance rate during averaging phase
+     * @param energyPerSite ⟨E⟩/N (J/site)
+     * @param hmixPerSite ⟨H⟩/N from ECI (J/site)
+     * @param avgCFs mean CVCF correlation functions (length = numNonPointCfs)
+     * @param seriesHmix raw Hmix time series from averaging sweeps (length = nAvgSweeps)
+     * @param seriesE raw total energy time series from averaging sweeps (length = nAvgSweeps)
+     * @param seriesCF raw CVCF per sweep (dimensions: [numNonPointCfs][nAvgSweeps])
+     */
+    public MCResult(
+            double temperature,
+            double[] composition,
+            long nEquilSweeps,
+            long nAvgSweeps,
+            int supercellSize,
+            int nSites,
+            double acceptRate,
+            double energyPerSite,
+            double hmixPerSite,
+            double[] avgCFs,
+            double[] seriesHmix,
+            double[] seriesE,
+            double[][] seriesCF) {
+
+        this.temperature    = temperature;
+        this.composition    = composition.clone();
+        this.nEquilSweeps   = nEquilSweeps;
+        this.nAvgSweeps     = nAvgSweeps;
+        this.supercellSize  = supercellSize;
+        this.nSites         = nSites;
+        this.acceptRate     = acceptRate;
+        this.energyPerSite  = energyPerSite;
+        this.hmixPerSite    = hmixPerSite;
+        this.avgCFs         = avgCFs != null ? avgCFs.clone() : null;
+        this.seriesHmix     = seriesHmix != null ? seriesHmix.clone() : null;
+        this.seriesE        = seriesE != null ? seriesE.clone() : null;
+        this.seriesCF       = seriesCF != null ? deepClone(seriesCF) : null;
     }
 
-    // New 21-arg constructor with all statistics fields
-    public MCResult(double temperature, double[] composition, double[] avgCFs,
-                    double energyPerSite, double hmixPerSite, double heatCapacityPerSite,
-                    double acceptRate, long nEquilSweeps, long nAvgSweeps,
-                    int supercellSize, int nSites,
-                    double tauInt, double statInefficiency, int nEff,
-                    int blockSizeUsed, int nBlocks,
-                    double stdEnergyPerSite, double stdHmixPerSite, double[] stdCFs,
-                    double cvJackknife, double cvStdErr) {
-        this.temperature         = temperature;
-        this.composition         = composition.clone();
-        this.avgCFs              = avgCFs.clone();
-        this.energyPerSite       = energyPerSite;
-        this.hmixPerSite         = hmixPerSite;
-        this.heatCapacityPerSite = heatCapacityPerSite;
-        this.acceptRate          = acceptRate;
-        this.nEquilSweeps        = nEquilSweeps;
-        this.nAvgSweeps          = nAvgSweeps;
-        this.supercellSize       = supercellSize;
-        this.nSites              = nSites;
-        this.tauInt              = tauInt;
-        this.statInefficiency    = statInefficiency;
-        this.nEff                = nEff;
-        this.blockSizeUsed       = blockSizeUsed;
-        this.nBlocks             = nBlocks;
-        this.stdEnergyPerSite    = stdEnergyPerSite;
-        this.stdHmixPerSite      = stdHmixPerSite;
-        this.stdCFs              = stdCFs != null ? stdCFs.clone() : null;
-        this.cvJackknife         = cvJackknife;
-        this.cvStdErr            = cvStdErr;
+    /** Helper to deep-clone 2D array. */
+    private static double[][] deepClone(double[][] arr) {
+        if (arr == null) return null;
+        double[][] copy = new double[arr.length][];
+        for (int i = 0; i < arr.length; i++) {
+            copy[i] = arr[i] != null ? arr[i].clone() : null;
+        }
+        return copy;
     }
 
-    public double   getTemperature()         { return temperature; }
-    public double[] getComposition()         { return composition.clone(); }
-    public double[] getAvgCFs()              { return avgCFs.clone(); }
-    public double   getEnergyPerSite()       { return energyPerSite; }
-    public double   getHmixPerSite()         { return hmixPerSite; }
-    public double   getHeatCapacityPerSite() { return heatCapacityPerSite; }
-    public double   getAcceptRate()          { return acceptRate; }
-    public long     getNEquilSweeps()        { return nEquilSweeps; }
-    public long     getNAvgSweeps()          { return nAvgSweeps; }
-    public int      getSupercellSize()       { return supercellSize; }
-    public int      getNSites()              { return nSites; }
+    // ===== Getters for Simulation Parameters =====
 
-    // Statistics getters
-    public double   getTauInt()              { return tauInt; }
-    public double   getStatInefficiency()    { return statInefficiency; }
-    public int      getNEff()                { return nEff; }
-    public int      getBlockSizeUsed()       { return blockSizeUsed; }
-    public int      getNBlocks()             { return nBlocks; }
-    public double   getStdEnergyPerSite()    { return stdEnergyPerSite; }
-    public double   getStdHmixPerSite()      { return stdHmixPerSite; }
-    public double[] getStdCFs()              { return stdCFs != null ? stdCFs.clone() : null; }
-    public double   getCvJackknife()         { return cvJackknife; }
-    public double   getCvStdErr()            { return cvStdErr; }
+    public double getTemperature() {
+        return temperature;
+    }
+
+    public double[] getComposition() {
+        return composition.clone();
+    }
+
+    public long getNEquilSweeps() {
+        return nEquilSweeps;
+    }
+
+    public long getNAvgSweeps() {
+        return nAvgSweeps;
+    }
+
+    public int getSupercellSize() {
+        return supercellSize;
+    }
+
+    public int getNSites() {
+        return nSites;
+    }
+
+    // ===== Getters for Mean Quantities =====
+
+    public double getAcceptRate() {
+        return acceptRate;
+    }
+
+    public double getEnergyPerSite() {
+        return energyPerSite;
+    }
+
+    public double getHmixPerSite() {
+        return hmixPerSite;
+    }
+
+    public double[] getAvgCFs() {
+        return avgCFs != null ? avgCFs.clone() : null;
+    }
+
+    // ===== Getters for Raw Time Series (for post-processing) =====
+
+    /**
+     * Returns the raw Hmix time series from averaging sweeps.
+     * Each element is total Hmix for one sweep (in J, not J/site).
+     * Length = nAvgSweeps.
+     */
+    public double[] getSeriesHmix() {
+        return seriesHmix != null ? seriesHmix.clone() : null;
+    }
+
+    /**
+     * Returns the raw total energy time series from averaging sweeps.
+     * Each element is total E for one sweep (in J).
+     * Length = nAvgSweeps.
+     */
+    public double[] getSeriesE() {
+        return seriesE != null ? seriesE.clone() : null;
+    }
+
+    /**
+     * Returns the raw CVCF per sweep from averaging phase.
+     * Dimensions: [numNonPointCfs][nAvgSweeps].
+     * Each seriesCF[i] is the time series for CVCF variable i.
+     */
+    public double[][] getSeriesCF() {
+        return seriesCF != null ? deepClone(seriesCF) : null;
+    }
 
     @Override
     public String toString() {
         return "MCResult{T=" + temperature + ", x=" + Arrays.toString(composition)
              + ", <E>/site=" + String.format("%.4f", energyPerSite)
-             + ", acceptRate=" + String.format("%.3f", acceptRate) + "}";
+             + ", acceptRate=" + String.format("%.3f", acceptRate)
+             + ", nAvg=" + nAvgSweeps + "}";
     }
 
     /** Diagnostic printing utilities for internal verification. */
@@ -115,38 +178,43 @@ public class MCResult {
 
         public static void printMcsSummary(MCResult result) {
             System.out.println("============================================================");
-            System.out.println("  MCS CALCULATION DEBUG SUMMARY");
+            System.out.println("  MCS SIMULATION OUTPUT");
             System.out.println("============================================================");
             System.out.println(String.format("  Temperature   : %.2f K", result.getTemperature()));
             System.out.println(String.format("  Composition   : %s", Arrays.toString(result.getComposition())));
             System.out.println(String.format("  Acceptance    : %.2f%%", result.getAcceptRate() * 100));
-            System.out.println(String.format("  Avg Sweeps    : %d", result.getNAvgSweeps()));
-            System.out.println(String.format("  Tau_int       : %.2f sweeps", result.getTauInt()));
-            System.out.println(String.format("  N_eff         : %d", result.getNEff()));
+            System.out.println(String.format("  Equilib       : %d sweeps", result.getNEquilSweeps()));
+            System.out.println(String.format("  Averaging     : %d sweeps", result.getNAvgSweeps()));
             System.out.println("------------------------------------------------------------");
-            System.out.println(String.format("  <E>/site      : %.6f ± %.6f J/mol",
-                    result.getEnergyPerSite(), result.getStdEnergyPerSite()));
-            System.out.println(String.format("  <H>/site      : %.6f ± %.6f J/mol",
-                    result.getHmixPerSite(), result.getStdHmixPerSite()));
-            System.out.println(String.format("  Cv (Jackknife): %.6f ± %.6f J/(mol·K)",
-                    result.getCvJackknife(), result.getCvStdErr()));
+            System.out.println(String.format("  <E>/site      : %.6f J/mol (no error bar in raw output)",
+                    result.getEnergyPerSite()));
+            System.out.println(String.format("  <H>/site      : %.6f J/mol (no error bar in raw output)",
+                    result.getHmixPerSite()));
+            System.out.println("  (Correlation functions and error bars computed by");
+            System.out.println("   MCSStatisticsProcessor in calculation layer)");
             System.out.println("------------------------------------------------------------");
 
             double[] cfs = result.getAvgCFs();
-            double[] std = result.getStdCFs();
             if (cfs != null && cfs.length > 0) {
                 System.out.println("  Mean Correlation Functions (CVCF basis):");
                 for (int i = 0; i < cfs.length; i++) {
-                    double sigma = (std != null && i < std.length) ? std[i] : 0.0;
-                    System.out.println(String.format("    CF[%2d] = %+.6f ± %.6f", i, cfs[i], sigma));
+                    System.out.println(String.format("    CF[%2d] = %+.6f", i, cfs[i]));
                 }
             } else {
                 System.out.println("  No CVCF correlation functions measured.");
             }
+
+            double[] seriesH = result.getSeriesHmix();
+            if (seriesH != null) {
+                System.out.println(String.format("  Raw time series available: Hmix (%d points), E (%d points)",
+                        seriesH.length, result.getSeriesE() != null ? result.getSeriesE().length : 0));
+            }
+
             System.out.println("============================================================");
         }
 
-        public static void printEciInfo(double[] eciCvcf, double[] eciOrth, CvCfBasis basis,
+        public static void printEciInfo(double[] eciCvcf, double[] eciOrth,
+                                        org.ce.model.cluster.cvcf.CvCfBasis basis,
                                         int N, int[] orbitSizes) {
             System.out.println("============================================================");
             System.out.println("  MCS ECI & ORBIT DIAGNOSTIC");

@@ -7,7 +7,6 @@ import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMSolver;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
-import org.ce.model.mcs.MCSampler;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.cluster.CMatrix;
 import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
@@ -204,67 +203,42 @@ public class ThermodynamicWorkflow {
         }
 
         MCSRunner.MCSRunResult runResult = builder.build().run();
-        MCResult baseResult = runResult.result;
-        MCSampler sampler = runResult.sampler;
+        MCResult mcResult = runResult.result;
+
+        // [DEBUG] Raw simulation output
+        MCResult.Debug.printMcsSummary(mcResult);
 
         // Compute statistics from raw time series in the calculation layer
         MCSStatisticsProcessor statsProcessor = new MCSStatisticsProcessor(
-                baseResult.getNSites(),
+                mcResult.getNSites(),
                 GAS_CONSTANT,
                 request.temperature,
-                sampler.getSeriesHmix(),
-                sampler.getSeriesE(),
-                sampler.getSeriesCF());
+                toDoubleList(mcResult.getSeriesHmix()),
+                toDoubleList(mcResult.getSeriesE()),
+                toListArray(mcResult.getSeriesCF()));
         statsProcessor.computeStatistics();
 
-        // Rebuild MCResult with computed statistics
-        MCResult result = new MCResult(
-                baseResult.getTemperature(),
-                baseResult.getComposition(),
-                baseResult.getAvgCFs(),
-                baseResult.getEnergyPerSite(),
-                baseResult.getHmixPerSite(),
-                baseResult.getHeatCapacityPerSite(),
-                baseResult.getAcceptRate(),
-                baseResult.getNEquilSweeps(),
-                baseResult.getNAvgSweeps(),
-                baseResult.getSupercellSize(),
-                baseResult.getNSites(),
-                statsProcessor.getTauInt(),
-                statsProcessor.getStatInefficiency(),
-                statsProcessor.getNEff(),
-                statsProcessor.getBlockSizeUsed(),
-                statsProcessor.getNBlocks(),
-                statsProcessor.getStdEnergyPerSite(),
-                statsProcessor.getStdHmixPerSite(),
-                statsProcessor.getStdCFs(),
-                statsProcessor.getCvJackknife(),
-                statsProcessor.getCvStdErr());
-
-        // [DEBUG] Temporary post-run diagnostic print
-        MCResult.Debug.printMcsSummary(result);
-
-        // Post-run statistics summary
+        // Post-run statistics summary with computed error bars
         if (strSink != null) {
             strSink.accept(
-                "  ── MCS Statistics ─────────────────────────────────────────");
+                "  ── MCS Statistics (Post-Processed) ────────────────────────");
             strSink.accept(String.format(
                 "  τ_int = %.1f sweeps  s = %.3f  n_eff = %d  (block size = %d, %d blocks)",
-                result.getTauInt(), result.getStatInefficiency(),
-                result.getNEff(), result.getBlockSizeUsed(), result.getNBlocks()));
+                statsProcessor.getTauInt(), statsProcessor.getStatInefficiency(),
+                statsProcessor.getNEff(), statsProcessor.getBlockSizeUsed(), statsProcessor.getNBlocks()));
             strSink.accept(String.format(
                 "  ⟨H⟩/site = %.6f ± %.6f  J/mol",
-                result.getHmixPerSite(), nanZero(result.getStdHmixPerSite())));
+                mcResult.getHmixPerSite(), nanZero(statsProcessor.getStdHmixPerSite())));
             strSink.accept(String.format(
                 "  ⟨E⟩/site = %.6f ± %.6f  J/mol",
-                result.getEnergyPerSite(), nanZero(result.getStdEnergyPerSite())));
+                mcResult.getEnergyPerSite(), nanZero(statsProcessor.getStdEnergyPerSite())));
             strSink.accept(String.format(
                 "  Cv       = %.6f ± %.6f  J/(mol·K)  [jackknife]",
-                result.getCvJackknife(), nanZero(result.getCvStdErr())));
+                statsProcessor.getCvJackknife(), nanZero(statsProcessor.getCvStdErr())));
 
-            // Correlation functions
-            double[] cfs    = result.getAvgCFs();
-            double[] stdCFs = result.getStdCFs();
+            // Correlation functions with error bars
+            double[] cfs    = mcResult.getAvgCFs();
+            double[] stdCFs = statsProcessor.getStdCFs();
             if (cfs != null && cfs.length > 0) {
                 strSink.accept(
                     "  ── Correlation Functions ────────────────────────────────");
@@ -278,16 +252,16 @@ public class ThermodynamicWorkflow {
         }
 
         return new ThermodynamicResult(
-                result.getTemperature(),
-                result.getComposition(),
-                Double.NaN,                 // gibbsEnergy — not available from canonical MCS
-                result.getHmixPerSite(),    // enthalpy
-                Double.NaN,                 // entropy — not available from canonical MCS
-                result.getStdHmixPerSite(), // stdEnthalpy
-                result.getCvJackknife(),    // heat capacity from jackknife
-                null,                       // optimizedCFs (CVM only)
-                result.getAvgCFs(),         // mean correlation functions
-                result.getStdCFs()          // CF standard errors from block averaging
+                mcResult.getTemperature(),
+                mcResult.getComposition(),
+                Double.NaN,                           // gibbsEnergy — not available from canonical MCS
+                mcResult.getHmixPerSite(),            // enthalpy
+                Double.NaN,                           // entropy — not available from canonical MCS
+                statsProcessor.getStdHmixPerSite(),   // stdEnthalpy (from post-processing)
+                statsProcessor.getCvJackknife(),      // heat capacity from jackknife
+                null,                                 // optimizedCFs (CVM only)
+                mcResult.getAvgCFs(),                 // mean correlation functions
+                statsProcessor.getStdCFs()            // CF standard errors from post-processing
         );
     }
 
@@ -372,5 +346,24 @@ public class ThermodynamicWorkflow {
 
     private static void emit(Consumer<String> sink, String line) {
         if (sink != null) sink.accept(line);
+    }
+
+    // ---- Helper methods for array/list conversion ----
+
+    private static java.util.List<Double> toDoubleList(double[] arr) {
+        if (arr == null) return new java.util.ArrayList<>();
+        java.util.List<Double> list = new java.util.ArrayList<>(arr.length);
+        for (double v : arr) list.add(v);
+        return list;
+    }
+
+    private static java.util.List<Double>[] toListArray(double[][] arr) {
+        if (arr == null || arr.length == 0) return null;
+        @SuppressWarnings("unchecked")
+        java.util.List<Double>[] lists = new java.util.ArrayList[arr.length];
+        for (int i = 0; i < arr.length; i++) {
+            lists[i] = toDoubleList(arr[i]);
+        }
+        return lists;
     }
 }
