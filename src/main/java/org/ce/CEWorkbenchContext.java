@@ -1,7 +1,5 @@
 package org.ce;
 
-import org.ce.calculation.engine.cvm.CVMEngine;
-import org.ce.calculation.engine.mcs.MCSEngine;
 import org.ce.model.storage.DataStore;
 import org.ce.model.storage.Workspace;
 import org.ce.calculation.workflow.CalculationService;
@@ -16,9 +14,9 @@ import java.util.function.Consumer;
 
 /**
  * Unified context for CE Workbench, providing shared infrastructure and services.
- * 
- * <p>This class centralizes the initialization of all core services (storage, 
- * engines, workflows) using a shared {@link Workspace}. Both the GUI and CLI
+ *
+ * <p>This class centralizes the initialization of all core services (storage,
+ * workflows) using a shared {@link Workspace}. Both the GUI and CLI
  * use this context to ensure consistent behavior and API usage.</p>
  */
 public class CEWorkbenchContext {
@@ -27,8 +25,6 @@ public class CEWorkbenchContext {
     private final DataStore.HamiltonianStore hamiltonianStore;
     private final CECManagementWorkflow cecWorkflow;
     private final CalculationService calculationService;
-    private final CVMEngine cvmEngine;
-    private final MCSEngine mcsEngine;
     private final ModelSession.Builder sessionBuilder;
     private Consumer<String> logSink = System.out::println;
     private Runnable logClearer = null;
@@ -47,12 +43,8 @@ public class CEWorkbenchContext {
         this.workspace = workspace;
         this.hamiltonianStore = new DataStore.HamiltonianStore(workspace);
         this.cecWorkflow = new CECManagementWorkflow(hamiltonianStore);
-        this.cvmEngine = new CVMEngine();
-        this.mcsEngine = new MCSEngine();
-        
-        ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow(
-                cvmEngine, mcsEngine
-        );
+
+        ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow();
         this.calculationService = new CalculationService(thermoWorkflow);
         this.sessionBuilder = new ModelSession.Builder(hamiltonianStore);
     }

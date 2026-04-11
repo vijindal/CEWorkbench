@@ -1,11 +1,21 @@
 package org.ce.calculation.workflow.thermo;
 
-import org.ce.calculation.engine.ThermodynamicEngine;
 import org.ce.model.ThermodynamicResult;
+import org.ce.model.ThermodynamicInput;
 import org.ce.model.ModelSession;
+import org.ce.model.cvm.CVMGibbsModel;
+import org.ce.model.cvm.CVMSolver;
+import org.ce.model.mcs.MCSRunner;
+import org.ce.model.mcs.MCResult;
+import org.ce.calculation.engine.ProgressEvent;
+import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.hamiltonian.CECEvaluator;
+import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
 
 import java.util.Arrays;
 import java.util.logging.Logger;
+import java.util.function.Consumer;
 
 /**
  * Calculation-layer workflow for thermodynamic calculations.
@@ -14,20 +24,16 @@ import java.util.logging.Logger;
  * Hamiltonian, and resolved basis) and a {@link ThermodynamicRequest} (which
  * carries only calculation parameters: T, composition, MCS params, progress sinks).
  * No cluster identification or Hamiltonian loading occurs here.</p>
+ *
+ * <p>Dispatches directly to model-layer optimizers (CVMSolver for CVM, MCSRunner for MCS).</p>
  */
 public class ThermodynamicWorkflow {
 
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
+    private static final double GAS_CONSTANT = 8.314;  // J/(mol·K)
 
-    private final ThermodynamicEngine cvmEngine;
-    private final ThermodynamicEngine mcsEngine;
-
-    public ThermodynamicWorkflow(
-            ThermodynamicEngine cvmEngine,
-            ThermodynamicEngine mcsEngine) {
-
-        this.cvmEngine = cvmEngine;
-        this.mcsEngine = mcsEngine;
+    public ThermodynamicWorkflow() {
+        // No injected engines; dispatch directly to model layer
     }
 
     /**
@@ -52,7 +58,7 @@ public class ThermodynamicWorkflow {
         emit(request.progressSink, "STAGE 3: Using pre-loaded Hamiltonian '"
                 + session.resolvedHamiltonianId + "'");
 
-        ThermodynamicEngine.Input input = new ThermodynamicEngine.Input(
+        ThermodynamicInput input = new ThermodynamicInput(
                 session.clusterData,
                 session.cecEntry,
                 request.temperature,
@@ -66,8 +72,11 @@ public class ThermodynamicWorkflow {
                 request.mcsNAvg
         );
 
-        ThermodynamicEngine engine = selectEngine(session.engineConfig.engineType);
-        ThermodynamicResult result = engine.compute(input);
+        ThermodynamicResult result = switch (session.engineConfig.engineType) {
+            case "CVM" -> runCvm(input, request.progressSink);
+            case "MCS" -> runMcs(input, request.progressSink);
+            default -> throw new IllegalArgumentException("Unknown engine: " + session.engineConfig.engineType);
+        };
 
         if (request.progressSink != null) {
             emit(request.progressSink, "");
@@ -95,15 +104,259 @@ public class ThermodynamicWorkflow {
         return result;
     }
 
-    private ThermodynamicEngine selectEngine(String engineType) {
-        return switch (engineType) {
-            case "CVM" -> cvmEngine;
-            case "MCS" -> mcsEngine;
-            default -> throw new IllegalArgumentException("Unknown engine: " + engineType);
-        };
+    private ThermodynamicResult runCvm(ThermodynamicInput input, Consumer<String> progressSink)
+            throws Exception {
+        printCvmHeader(progressSink);
+
+        double temperature = input.temperature;
+        double[] composition = input.composition;
+
+        printInputParameters(progressSink, input.systemId, input.systemName,
+                            input.cec.structurePhase, temperature, composition);
+
+        validateInputs(temperature, composition);
+        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(
+                input.cec.structurePhase, input.cec.model, composition.length);
+
+        CVMGibbsModel gibbsModel = new CVMGibbsModel(
+                input.clusterData.getDisorderedClusterResult(),
+                input.clusterData.getDisorderedCFResult(),
+                input.clusterData.getCMatrixResult(),
+                basis);
+
+        double[] eci = evaluateEci(input.cec, temperature, basis, progressSink);
+        CVMSolver.EquilibriumResult solverResult = new CVMSolver().minimize(
+                gibbsModel, composition, temperature, eci, 1.0e-5,
+                progressSink, input.eventSink);
+
+        validateConvergence(solverResult, progressSink);
+        printEquilibriumResults(progressSink, solverResult);
+
+        ThermodynamicResult result = new ThermodynamicResult(
+                temperature, composition.clone(),
+                solverResult.modelValues.G,  // gibbsEnergy
+                solverResult.modelValues.H,  // enthalpy
+                solverResult.modelValues.S,  // entropy
+                Double.NaN, Double.NaN,      // stdEnthalpy, heatCapacity
+                solverResult.u,              // optimizedCFs
+                null, null                   // avgCFs, stdCFs
+        );
+
+        emit(progressSink, "================================================================================");
+        return result;
     }
 
-    private static void emit(java.util.function.Consumer<String> sink, String line) {
+    private ThermodynamicResult runMcs(ThermodynamicInput input, Consumer<String> progressSink)
+            throws Exception {
+
+        java.util.Objects.requireNonNull(input.clusterData,
+                "MCSEngine requires clusterData pre-built in ModelSession");
+
+        ClusCoordListResult clusterData =
+                input.clusterData.getDisorderedClusterResult().getDisClusterData();
+
+        // Validate C-matrix dimensions match basis
+        String structurePhase = input.cec.structurePhase;
+        String model = input.cec.model;
+        int numComponents = input.composition.length;
+        var basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, model, numComponents);
+
+        CMatrix.Result cmatResult = input.clusterData.getCMatrixResult();
+        cmatResult.validateCols(
+                basis.totalCfs(),
+                "C-matrix dimension mismatch (basis.numNonPointCfs=" + basis.numNonPointCfs
+                + " + " + basis.numComponents + " point variables)"
+        );
+        LOG.fine("✓ C-matrix dimensions valid: " + basis.totalCfs() + " columns");
+
+        double[] eci = CECEvaluator.evaluate(input.cec, input.temperature, basis, "MCS");
+
+        int L           = input.mcsL;
+        int nEquil      = input.mcsNEquil;
+        int nAvg        = input.mcsNAvg;
+        int totalSweeps = nEquil + nAvg;
+        int N           = 2 * L * L * L;  // BCC sites
+
+        MCSRunner.Builder builder = MCSRunner.builder()
+                .clusterData(clusterData)
+                .eci(eci)
+                .numComp(input.composition.length)
+                .T(input.temperature)
+                .composition(input.composition)
+                .nEquil(nEquil)
+                .nAvg(nAvg)
+                .L(L)
+                .seed(System.currentTimeMillis())
+                .R(GAS_CONSTANT)
+                .basis(basis)
+                .cmatResult(cmatResult)
+                .cancellationCheck(Thread.currentThread()::isInterrupted);
+
+        Consumer<String> strSink = input.progressSink;
+        Consumer<ProgressEvent> evtSink = input.eventSink;
+
+        if (strSink != null || evtSink != null) {
+            if (strSink != null) {
+                strSink.accept(String.format("  MCS started: L=%d (%d sites), %d equil + %d avg sweeps",
+                        L, N, nEquil, nAvg));
+            }
+            // EngineStart emitted here — before build().run() — so the chart clears before sweeps arrive
+            if (evtSink != null) {
+                evtSink.accept(new ProgressEvent.EngineStart("MCS", totalSweeps));
+            }
+            final int sitesCount = N;
+            final int sweepCount = totalSweeps;
+            builder.updateListener(mcUpdate -> {
+                if (strSink != null && (mcUpdate.getStep() % 100 == 0 || mcUpdate.getStep() == sweepCount)) {
+                    strSink.accept(String.format("  [%-5s] sweep %4d/%-4d  <E>/site=%9.5f  accept=%5.1f%%",
+                            mcUpdate.getPhase(),
+                            mcUpdate.getStep(), sweepCount,
+                            mcUpdate.getE_total() / sitesCount,
+                            mcUpdate.getAcceptanceRate() * 100));
+                }
+                if (evtSink != null) {
+                    evtSink.accept(new ProgressEvent.McSweep(
+                            mcUpdate.getStep(), sweepCount,
+                            mcUpdate.getE_total() / sitesCount,
+                            mcUpdate.getAcceptanceRate(),
+                            mcUpdate.getPhase() == org.ce.model.mcs.MCSUpdate.Phase.EQUILIBRATION,
+                            null));  // CFs no longer charted
+                }
+            });
+        }
+
+        MCResult result = builder.build().run();
+
+        // [DEBUG] Temporary post-run diagnostic print
+        MCResult.Debug.printMcsSummary(result);
+
+        // Post-run statistics summary
+        if (strSink != null) {
+            strSink.accept(
+                "  ── MCS Statistics ─────────────────────────────────────────");
+            strSink.accept(String.format(
+                "  τ_int = %.1f sweeps  s = %.3f  n_eff = %d  (block size = %d, %d blocks)",
+                result.getTauInt(), result.getStatInefficiency(),
+                result.getNEff(), result.getBlockSizeUsed(), result.getNBlocks()));
+            strSink.accept(String.format(
+                "  ⟨H⟩/site = %.6f ± %.6f  J/mol",
+                result.getHmixPerSite(), nanZero(result.getStdHmixPerSite())));
+            strSink.accept(String.format(
+                "  ⟨E⟩/site = %.6f ± %.6f  J/mol",
+                result.getEnergyPerSite(), nanZero(result.getStdEnergyPerSite())));
+            strSink.accept(String.format(
+                "  Cv       = %.6f ± %.6f  J/(mol·K)  [jackknife]",
+                result.getCvJackknife(), nanZero(result.getCvStdErr())));
+
+            // Correlation functions
+            double[] cfs    = result.getAvgCFs();
+            double[] stdCFs = result.getStdCFs();
+            if (cfs != null && cfs.length > 0) {
+                strSink.accept(
+                    "  ── Correlation Functions ────────────────────────────────");
+                for (int i = 0; i < cfs.length; i++) {
+                    double sigma = (stdCFs != null && i < stdCFs.length) ? stdCFs[i] : Double.NaN;
+                    strSink.accept(String.format(
+                        "  CF[%2d] = %+.6f ± %.6f",
+                        i, cfs[i], nanZero(sigma)));
+                }
+            }
+        }
+
+        return new ThermodynamicResult(
+                result.getTemperature(),
+                result.getComposition(),
+                Double.NaN,                 // gibbsEnergy — not available from canonical MCS
+                result.getHmixPerSite(),    // enthalpy
+                Double.NaN,                 // entropy — not available from canonical MCS
+                result.getStdHmixPerSite(), // stdEnthalpy
+                result.getCvJackknife(),    // heat capacity from jackknife
+                null,                       // optimizedCFs (CVM only)
+                result.getAvgCFs(),         // mean correlation functions
+                result.getStdCFs()          // CF standard errors from block averaging
+        );
+    }
+
+    // ---- CVM helpers ----
+
+    private double[] evaluateEci(org.ce.model.hamiltonian.CECEntry cec, double temperature,
+                                 CvCfBasis basis, Consumer<String> sink) {
+        emit(sink, "\n  - Evaluating Hamiltonian at T=" + temperature + " K...");
+        return CECEvaluator.evaluate(cec, temperature, basis, "CVM");
+    }
+
+    private void validateConvergence(CVMSolver.EquilibriumResult result, Consumer<String> sink) {
+        if (!result.converged) {
+            emit(sink, "  [!] CVM minimization FAILED to converge!");
+            throw new RuntimeException(
+                    "CVM minimization failed to converge within " + result.iterations + " iterations.");
+        }
+        emit(sink, String.format("  - CONVERGED in %d iterations (||Gu||=%.4e)",
+                result.iterations, result.finalGradientNorm));
+    }
+
+    private void printCvmHeader(Consumer<String> sink) {
+        String border = "================================================================================";
+        emit(sink, border);
+        emit(sink, "                       CVM THERMODYNAMIC CALCULATION");
+        emit(sink, border);
+    }
+
+    private void printInputParameters(Consumer<String> sink, String systemId, String systemName,
+                                     String structurePhase, double temperature, double[] composition) {
+        emit(sink, "\nINPUT PARAMETERS");
+        emit(sink, "-----------------");
+        emit(sink, "  - System ID:      " + systemId);
+        emit(sink, "  - System Name:    " + systemName);
+        emit(sink, "  - Structure:      " + structurePhase);
+        emit(sink, "  - Temperature:    " + temperature + " K");
+        emit(sink, "  - Composition:    [" + formatArray(composition) + "]");
+    }
+
+    private void printEquilibriumResults(Consumer<String> sink, CVMSolver.EquilibriumResult result) {
+        emit(sink, "\nEQUILIBRIUM RESULTS");
+        emit(sink, "-------------------");
+        emit(sink, String.format("  - G(eq): %.6e J/mol", result.modelValues.G));
+        emit(sink, String.format("  - H(eq): %.6e J/mol", result.modelValues.H));
+        emit(sink, String.format("  - S(eq): %.6e J/(mol·K)", result.modelValues.S));
+    }
+
+    private void validateInputs(double temperature, double[] composition) {
+        if (temperature <= 0) {
+            throw new IllegalArgumentException("Temperature must be positive: " + temperature);
+        }
+        if (composition == null || composition.length < 2) {
+            throw new IllegalArgumentException("Invalid composition array");
+        }
+        double sum = 0.0;
+        for (double x : composition) {
+            if (x < 0 || x > 1) {
+                throw new IllegalArgumentException("Composition values must be in [0,1]");
+            }
+            sum += x;
+        }
+        if (Math.abs(sum - 1.0) > 1e-9) {
+            throw new IllegalArgumentException("Composition must sum to 1.0, got: " + sum);
+        }
+    }
+
+    private static String formatArray(double[] arr) {
+        if (arr == null || arr.length == 0)
+            return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arr.length; i++) {
+            if (i > 0)
+                sb.append(", ");
+            sb.append(String.format("%.6f", arr[i]));
+        }
+        return sb.toString();
+    }
+
+    private static double nanZero(double value) {
+        return Double.isNaN(value) ? 0.0 : value;
+    }
+
+    private static void emit(Consumer<String> sink, String line) {
         if (sink != null) sink.accept(line);
     }
 }

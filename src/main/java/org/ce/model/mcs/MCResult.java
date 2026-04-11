@@ -1,4 +1,4 @@
-package org.ce.calculation.engine.mcs;
+package org.ce.model.mcs;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 
@@ -189,4 +189,3 @@ public class MCResult {
         }
     }
 }
-

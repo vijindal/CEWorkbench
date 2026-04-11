@@ -1,4 +1,4 @@
-package org.ce.calculation.engine.mcs;
+package org.ce.model.mcs;
 
 import org.ce.model.mcs.MCSUpdate;
 import org.ce.model.mcs.EmbeddingData;

@@ -1,4 +1,4 @@
-package org.ce.calculation.engine.mcs;
+package org.ce.model.mcs;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 
@@ -85,7 +85,7 @@ public class MCSRunner {
             basisMatrix  = CvCfEvaluator.buildBasisValues(numComp);
         }
 
-        MCSampler sampler = new MCSampler(N, orbitSizes, orbits, R, eci, multiSiteEmbedCounts, basis, 
+        MCSampler sampler = new MCSampler(N, orbitSizes, orbits, R, eci, multiSiteEmbedCounts, basis,
                                          cfEmbeddings, basisMatrix);
 
         // Build orbit-type-indexed ECI array for MCEngine/LocalEnergyCalc.

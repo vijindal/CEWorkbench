@@ -1,4 +1,4 @@
-package org.ce.calculation.engine.cvm;
+package org.ce.model.cvm;
 
 import org.ce.model.cluster.LinearAlgebra;
 import org.ce.calculation.engine.ProgressEvent;
@@ -25,8 +25,8 @@ public class CVMSolver {
         public final boolean converged;
         public final List<IterationSnapshot> trace;
 
-        public EquilibriumResult(double[] u, ModelResult modelValues, int iterations, 
-                                 double finalGradientNorm, boolean converged, 
+        public EquilibriumResult(double[] u, ModelResult modelValues, int iterations,
+                                 double finalGradientNorm, boolean converged,
                                  List<IterationSnapshot> trace) {
             this.u = u;
             this.modelValues = modelValues;
@@ -54,11 +54,11 @@ public class CVMSolver {
     /**
      * Minimizes the Gibbs free energy for the given model and conditions.
      */
-    public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions, 
+    public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions,
                                      double temperature, double[] eci, double tolerance,
                                      java.util.function.Consumer<String> progressSink,
                                      java.util.function.Consumer<ProgressEvent> eventSink) {
-        
+
         if (eventSink != null) {
             eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
         }
@@ -74,11 +74,11 @@ public class CVMSolver {
 
             // Evaluate physics from model
             current = model.evaluate(u, moleFractions, temperature, eci);
-            
+
             // Calculate gradient norm (L1 norm for simplicity and consistency with legacy)
             errf = 0;
             for (double g : current.Gu) errf += Math.abs(g);
-            
+
             trace.add(new IterationSnapshot(its, current.G, current.H, current.S, errf, u.clone()));
 
             // Progress reporting
@@ -99,12 +99,12 @@ public class CVMSolver {
                 // Newton step: Guu * p = -Gu
                 double[] negGu = new double[n];
                 for (int i = 0; i < n; i++) negGu[i] = -current.Gu[i];
-                
+
                 double[] p = LinearAlgebra.solve(current.Guu, negGu);
-                
+
                 // Step size limiting (physical bounds)
                 double alpha = model.calculateStepLimit(u, p, moleFractions);
-                
+
                 double errx = 0;
                 for (int i = 0; i < n; i++) {
                     double delta = alpha * p[i];
@@ -127,7 +127,7 @@ public class CVMSolver {
     }
 
     /** Overload for cases where progress reporting is not needed. */
-    public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions, 
+    public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions,
                                      double temperature, double[] eci, double tolerance) {
         return minimize(model, moleFractions, temperature, eci, tolerance, null, null);
     }

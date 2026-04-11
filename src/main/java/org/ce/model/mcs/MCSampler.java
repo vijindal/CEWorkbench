@@ -1,4 +1,4 @@
-package org.ce.calculation.engine.mcs;
+package org.ce.model.mcs;
 
 import org.ce.model.mcs.EmbeddingData;
 import org.ce.model.mcs.LatticeConfig;
@@ -64,7 +64,7 @@ public class MCSampler {
         this.basis                = basis;
         this.cfEmbeddings         = cfEmbeddings;
         this.basisMatrix          = basisMatrix;
-        
+
         int ncf = (basis != null) ? basis.numNonPointCfs : 0;
         this.sumCF   = new double[ncf];
         this.seriesCF = new ArrayList[ncf];

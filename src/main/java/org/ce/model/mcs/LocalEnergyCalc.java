@@ -1,4 +1,4 @@
-package org.ce.calculation.engine.mcs;
+package org.ce.model.mcs;
 
 import org.ce.model.mcs.EmbeddingData;
 import org.ce.model.mcs.LatticeConfig;
