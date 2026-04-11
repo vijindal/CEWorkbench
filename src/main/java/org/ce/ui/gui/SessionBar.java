@@ -3,6 +3,7 @@ package org.ce.ui.gui;
 import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.storage.Workspace.SystemId;
+import org.ce.calculation.CalculationDescriptor.ModelSpecifications;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -123,25 +124,30 @@ public class SessionBar extends JPanel {
 
     private void rebuildSession() {
         if (building) return;
-        if (!context.hasSystem()) {
-            logSink.accept("SessionBar: no system set — run cluster identification first.");
+        String el   = editorText(elementsCombo);
+        String str  = editorText(structureCombo);
+        String mod  = editorText(modelCombo);
+        String eng  = (String) engineCombo.getSelectedItem();
+        
+        if (el.isBlank() || str.isBlank() || mod.isBlank()) {
+            logSink.accept("SessionBar: Elements, Structure, and Model must be specified.");
             return;
         }
-        SystemId systemId   = context.getSystem();
-        String   engineType = (String) engineCombo.getSelectedItem();
-        ModelSession.EngineConfig cfg    = new ModelSession.EngineConfig(engineType);
+
+        ModelSpecifications specs = new ModelSpecifications(el, str, mod, new EngineConfig(eng));
 
         building = true;
         rebuildBtn.setEnabled(false);
         dotIcon.setColor(DOT_BUSY);
         statusLabel.setText("Building…");
         repaint();
-        statusSink.accept("Building session [" + engineType + "]…");
+        statusSink.accept("Building session [" + eng + "]…");
 
         SwingWorker<ModelSession, String> worker = new SwingWorker<>() {
             @Override
             protected ModelSession doInBackground() throws Exception {
-                return appCtx.getSessionBuilder().build(systemId, cfg, this::publish);
+                // Calculation Layer Role: Model Construction
+                return appCtx.getCalculationService().getOrBuildSession(specs, this::publish);
             }
             @Override
             protected void process(List<String> chunks) { chunks.forEach(logSink); }

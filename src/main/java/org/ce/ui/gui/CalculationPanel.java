@@ -1,11 +1,12 @@
 package org.ce.ui.gui;
 
+import org.ce.calculation.CalculationDescriptor.*;
+import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 import org.ce.calculation.workflow.CalculationService;
-import org.ce.calculation.workflow.thermo.ThermodynamicRequest;
 
 import javax.swing.*;
 import java.awt.*;
@@ -203,6 +204,14 @@ public class CalculationPanel extends JPanel {
         int mcsNEquil = ((Number) nEquilField.getValue()).intValue();
         int mcsNAvg   = ((Number) nAvgField.getValue()).intValue();
 
+        ModelSpecifications modelSpecs = new ModelSpecifications(
+                session.systemId.elements, session.systemId.structure, session.systemId.model, session.engineConfig);
+        CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.ENTHALPY, Mode.FINITE_SIZE_SCALING);
+        calcSpecs.set(Parameter.TEMPERATURE, temperature);
+        calcSpecs.set(Parameter.COMPOSITION, composition);
+        calcSpecs.set(Parameter.MCS_NEQUIL, mcsNEquil);
+        calcSpecs.set(Parameter.MCS_NAVG, mcsNAvg);
+
         calcButton.setEnabled(false);
         prodButton.setEnabled(false);
         abortButton.setEnabled(true);
@@ -216,10 +225,8 @@ public class CalculationPanel extends JPanel {
         SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<>() {
             @Override
             protected ThermodynamicResult doInBackground() throws Exception {
-                return service.runFiniteSizeScan(session, temperature, composition,
-                        mcsNEquil, mcsNAvg,
-                        msg -> publish((Object) msg),
-                        evt -> publish((Object) evt));
+                // Calculation Layer Role: Unified Execution
+                return service.execute(modelSpecs, calcSpecs, msg -> publish((Object) msg));
             }
             @Override
             protected void process(List<Object> chunks) {
@@ -270,6 +277,15 @@ public class CalculationPanel extends JPanel {
         int mcsNEquil = ((Number) nEquilField.getValue()).intValue();
         int mcsNAvg   = ((Number) nAvgField.getValue()).intValue();
 
+        ModelSpecifications modelSpecs = new ModelSpecifications(
+                session.systemId.elements, session.systemId.structure, session.systemId.model, session.engineConfig);
+        CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.SINGLE_POINT);
+        calcSpecs.set(Parameter.TEMPERATURE, temperature);
+        calcSpecs.set(Parameter.COMPOSITION, composition);
+        calcSpecs.set(Parameter.MCS_L, mcsL);
+        calcSpecs.set(Parameter.MCS_NEQUIL, mcsNEquil);
+        calcSpecs.set(Parameter.MCS_NAVG, mcsNAvg);
+
         calcButton.setEnabled(false);
         abortButton.setEnabled(true);
         appCtx.clearLog();
@@ -281,11 +297,8 @@ public class CalculationPanel extends JPanel {
         SwingWorker<ThermodynamicResult, Object> worker = new SwingWorker<>() {
             @Override
             protected ThermodynamicResult doInBackground() throws Exception {
-                return service.runSinglePoint(session,
-                        new ThermodynamicRequest(temperature, composition,
-                                msg -> publish((Object) msg),
-                                evt -> publish((Object) evt),
-                                mcsL, mcsNEquil, mcsNAvg));
+                // Calculation Layer Role: Unified Execution
+                return service.execute(modelSpecs, calcSpecs, msg -> publish((Object) msg));
             }
             @Override
             protected void process(List<Object> chunks) {

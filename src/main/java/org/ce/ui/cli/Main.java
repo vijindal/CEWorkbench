@@ -6,11 +6,12 @@ import org.ce.model.storage.Workspace.SystemId;
 import org.ce.model.storage.DataStore.HamiltonianStore;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.ThermodynamicResult;
+import org.ce.calculation.CalculationDescriptor.*;
+import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
 import org.ce.calculation.workflow.CalculationService;
 import org.ce.model.cluster.ClusterIdentificationRequest;
-import org.ce.calculation.workflow.thermo.ThermodynamicRequest;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -37,16 +38,6 @@ public class Main {
         }
     }
 
-    // =========================================================================
-    // Shared session-build helper (used by type2, calc_min, calc_fixed)
-    // =========================================================================
-
-    private static ModelSession buildSession(org.ce.CEWorkbenchContext ctx,
-                                             SystemId system,
-                                             EngineConfig engineConfig,
-                                             Consumer<String> sink) throws Exception {
-        return ctx.getSessionBuilder().build(system, engineConfig, sink);
-    }
 
     // =========================================================================
     // Entry point
@@ -185,16 +176,23 @@ public class Main {
 
                 double tStart = 1000.0, tEnd = 1000.0, tStep = 100.0;
 
+                ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
+                CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.LINE_SCAN);
+                calcSpecs.set(Parameter.COMPOSITION, composition);
+                calcSpecs.set(Parameter.T_START, tStart);
+                calcSpecs.set(Parameter.T_END, tEnd);
+                calcSpecs.set(Parameter.T_STEP, tStep);
+
                 if (verbose) {
-                    System.out.println("System      : " + HAMILTONIAN_ID);
+                    System.out.println("System      : " + modelSpecs);
                     System.out.println("Composition : " + java.util.Arrays.toString(composition));
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
-                ModelSession session = buildSession(appCtx, system, EngineConfig.cvm(), sink);
-
-                List<ThermodynamicResult> results = service.runLineScanTemperature(
-                        session, composition, tStart, tEnd, tStep);
+                service.executeScan(modelSpecs, calcSpecs, sink);
+                
+                // For the CLI table output, we call executeScan to get the full list
+                List<ThermodynamicResult> results = service.executeScan(modelSpecs, calcSpecs, sink);
 
                 System.out.print(ResultFormatter.table(results));
             }
@@ -251,13 +249,14 @@ public class Main {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
-            SystemId system = new SystemId(elements, structure, model);
-            ModelSession session = buildSession(appCtx, system, EngineConfig.cvm(), sink);
+            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
+            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.SINGLE_POINT);
+            calcSpecs.set(Parameter.TEMPERATURE, temp);
+            calcSpecs.set(Parameter.COMPOSITION, composition);
 
-            ThermodynamicResult result = service.runSinglePoint(session,
-                    new ThermodynamicRequest(temp, composition, sink));
+            ThermodynamicResult result = service.execute(modelSpecs, calcSpecs, sink);
 
-            System.out.println("System: " + session.label());
+            System.out.println("System: " + modelSpecs);
             System.out.println();
             System.out.print(ResultFormatter.fullBlock(result));
 
@@ -288,15 +287,15 @@ public class Main {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
-            SystemId system = new SystemId(elements, structure, model);
-            ModelSession session = buildSession(appCtx, system, EngineConfig.cvm(), sink);
+            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
+            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.SINGLE_POINT);
+            calcSpecs.set(Parameter.TEMPERATURE, temp);
+            calcSpecs.set(Parameter.COMPOSITION, composition);
+            calcSpecs.set(Parameter.FIXED_CORRELATIONS, cfs);
 
-            // Run single-point; the engine starts from the random state but converges
-            // to the minimum — fixed CFs are printed separately as the "requested" CFs.
-            ThermodynamicResult result = service.runSinglePoint(session,
-                    new ThermodynamicRequest(temp, composition, sink));
+            ThermodynamicResult result = service.execute(modelSpecs, calcSpecs, sink);
 
-            System.out.println("System: " + session.label());
+            System.out.println("System: " + modelSpecs);
             System.out.print("Requested CFs: [");
             for (int i = 0; i < cfs.length; i++) {
                 if (i > 0) System.out.print(", ");

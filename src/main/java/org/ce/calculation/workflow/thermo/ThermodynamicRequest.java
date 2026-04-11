@@ -25,6 +25,28 @@ public class ThermodynamicRequest {
     public final int mcsNEquil;
     /** MCS averaging sweeps (default 2000) */
     public final int mcsNAvg;
+    /** Optional fixed correlation functions (bypasses minimisation). May be null. */
+    public final double[] fixedCorrelations;
+
+    public ThermodynamicRequest(
+            double temperature,
+            double[] composition,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink,
+            int mcsL,
+            int mcsNEquil,
+            int mcsNAvg,
+            double[] fixedCorrelations) {
+
+        this.temperature  = temperature;
+        this.composition  = composition;
+        this.progressSink = progressSink;
+        this.eventSink    = eventSink;
+        this.mcsL         = mcsL;
+        this.mcsNEquil    = mcsNEquil;
+        this.mcsNAvg      = mcsNAvg;
+        this.fixedCorrelations = fixedCorrelations;
+    }
 
     public ThermodynamicRequest(
             double temperature,
@@ -34,34 +56,12 @@ public class ThermodynamicRequest {
             int mcsL,
             int mcsNEquil,
             int mcsNAvg) {
-
-        this.temperature  = temperature;
-        this.composition  = composition;
-        this.progressSink = progressSink;
-        this.eventSink    = eventSink;
-        this.mcsL         = mcsL;
-        this.mcsNEquil    = mcsNEquil;
-        this.mcsNAvg      = mcsNAvg;
-    }
-
-    public ThermodynamicRequest(
-            double temperature,
-            double[] composition,
-            Consumer<String> progressSink,
-            Consumer<ProgressEvent> eventSink) {
-        this(temperature, composition, progressSink, eventSink, 4, 1000, 2000);
-    }
-
-    public ThermodynamicRequest(
-            double temperature,
-            double[] composition,
-            Consumer<String> progressSink) {
-        this(temperature, composition, progressSink, null, 4, 1000, 2000);
+        this(temperature, composition, progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg, null);
     }
 
     public ThermodynamicRequest(
             double temperature,
             double[] composition) {
-        this(temperature, composition, null, null, 4, 1000, 2000);
+        this(temperature, composition, null, null, 4, 1000, 2000, null);
     }
 }

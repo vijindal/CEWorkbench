@@ -1,5 +1,7 @@
 package org.ce.ui.gui;
 
+import org.ce.calculation.CalculationDescriptor.*;
+import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.model.ModelSession;
 import org.ce.model.ThermodynamicResult;
@@ -182,10 +184,21 @@ public class MapPanel extends JPanel {
         logSink.accept(String.format("  Total: %d × %d = %d calculations", nT, nX, nT * nX));
         logSink.accept("  Running...");
 
+        ModelSpecifications modelSpecs = new ModelSpecifications(
+                session.systemId.elements, session.systemId.structure, session.systemId.model, session.engineConfig);
+        CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.GRID_SCAN);
+        calcSpecs.set(Parameter.T_START, tStart);
+        calcSpecs.set(Parameter.T_END,   tEnd);
+        calcSpecs.set(Parameter.T_STEP,  tStep);
+        calcSpecs.set(Parameter.X_START, xStart);
+        calcSpecs.set(Parameter.X_END,   xEnd);
+        calcSpecs.set(Parameter.X_STEP,  xStep);
+
         activeWorker = new SwingWorker<List<List<ThermodynamicResult>>, String>() {
             @Override
             protected List<List<ThermodynamicResult>> doInBackground() throws Exception {
-                return service.runGridScan(session, tStart, tEnd, tStep, xStart, xEnd, xStep);
+                // Calculation Layer Role: Unified Execution
+                return service.executeGridScan(modelSpecs, calcSpecs, this::publish);
             }
             @Override
             protected void done() {

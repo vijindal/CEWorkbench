@@ -1,5 +1,7 @@
 package org.ce.ui.gui;
 
+import org.ce.calculation.CalculationDescriptor.*;
+import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
 import org.ce.model.ModelSession;
@@ -235,11 +237,18 @@ public class LineScanPanel extends JPanel {
         abortButton.setEnabled(true);
 
         boolean isTempScan = tempScanBtn.isSelected();
-        final boolean isMcs    = session.engineConfig.isMcs();
         final int     mcsL      = ((Number) lField.getValue()).intValue();
         final int     mcsNEquil = ((Number) nEquilField.getValue()).intValue();
         final int     mcsNAvg   = ((Number) nAvgField.getValue()).intValue();
 
+        ModelSpecifications modelSpecs = new ModelSpecifications(
+                session.systemId.elements, session.systemId.structure, session.systemId.model, session.engineConfig);
+        CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.LINE_SCAN);
+        calcSpecs.set(Parameter.MCS_L, mcsL);
+        calcSpecs.set(Parameter.MCS_NEQUIL, mcsNEquil);
+        calcSpecs.set(Parameter.MCS_NAVG, mcsNAvg);
+
+        String scanLabel;
         if (isTempScan) {
             double tStart = ((Number) tStartField.getValue()).doubleValue();
             double tEnd   = ((Number) tEndField.getValue()).doubleValue();
@@ -251,52 +260,12 @@ public class LineScanPanel extends JPanel {
                 abortButton.setEnabled(false);
                 return;
             }
-
-            statusSink.accept(String.format("Temperature scan: %.0f–%.0f K, step %.0f K, x=%s …",
-                    tStart, tEnd, tStep, fixedCompField.getText().trim()));
-
-            activeWorker = new SwingWorker<List<ThermodynamicResult>, String>() {
-                @Override
-                protected List<ThermodynamicResult> doInBackground() throws Exception {
-                    logSink.accept("━━━ Temperature Scan ━━━");
-                    logSink.accept(String.format("  Range: %.0f – %.0f K, step %.0f K", tStart, tEnd, tStep));
-                    logSink.accept(String.format("  Composition: %s", fixedCompField.getText().trim()));
-                    int nPts = (int) Math.round((tEnd - tStart) / tStep) + 1;
-                    logSink.accept(String.format("  Points: %d", nPts));
-                    logSink.accept("  Running...");
-
-                    List<ThermodynamicResult> results = isMcs
-                            ? service.runLineScanTemperature(session, comp,
-                                    tStart, tEnd, tStep, mcsL, mcsNEquil, mcsNAvg)
-                            : service.runLineScanTemperature(session, comp, tStart, tEnd, tStep);
-
-                    logSink.accept(ResultFormatter.tableHeader());
-                    logSink.accept(ResultFormatter.tableSeparator());
-                    for (ThermodynamicResult r : results) {
-                        logSink.accept(ResultFormatter.tableRow(r));
-                    }
-                    logSink.accept("  Done — " + results.size() + " points computed.");
-                    return results;
-                }
-                @Override
-                protected void done() {
-                    try {
-                        List<ThermodynamicResult> results = get();
-                        outputPanel.showLineScanResult(results, "T");
-                        statusSink.accept("Temperature scan complete: " + results.size() + " points.");
-                    } catch (java.util.concurrent.CancellationException ignored) {
-                        logSink.accept("  Scan cancelled.");
-                        statusSink.accept("Scan cancelled.");
-                    } catch (Exception ex) {
-                        logSink.accept("  Scan error: " + ex.getMessage());
-                        statusSink.accept("Scan error: " + ex.getMessage());
-                    } finally {
-                        scanButton.setEnabled(context.getActiveSession() != null);
-                        abortButton.setEnabled(false);
-                        activeWorker = null;
-                    }
-                }
-            };
+            calcSpecs.set(Parameter.T_START, tStart);
+            calcSpecs.set(Parameter.T_END, tEnd);
+            calcSpecs.set(Parameter.T_STEP, tStep);
+            calcSpecs.set(Parameter.COMPOSITION, comp);
+            scanLabel = String.format("Temperature scan: %.0f–%.0f K, step %.0f K, x=%s …",
+                    tStart, tEnd, tStep, fixedCompField.getText().trim());
         } else {
             double xStart = ((Number) xStartField.getValue()).doubleValue();
             double xEnd   = ((Number) xEndField.getValue()).doubleValue();
@@ -310,54 +279,58 @@ public class LineScanPanel extends JPanel {
                 abortButton.setEnabled(false);
                 return;
             }
-
-            statusSink.accept(String.format("Composition scan: x=%.3f–%.3f, step %.3f, T=%.0f K …",
-                    xStart, xEnd, xStep, temp));
-
-            final double finalTemp = temp;
-            activeWorker = new SwingWorker<List<ThermodynamicResult>, String>() {
-                @Override
-                protected List<ThermodynamicResult> doInBackground() throws Exception {
-                    logSink.accept("━━━ Composition Scan ━━━");
-                    logSink.accept(String.format("  Range: x=%.3f – %.3f, step %.3f", xStart, xEnd, xStep));
-                    logSink.accept(String.format("  Temperature: %.1f K", finalTemp));
-                    int nPts = (int) Math.round((xEnd - xStart) / xStep) + 1;
-                    logSink.accept(String.format("  Points: %d", nPts));
-                    logSink.accept("  Running...");
-
-                    List<ThermodynamicResult> results = isMcs
-                            ? service.runLineScanComposition(session, finalTemp,
-                                    xStart, xEnd, xStep, mcsL, mcsNEquil, mcsNAvg)
-                            : service.runLineScanComposition(session, finalTemp, xStart, xEnd, xStep);
-
-                    logSink.accept(ResultFormatter.tableHeader());
-                    logSink.accept(ResultFormatter.tableSeparator());
-                    for (ThermodynamicResult r : results) {
-                        logSink.accept(ResultFormatter.tableRow(r));
-                    }
-                    logSink.accept("  Done — " + results.size() + " points computed.");
-                    return results;
-                }
-                @Override
-                protected void done() {
-                    try {
-                        List<ThermodynamicResult> results = get();
-                        outputPanel.showLineScanResult(results, "X");
-                        statusSink.accept("Composition scan complete: " + results.size() + " points.");
-                    } catch (java.util.concurrent.CancellationException ignored) {
-                        logSink.accept("  Scan cancelled.");
-                        statusSink.accept("Scan cancelled.");
-                    } catch (Exception ex) {
-                        logSink.accept("  Scan error: " + ex.getMessage());
-                        statusSink.accept("Scan error: " + ex.getMessage());
-                    } finally {
-                        scanButton.setEnabled(context.getActiveSession() != null);
-                        abortButton.setEnabled(false);
-                        activeWorker = null;
-                    }
-                }
-            };
+            calcSpecs.set(Parameter.X_START, xStart);
+            calcSpecs.set(Parameter.X_END, xEnd);
+            calcSpecs.set(Parameter.X_STEP, xStep);
+            calcSpecs.set(Parameter.TEMPERATURE, temp);
+            scanLabel = String.format("Composition scan: x=%.3f–%.3f, step %.3f, T=%.0f K …",
+                    xStart, xEnd, xStep, temp);
         }
+
+        statusSink.accept(scanLabel);
+
+        activeWorker = new SwingWorker<List<ThermodynamicResult>, String>() {
+            @Override
+            protected List<ThermodynamicResult> doInBackground() throws Exception {
+                logSink.accept("━━━ " + (isTempScan ? "Temperature" : "Composition") + " Scan ━━━");
+                logSink.accept("  Using Discovery-based execution dispatcher");
+                logSink.accept("  Running...");
+
+                // Calculation Layer Role: Unified Execution
+                List<ThermodynamicResult> results = service.executeScan(modelSpecs, calcSpecs, this::publish);
+
+                logSink.accept(ResultFormatter.tableHeader());
+                logSink.accept(ResultFormatter.tableSeparator());
+                for (ThermodynamicResult r : results) {
+                    logSink.accept(ResultFormatter.tableRow(r));
+                }
+                logSink.accept("  Done — " + results.size() + " points computed.");
+                return results;
+            }
+            @Override
+            protected void done() {
+                try {
+                    List<ThermodynamicResult> results = get();
+                    outputPanel.showLineScanResult(results, isTempScan ? "T" : "X");
+                    statusSink.accept((isTempScan ? "Temperature" : "Composition") + " scan complete: " + results.size() + " points.");
+                } catch (java.util.concurrent.CancellationException ignored) {
+                    logSink.accept("  Scan cancelled.");
+                    statusSink.accept("Scan cancelled.");
+                } catch (Exception ex) {
+                    String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    logSink.accept("  Scan error: " + msg);
+                    statusSink.accept("Scan error: " + msg);
+                } finally {
+                    scanButton.setEnabled(context.getActiveSession() != null);
+                    abortButton.setEnabled(false);
+                    activeWorker = null;
+                }
+            }
+            @Override
+            protected void process(List<String> chunks) {
+                chunks.forEach(logSink);
+            }
+        };
 
         activeWorker.execute();
     }
