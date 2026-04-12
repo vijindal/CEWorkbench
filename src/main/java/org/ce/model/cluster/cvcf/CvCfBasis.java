@@ -266,9 +266,7 @@ public final class CvCfBasis {
         // The last entry is the empty-cluster = 1.0, matching T's row count.
         double[] uPoint = new double[nxcf];
         for (int k = 0; k < nxcf; k++) {
-            int col = orthNcf + k;
-            int power = orthCfBasisIndices[col][0]; // single σ-power decoration
-            uPoint[k] = pointCF[power - 1];
+            uPoint[k] = pointCF[k];
         }
 
         double[][] tInv = resolvedTinv();

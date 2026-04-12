@@ -233,9 +233,9 @@ public class AllClusterData {
     }
 
     private void printStage3Diagnostics(Consumer<String> sink) {
-        if (sink == null || orthogonalCMatrixResult == null || orderedCFResult == null || disorderedClusterResult == null) {
-            return;
-        }
+//        if (sink == null || orthogonalCMatrixResult == null || orderedCFResult == null || disorderedClusterResult == null) {
+//            return;
+//        }
 
         sink.accept("\n  [STAGE 3 DIAGNOSTICS: Random state at equiatomic composition]");
         
@@ -266,6 +266,20 @@ public class AllClusterData {
                 uFull, orthogonalCMatrixResult.getCmat(), orthogonalCMatrixResult.getLcv(), 
                 disorderedClusterResult.getTcdis(), disorderedClusterResult.getLc());
 
+        emit(sink, "\n[DIAG] CV VALUES (rho_v only)");
+        for (int t = 0; t < cv.length; t++) {
+            emit(sink, "\n  Cluster t = " + t);
+            for (int j = 0; j < cv[t].length; j++) {
+                emit(sink, "    Group j = " + j);
+                double[] group = cv[t][j];
+                for (int v = 0; v < group.length; v++) {
+                    emit(sink, String.format(
+                        "      v=%d  rho=%.10f", v, group[v]
+                    ));
+                }
+            }
+        }
+
         sink.accept("    Resulting CVs (Cluster Variables):");
         for (int t = 0; t < cv.length; t++) {
             for (int j = 0; j < cv[t].length; j++) {
@@ -275,9 +289,9 @@ public class AllClusterData {
     }
 
     private void printStage4Diagnostics(Consumer<String> sink) {
-        if (sink == null || equiatomicCVCF == null || cMatrixResult == null || orderedCFResult == null || disorderedClusterResult == null) {
-            return;
-        }
+//        if (sink == null || equiatomicCVCF == null || cMatrixResult == null || orderedCFResult == null || disorderedClusterResult == null) {
+//            return;
+//        }
 
         sink.accept("\n  [STAGE 4 DIAGNOSTICS: Random state at equiatomic composition (CVCF Basis)]");
         int numComponents = orderedCFResult.getNxcf() + 1;
@@ -297,6 +311,20 @@ public class AllClusterData {
         double[][][] cv = ClusterVariableEvaluator.evaluate(
                 equiatomicCVCF, cMatrixResult.getCmat(), cMatrixResult.getLcv(), 
                 disorderedClusterResult.getTcdis(), disorderedClusterResult.getLc());
+
+        emit(sink, "\n[DIAG] CV VALUES (rho_v only)");
+        for (int t = 0; t < cv.length; t++) {
+            emit(sink, "\n  Cluster t = " + t);
+            for (int j = 0; j < cv[t].length; j++) {
+                emit(sink, "    Group j = " + j);
+                double[] group = cv[t][j];
+                for (int v = 0; v < group.length; v++) {
+                    emit(sink, String.format(
+                        "      v=%d  rho=%.10f", v, group[v]
+                    ));
+                }
+            }
+        }
 
         sink.accept("    Resulting CVs (Cluster Variables):");
         for (int t = 0; t < cv.length; t++) {
@@ -396,7 +424,8 @@ public class AllClusterData {
                 clusterResult,
                 cfResult,
                 orderedClusters,
-                numComponents);
+                numComponents,
+                progressSink);
 
         int[][] lcv = orthMatrix.getLcv();
         List<List<int[]>> wcv = orthMatrix.getWcv();
@@ -404,12 +433,51 @@ public class AllClusterData {
         for (int[] lcvt : lcv) for (int v : lcvt) totalCvRows += v;
         emit(progressSink, String.format("  [STAGE 3 OK] C-Matrix built: %d cluster types, %d total CV rows", lcv.length, totalCvRows));
 
+        // --- DIAGNOSTIC START (STAGE 3) ---
+        double[] x3 = new double[numComponents];
+        java.util.Arrays.fill(x3, 1.0 / numComponents);
+        double[] uRand3 = ClusterVariableEvaluator.computeRandomCFs(x3, numComponents, orthMatrix.getCfBasisIndices(), cfResult.getNcf(), cfResult.getTcf());
+        double[] uFull3 = ClusterVariableEvaluator.buildFullCFVector(uRand3, x3, numComponents, orthMatrix.getCfBasisIndices(), cfResult.getNcf(), cfResult.getTcf());
+        double[][][] cv3 = ClusterVariableEvaluator.evaluate(uFull3, orthMatrix.getCmat(), orthMatrix.getLcv(), clusterResult.getTcdis(), clusterResult.getLc());
+        
+        emit(progressSink, "\n[DIAG] CV VALUES (rho_v only)");
+        for (int t = 0; t < cv3.length; t++) {
+            emit(progressSink, "\n  Cluster t = " + t);
+            for (int j = 0; j < cv3[t].length; j++) {
+                emit(progressSink, "    Group j = " + j);
+                double[] group = cv3[t][j];
+                for (int v = 0; v < group.length; v++) {
+                    emit(progressSink, String.format("      v=%d  rho=%.10f", v, group[v]));
+                }
+            }
+        }
+        // --- DIAGNOSTIC END (STAGE 3) ---
+
         // [STAGE 4]: CVCF Transformation
         emit(progressSink, "\n[STAGE 4]: Transforming to CVCF Basis (Thermodynamic Basis)...");
         CvCfBasis cvcfBasis = CvCfBasis.dynamic(structurePhase, clusterResult, cfResult, orthMatrix, model, progressSink);
 
         CMatrix.Result cMatrix = org.ce.model.cluster.cvcf.CvCfBasisTransformer.transform(orthMatrix,
                 cvcfBasis);
+
+        // --- DIAGNOSTIC START (STAGE 4) ---
+        double[] x4 = new double[numComponents];
+        java.util.Arrays.fill(x4, 1.0 / numComponents);
+        double[] vRand4 = cvcfBasis.computeRandomState(x4, orthMatrix.getCfBasisIndices());
+        double[][][] cv4 = ClusterVariableEvaluator.evaluate(vRand4, cMatrix.getCmat(), cMatrix.getLcv(), clusterResult.getTcdis(), clusterResult.getLc());
+        
+        emit(progressSink, "\n[DIAG] CV VALUES (rho_v only)");
+        for (int t = 0; t < cv4.length; t++) {
+            emit(progressSink, "\n  Cluster t = " + t);
+            for (int j = 0; j < cv4[t].length; j++) {
+                emit(progressSink, "    Group j = " + j);
+                double[] group = cv4[t][j];
+                for (int v = 0; v < group.length; v++) {
+                    emit(progressSink, String.format("      v=%d  rho=%.10f", v, group[v]));
+                }
+            }
+        }
+        // --- DIAGNOSTIC END (STAGE 4) ---
 
         List<String> uList = cfResult.getUNames();
         List<String> eOList = cfResult.getEONames();

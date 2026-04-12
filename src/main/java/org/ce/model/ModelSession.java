@@ -191,6 +191,7 @@ public final class ModelSession {
                     .build();
 
             AllClusterData clusterData = AllClusterData.identify(clusterReq, progressSink);
+            clusterData.printSummary(System.out::println);
             emit(progressSink, "  [Session] ✓ Cluster identification complete");
 
             // ── Stage 2: Resolve Hamiltonian ID ──────────────────────────────

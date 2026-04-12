@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -189,7 +190,7 @@ public final class CMatrix {
             CvCfBasis basis,
             Consumer<String> progressSink) {
 
-        Result orthResult = buildOrthogonal(clusterResult, cfResult, maxClusters, numElements);
+        Result orthResult = buildOrthogonal(clusterResult, cfResult, maxClusters, numElements, progressSink);
 
         if (progressSink != null) {
             emit(progressSink, "  [Orthogonal Basis C-Matrix Data]");
@@ -206,14 +207,23 @@ public final class CMatrix {
         return cvcfResult;
     }
 
-    /**
-     * Internal logic for building the raw orthogonal C-matrix.
-     */
     public static Result buildOrthogonal(
             ClusterIdentificationResult clusterResult,
             CFIdentificationResult cfResult,
             List<Cluster> maxClusters,
             int numElements) {
+        return buildOrthogonal(clusterResult, cfResult, maxClusters, numElements, null);
+    }
+
+    /**
+     * Internal logic for building the raw orthogonal C-matrix with optional progress sink.
+     */
+    public static Result buildOrthogonal(
+            ClusterIdentificationResult clusterResult,
+            CFIdentificationResult cfResult,
+            List<Cluster> maxClusters,
+            int numElements,
+            Consumer<String> progressSink) {
 
         if (clusterResult == null || cfResult == null || maxClusters == null) {
             throw new IllegalArgumentException("Inputs must not be null");
@@ -233,11 +243,28 @@ public final class CMatrix {
         Map<CFIndex, Integer> cfColumn = buildCfColumnMap(lcf);
 
         int[][] cfBasisIndices = extractCfBasisIndices(cfSiteOpList, cfColumn, totalCfs);
+
+        // [ORTHO DEBUG] STEP 1: CF COLUMN MEANINGS
+        emit(progressSink, "\n[ORTHO DEBUG] CF COLUMN MEANINGS:");
+        for (Map.Entry<CFIndex, Integer> e : cfColumn.entrySet()) {
+            emit(progressSink, String.format(
+                "  col %d -> CFIndex %s",
+                e.getValue(), e.getKey()
+            ));
+        }
+
+        // [ORTHO DEBUG] STEP 2: CF BASIS INDICES
+        emit(progressSink, "\n[ORTHO DEBUG] CF BASIS INDICES:");
+        for (int i = 0; i < cfBasisIndices.length; i++) {
+            emit(progressSink, "  col " + i + " -> " + java.util.Arrays.toString(cfBasisIndices[i]));
+        }
+
         List<List<Cluster>> ordClustersByType = clusterResult.getOrdClusterData().getCoordList();
 
         List<List<double[][]>> cmat = new ArrayList<>();
         List<List<int[]>> wcv = new ArrayList<>();
         int[][] lcv = new int[ordClustersByType.size()][];
+
 
         for (int t = 0; t < ordClustersByType.size(); t++) {
             List<Cluster> groups = ordClustersByType.get(t);
@@ -248,36 +275,154 @@ public final class CMatrix {
             for (int j = 0; j < groups.size(); j++) {
                 Cluster cluster = groups.get(j);
                 List<Integer> siteIndices = flattenSiteIndices(cluster, siteList);
-
                 List<int[]> configs = generateConfigs(siteIndices.size(), numElements);
-                Map<PolynomialKey, Integer> countMap = new LinkedHashMap<>();
-                Map<PolynomialKey, double[]> rowMap = new LinkedHashMap<>();
+
+                // Grouping logic: tally unique CV expressions
+                Map<CVKey, Integer> tally = new LinkedHashMap<>();
+                Map<CVKey, Map<CFIndex, Double>> expressionMap = new LinkedHashMap<>();
+                Map<CVKey, Double> constantMap = new LinkedHashMap<>();
 
                 for (int[] config : configs) {
-                    double[] row = computeCvRow(siteIndices, config, pRules, substituteRules,
-                            cfColumn, totalCfs);
-                    PolynomialKey key = new PolynomialKey(row);
-                    countMap.put(key, countMap.getOrDefault(key, 0) + 1);
-                    rowMap.putIfAbsent(key, row);
+                    Map<CFIndex, Double> vector = new LinkedHashMap<>();
+                    double[] constantHolder = new double[1];
+                    computeCvVector(siteIndices, config, pRules, substituteRules, vector, constantHolder);
+                    
+                    CVKey key = new CVKey(vector, constantHolder[0]);
+                    tally.put(key, tally.getOrDefault(key, 0) + 1);
+                    expressionMap.putIfAbsent(key, vector);
+                    constantMap.putIfAbsent(key, constantHolder[0]);
                 }
 
-                int ncv = countMap.size();
-                lcv[t][j] = ncv;
+                int ncvCount = tally.size();
+                lcv[t][j] = ncvCount;
 
-                double[][] cmatGroup = new double[ncv][totalCfs + 1];
-                int[] wcvGroup = new int[ncv];
+                double[][] cmatGroup = new double[ncvCount][totalCfs + 1];
+                int[] wcvGroup = new int[ncvCount];
 
                 int idx = 0;
-                for (Map.Entry<PolynomialKey, Integer> entry : countMap.entrySet()) {
-                    cmatGroup[idx] = rowMap.get(entry.getKey());
+                for (Map.Entry<CVKey, Integer> entry : tally.entrySet()) {
+                    CVKey key = entry.getKey();
                     wcvGroup[idx] = entry.getValue();
+                    
+                    Map<CFIndex, Double> vector = expressionMap.get(key);
+                    for (Map.Entry<CFIndex, Double> ve : vector.entrySet()) {
+                        Integer col = cfColumn.get(ve.getKey());
+                        if (col != null) {
+                            cmatGroup[idx][col] = ve.getValue();
+                        }
+                    }
+                    cmatGroup[idx][totalCfs] = constantMap.get(key);
                     idx++;
                 }
+
                 cmatType.add(cmatGroup);
                 wcvType.add(wcvGroup);
+
+                // [CV DEBUG] Unique CVs for verification
+                emit(progressSink, String.format("\n[CV DEBUG] Unique CVs for Type t=%d, Group j=%d (ncv=%d):", t, j, ncvCount));
+                for (int i = 0; i < ncvCount; i++) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(String.format("  row %2d (w=%2d): ", i, wcvGroup[i]));
+                    // Sort CFs for readable print
+                    List<CFIndex> sortedKeys = new ArrayList<>(expressionMap.get(new ArrayList<>(tally.keySet()).get(i)).keySet());
+                    sortedKeys.sort((a,b) -> cfColumn.get(a).compareTo(cfColumn.get(b)));
+                    for (CFIndex cf : sortedKeys) {
+                        double val = expressionMap.get(new ArrayList<>(tally.keySet()).get(i)).get(cf);
+                        sb.append(String.format("%+.4f*U%d ", val, cfColumn.get(cf)));
+                    }
+                    double kVal = constantMap.get(new ArrayList<>(tally.keySet()).get(i));
+                    if (Math.abs(kVal) > 1e-12) sb.append(String.format("%+.4f*K ", kVal));
+                    emit(progressSink, sb.toString());
+                }
             }
             cmat.add(cmatType);
             wcv.add(wcvType);
+        }
+
+        // [ORTHO DEBUG] STEP 1: NCV (number of CV rows)
+        emit(progressSink, "\n[ORTHO DEBUG] NCV (number of CV rows):");
+        for (int t = 0; t < lcv.length; t++) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("  Cluster t=%d â†’ ncv per group: ", t));
+            for (int v : lcv[t]) sb.append(v).append(" ");
+            emit(progressSink, sb.toString());
+        }
+
+        // [ORTHO DEBUG] STEP 2: WCV (weights per row)
+        emit(progressSink, "\n[ORTHO DEBUG] WCV (weights per row):");
+        for (int t = 0; t < wcv.size(); t++) {
+            List<int[]> wtList = wcv.get(t);
+            emit(progressSink, "\n  Cluster t=" + t);
+            for (int j = 0; j < wtList.size(); j++) {
+                int[] w = wtList.get(j);
+                emit(progressSink, "    Group j=" + j + " weights:");
+                StringBuilder sb = new StringBuilder("      ");
+                for (int r = 0; r < w.length; r++) {
+                    sb.append(w[r]).append(" ");
+                }
+                emit(progressSink, sb.toString());
+            }
+        }
+
+        // [ORTHO DEBUG] STEP 3: C-MATRIX WITH WCV
+        emit(progressSink, "\n[ORTHO DEBUG] C-MATRIX WITH WCV:");
+        for (int t = 0; t < cmat.size(); t++) {
+            emit(progressSink, "\n  === Cluster t = " + t + " ===");
+            List<double[][]> groups = cmat.get(t);
+            List<int[]> wtList = wcv.get(t);
+            for (int j = 0; j < groups.size(); j++) {
+                emit(progressSink, "\n    Group j = " + j);
+                double[][] block = groups.get(j);
+                int[] w = wtList.get(j);
+                for (int r = 0; r < block.length; r++) {
+                    StringBuilder row = new StringBuilder();
+                    row.append(String.format("      row %d (w=%d): ", r, w[r]));
+                    for (int c = 0; c < block[r].length; c++) {
+                        row.append(String.format("% .6f ", block[r][c]));
+                    }
+                    emit(progressSink, row.toString());
+                }
+            }
+        }
+
+        // [ORTHO CHECK] STEP 4: Weighted sum check
+        emit(progressSink, "\n[ORTHO CHECK] Weighted sum check:");
+        for (int t = 0; t < cmat.size(); t++) {
+            List<double[][]> groups = cmat.get(t);
+            List<int[]> wtList = wcv.get(t);
+            for (int j = 0; j < groups.size(); j++) {
+                double[][] block = groups.get(j);
+                int[] w = wtList.get(j);
+                double total = 0;
+                for (int r = 0; r < block.length; r++) {
+                    total += w[r];
+                }
+                emit(progressSink, String.format(
+                    "  t=%d j=%d total weight = %.2f",
+                    t, j, total
+                ));
+            }
+        }
+
+        // [ORTHO CHECK] STEP 5: CV normalization
+        emit(progressSink, "\n[ORTHO CHECK] CV normalization:");
+        for (int t = 0; t < cmat.size(); t++) {
+            List<double[][]> groups = cmat.get(t);
+            List<int[]> wtList = wcv.get(t);
+            for (int j = 0; j < groups.size(); j++) {
+                double[][] block = groups.get(j);
+                int[] w = wtList.get(j);
+                for (int c = 0; c < block[0].length; c++) {
+                    double sum = 0;
+                    for (int r = 0; r < block.length; r++) {
+                        sum += w[r] * block[r][c];
+                    }
+                    emit(progressSink, String.format(
+                        "  t=%d j=%d col=%d weighted sum=%.6f",
+                        t, j, c, sum
+                    ));
+                }
+            }
         }
 
         return new Result(cmat, lcv, wcv, cfBasisIndices, null, pRules, substituteRules, siteList);
@@ -369,13 +514,13 @@ public final class CMatrix {
         return configs;
     }
 
-    private static double[] computeCvRow(
+    private static void computeCvVector(
             List<Integer> siteIndices,
             int[] config,
             ClusterMath.PRules pRules,
             SubstituteRules substituteRules,
-            Map<CFIndex, Integer> cfColumn,
-            int totalCfs) {
+            Map<CFIndex, Double> vector,
+            double[] constant) {
 
         Map<SiteOpProductKey, Double> poly = new LinkedHashMap<>();
         poly.put(new SiteOpProductKey(List.of()), 1.0);
@@ -401,21 +546,66 @@ public final class CMatrix {
             poly = next;
         }
 
-        double[] row = new double[totalCfs + 1];
         for (Map.Entry<SiteOpProductKey, Double> entry : poly.entrySet()) {
             SiteOpProductKey key = entry.getKey();
             double coeff = entry.getValue();
             List<SiteOp> ops = key.getOps();
+            
             if (ops.isEmpty()) {
-                row[totalCfs] += coeff;
+                constant[0] += coeff;
                 continue;
             }
+            
             CFIndex cfIndex = substituteRules.lookup(ops);
             if (cfIndex == null) throw new IllegalStateException("No CF mapping for " + key);
-            Integer col = cfColumn.get(cfIndex);
-            if (col == null) throw new IllegalStateException("No CF column for " + cfIndex);
-            row[col] += coeff;
+            vector.put(cfIndex, vector.getOrDefault(cfIndex, 0.0) + coeff);
         }
-        return row;
+    }
+
+    /**
+     * Canonical key for grouping CV vectors.
+     */
+    private static final class CVKey {
+        private final List<CFIndex> indices;
+        private final List<Long> roundedCoeffs;
+        private final long roundedConstant;
+        private static final double PRECISION = 1e10;
+
+        public CVKey(Map<CFIndex, Double> vector, double constant) {
+            List<CFIndex> sortedIndices = new ArrayList<>();
+            for (Map.Entry<CFIndex, Double> e : vector.entrySet()) {
+                if (Math.abs(e.getValue()) > 1e-12) {
+                    sortedIndices.add(e.getKey());
+                }
+            }
+            // Sorting by CFIndex internals: type, group, config
+            sortedIndices.sort((a,b) -> {
+                if (a.getTypeIndex() != b.getTypeIndex()) return Integer.compare(a.getTypeIndex(), b.getTypeIndex());
+                if (a.getGroupIndex() != b.getGroupIndex()) return Integer.compare(a.getGroupIndex(), b.getGroupIndex());
+                return Integer.compare(a.getCfIndex(), b.getCfIndex());
+            });
+
+            this.indices = sortedIndices;
+            this.roundedCoeffs = new ArrayList<>();
+            for (CFIndex idx : sortedIndices) {
+                roundedCoeffs.add(Math.round(vector.get(idx) * PRECISION));
+            }
+            this.roundedConstant = Math.round(constant * PRECISION);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            CVKey cvKey = (CVKey) o;
+            return roundedConstant == cvKey.roundedConstant &&
+                   Objects.equals(indices, cvKey.indices) &&
+                   Objects.equals(roundedCoeffs, cvKey.roundedCoeffs);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(indices, roundedCoeffs, roundedConstant);
+        }
     }
 }

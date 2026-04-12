@@ -1,6 +1,7 @@
 package org.ce.model.cluster.cvcf;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,13 +73,8 @@ public final class CvCfMatrixGenerator {
         }
 
         int numComponents = cfResult.getNxcf() + 1;
-        emit(sink, String.format("  [4.0] Generating CVCF basis: structure=%s, model=%s, K=%d",
-                structurePhase, model, numComponents));
-
         // 1. Look up the physical v-function definition for this combination
         CvCfDefinition def = CvCfDefinition.get(structurePhase, model, numComponents);
-        emit(sink, String.format("  [4.1] Definition loaded: %d CFs (%d non-point + %d point)",
-                def.cfNames.size(), def.cfNames.size() - numComponents, numComponents));
 
         // 2. Resolve logical site indices -> physical site indices.
         // Use the maximal ordered-phase cluster (type 0, representative 0) to obtain
@@ -92,43 +88,71 @@ public final class CvCfMatrixGenerator {
         // 3. Reuse pRules and substituteRules from Stage 3
         ClusterMath.PRules pRules   = orthMatrix.getPRules();
         SubstituteRules    subRules = orthMatrix.getSubstituteRules();
-        emit(sink, String.format(
-                "  [4.3] PRules reused from Stage 3 (K=%d, %d sites); SubstituteRules reused (%d rules)",
-                pRules.getNumElements(), pRules.getNumSites(), subRules.getRules().size()));
-        // Debug: print PRules
-        // emit(sink, "  [4.3] PRules: p[site][atom] coefficients (c0, c1, c2, ...):");
-        // int K = pRules.getNumElements();
-        // int S = pRules.getNumSites();
-        // for (int site = 0; site < S; site++) {
-        //     for (int atom = 0; atom < K; atom++) {
-        //         double[] coeffs = pRules.coefficientsFor(site, atom);
-        //         StringBuilder sb = new StringBuilder(String.format("    p[%d][%d] =", site, atom));
-        //         for (int i = 0; i < coeffs.length; i++) {
-        //             if (i == 0) sb.append(String.format(" %.4f", coeffs[i]));
-        //             else sb.append(String.format(" + %.4f*s%d", coeffs[i], i));
-        //         }
-        //         emit(sink, sb.toString());
-        //     }
-        // }
+
+        // [STEP P] pRules
+        emit(sink, "\n[STEP P] pRules (R-Matrix coefficients):");
+        double[][] rMat = pRules.getRMatrix();
+        for (int i = 0; i < rMat.length; i++) {
+            emit(sink, String.format("  atom %d -> %s", i, Arrays.toString(rMat[i])));
+        }
+
+        // [STEP S] substitutionRules
+        emit(sink, "\n[STEP S] substitutionRules:");
+        for (SiteOpProductKey key : subRules.getRules().keySet()) {
+            CFIndex cfIdx = subRules.lookup(key.getOps());
+            emit(sink, String.format(
+                "  ops=%s  -> CFIndex=%s",
+                key.getOps(), cfIdx
+            ));
+        }
+
+        // [STEP S2] substitutionRules consistency check
+        emit(sink, "\n[STEP S2] substitutionRules consistency check:");
+        for (SiteOpProductKey key : subRules.getRules().keySet()) {
+            CFIndex cfIdx = subRules.lookup(key.getOps());
+            if (cfIdx == null) {
+                emit(sink, "  [ERROR] Missing mapping for ops=" + key.getOps());
+            }
+        }
 
         // 4. Expand each v-function into the orthogonal basis
         List<LinearForm> vFunctions = buildVFunctions(def, siteMap, pRules);
-        emit(sink, String.format("  [4.4] V-functions expanded: %d LinearForms built",
-                vFunctions.size()));
-        // Debug: print expanded LinearForms (site-operator products after pRules substitution)
-        // emit(sink, "  [4.4] Expanded CVs (site-operator products after pRules):");
-        // for (int i = 0; i < vFunctions.size(); i++) {
-        //     StringBuilder sb = new StringBuilder(String.format("    %-10s:", def.cfNames.get(i)));
-        //     for (Map.Entry<SiteOpProductKey, Double> e : vFunctions.get(i).terms.entrySet()) {
-        //         double coeff = e.getValue();
-        //         List<SiteOp> ops = e.getKey().getOps();
-        //         sb.append(String.format("  %.4f*%s", coeff, ops.isEmpty() ? "1" : ops.toString()));
-        //     }
-        //     emit(sink, sb.toString());
-        // }
+        /*
+        emit(sink, "\n[DIAG] V-FUNCTION EXPANSION:");
+        for (int i = 0; i < vFunctions.size(); i++) {
+            LinearForm f = vFunctions.get(i);
+            emit(sink, "\n  v[" + i + "]");
+            for (Map.Entry<SiteOpProductKey, Double> e : f.terms.entrySet()) {
+                emit(sink, String.format(
+                    "    coeff=% .6f  ops=%s",
+                    e.getValue(),
+                    e.getKey().getOps()
+                ));
+            }
+        }
+        */
 
-        // 5. Print symbolic expressions for verification
-        printSymbolicExpressions(vFunctions, def.cfNames, cfResult, subRules, sink);
+        // [STEP 1] RAW CV DEFINITIONS (PROBABILITY FORM)
+        emit(sink, "\n[STEP 1] RAW CV DEFINITIONS (PROBABILITY FORM):");
+        for (int i = 0; i < def.vSpecs.size(); i++) {
+            CvCfDefinition.VSpec spec = def.vSpecs.get(i);
+            String name = def.cfNames.get(i);
+            emit(sink, String.format("  v[%d] (%s) = %s", i, name, formatVSpec(spec)));
+        }
+
+        // [STEP 2] AFTER pRules (SITE OPERATOR EXPANSION)
+        emit(sink, "\n[STEP 2] AFTER pRules (SITE OPERATOR EXPANSION):");
+        for (int i = 0; i < vFunctions.size(); i++) {
+            LinearForm f = vFunctions.get(i);
+            emit(sink, "\n  v[" + i + "] expanded:");
+            for (Map.Entry<SiteOpProductKey, Double> e : f.terms.entrySet()) {
+                emit(sink, String.format(
+                    "    coeff=% .6f  ops=%s",
+                    e.getValue(),
+                    e.getKey().getOps()
+                ));
+            }
+        }
 
         // 6. Build M matrix: v[i] = sum_j M[i][j] * u[j]
         int totalCfs  = cfResult.getTcf();
@@ -141,24 +165,87 @@ public final class CvCfMatrixGenerator {
                     basisSize, totalCfs + 1));
         }
         Map<CFIndex, Integer> cfColMap = buildCfColumnMap(cfResult.getLcf());
-        double[][] M = buildMMatrix(vFunctions, subRules, cfColMap, basisSize);
-        emit(sink, String.format("  [4.6] M matrix built: %dx%d", M.length, M[0].length));
+
+        emit(sink, "\n[DEBUG] CFIndex â†’ column mapping:");
+        for (Map.Entry<CFIndex, Integer> e : cfColMap.entrySet()) {
+            emit(sink, String.format("  %s -> col %d", e.getKey(), e.getValue()));
+        }
+
+        emit(sink, "\n[DEBUG] Column meanings:");
+        List<String> uNames = cfResult.getUNames();
+        for (int i = 0; i < uNames.size(); i++) {
+            emit(sink, String.format("  col %d -> %s", i, uNames.get(i)));
+        }
+        emit(sink, String.format("  col %d -> (Empty Cluster / 1.0)", basisSize - 1));
+
+        emit(sink, "\n[DEBUG] Point CFIndex mapping check:");
+        for (Map.Entry<CFIndex, Integer> e : cfColMap.entrySet()) {
+            CFIndex idx = e.getKey();
+            // In BCC_A2 ternary, Point CFs are cluster type 1
+            if (idx.getTypeIndex() == 1) {
+                emit(sink, String.format("  POINT CF: %s -> col %d", idx, e.getValue()));
+            }
+        }
+
+        double[][] M = buildMMatrix(vFunctions, subRules, cfColMap, basisSize, numComponents, sink);
+
+        /*
+        emit(sink, "\n[DIAG] M MATRIX:");
+        for (int i = 0; i < M.length; i++) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("  row %d: ", i));
+            for (int j = 0; j < M[i].length; j++) {
+                sb.append(String.format("% .6f ", M[i][j]));
+            }
+            emit(sink, sb.toString());
+        }
+        */
 
         // 7. T = M^-1  (u = T * v)
         double[][] T    = LinearAlgebra.invert(M);
+
+        /*
+        emit(sink, "\n[DIAG] Checking T * M:");
+        for (int i = 0; i < T.length; i++) {
+            for (int j = 0; j < T.length; j++) {
+                double sum = 0;
+                for (int k = 0; k < T.length; k++) {
+                    sum += T[i][k] * M[k][j];
+                }
+                emit(sink, String.format("I[%d][%d] = %.6f", i, j, sum));
+            }
+        }
+        */
+
         double[][] Tinv = M;
-        emit(sink, String.format("  [4.7] T matrix computed (M^-1): %dx%d", T.length, T[0].length));
-        printMatrix("T (orthogonal->CVCF)", T, def.cfNames, cfResult.getUNames(), sink);
-        printMatrix("Tinv (CVCF->orthogonal)", Tinv, cfResult.getUNames(), def.cfNames, sink);
 
         // 8. Derive numNonPointCfs and eciNames
         int numNonPointCfs = def.cfNames.size() - numComponents;
         List<String> eciNames = cfResult.getEONames().subList(0, numNonPointCfs);
-        emit(sink, String.format("  [4.8] Basis complete: cfNames=%s, eciNames=%s",
-                def.cfNames, eciNames));
 
         return new CvCfBasis(structurePhase, model, numComponents,
                 def.cfNames, eciNames, numNonPointCfs, T, Tinv);
+    }
+
+    private static String formatVSpec(CvCfDefinition.VSpec spec) {
+        String plus = formatTerm(spec.plusTerm);
+        if (spec.isDiff()) {
+            return plus + " - " + formatTerm(spec.minusTerm);
+        }
+        return plus;
+    }
+
+    private static String formatTerm(int[] pairs) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < pairs.length; i += 2) {
+            if (i > 0) sb.append("*");
+            sb.append("p[").append(pairs[i]).append("][").append(pairs[i+1]).append("]");
+        }
+        return sb.toString();
+    }
+
+    private static void emit(Consumer<String> sink, String msg) {
+        if (sink != null) sink.accept(msg);
     }
 
     // =========================================================================
@@ -192,10 +279,6 @@ public final class CvCfMatrixGenerator {
                     "Matched cluster position {%.4f,%.4f,%.4f} not found in siteList.",
                     matched.getX(), matched.getY(), matched.getZ()));
             }
-            emit(sink, String.format(
-                    "        p%d {%.4f,%.4f,%.4f} -> physicalSite[%d] {%.4f,%.4f,%.4f} OK",
-                    logIdx + 1, coord[0], coord[1], coord[2],
-                    physIdx, matched.getX(), matched.getY(), matched.getZ()));
             siteMap.put(logIdx + 1, physIdx);
         }
         return siteMap;
@@ -283,9 +366,13 @@ public final class CvCfMatrixGenerator {
             List<LinearForm> vFunctions,
             SubstituteRules subRules,
             Map<CFIndex, Integer> cfColMap,
-            int basisSize) {
+            int basisSize,
+            int numComponents,
+            Consumer<String> sink) {
 
         double[][] M = new double[basisSize][basisSize];
+        emit(sink, "\n[STEP 3] SUBSTITUTE RULES (OPS → CF INDEX):");
+
         for (int i = 0; i < basisSize; i++) {
             for (Map.Entry<SiteOpProductKey, Double> entry : vFunctions.get(i).terms.entrySet()) {
                 double coeff = entry.getValue();
@@ -294,106 +381,46 @@ public final class CvCfMatrixGenerator {
                     M[i][basisSize - 1] += coeff;
                 } else {
                     CFIndex cfIdx = subRules.lookup(ops);
+
+                    /*
+                    if (cfIdx == null) {
+                        emit(sink, "  [ERROR] Missing CF mapping for ops: " + ops);
+                    } else {
+                        Integer col = cfColMap.get(cfIdx);
+                        emit(sink, String.format(
+                            "  [MAP] ops=%s -> cfIdx=%s -> col=%d",
+                            ops, cfIdx, col
+                        ));
+                        if (col != null) {
+                            M[i][col] += coeff;
+                        }
+                    }
+                    */
+
+                    emit(sink, String.format("  ops=%s  -> cfIdx=%s", ops, cfIdx));
+
                     if (cfIdx != null) {
                         Integer col = cfColMap.get(cfIdx);
-                        if (col != null && col < basisSize - 1) {
+                        emit(sink, String.format("[DEBUG] Using CFIndex %s -> col %d for ops %s", cfIdx, col, ops));
+                        if (col != null) {
                             M[i][col] += coeff;
                         }
                     }
                 }
             }
-        }
-        return M;
-    }
 
-    // =========================================================================
-    // Diagnostic: symbolic expressions
-    // =========================================================================
-
-    private static void printSymbolicExpressions(
-            List<LinearForm> vFunctions,
-            List<String> vNames,
-            CFIdentificationResult cfResult,
-            SubstituteRules subRules,
-            Consumer<String> sink) {
-
-        if (sink == null) return;
-        sink.accept("\n  [DIAGNOSTIC] CVCF Basis Symbolic Expressions:");
-        List<String> uNames = cfResult.getUNames();
-        Map<CFIndex, Integer> cfColMap = buildCfColumnMap(cfResult.getLcf());
-
-        for (int i = 0; i < vFunctions.size(); i++) {
-            LinearForm f = vFunctions.get(i);
-            StringBuilder sb = new StringBuilder();
-            sb.append(String.format("    %-8s = ", vNames.get(i)));
-
-            Map<Integer, Double> groupedTerms = new java.util.TreeMap<>();
-            double constantPart = 0.0;
-
-            for (Map.Entry<SiteOpProductKey, Double> entry : f.terms.entrySet()) {
-                List<SiteOp> ops = entry.getKey().getOps();
-                if (ops.isEmpty()) {
-                    constantPart += entry.getValue();
-                } else {
-                    CFIndex cfIdx = subRules.lookup(ops);
-                    if (cfIdx != null) {
-                        Integer col = cfColMap.get(cfIdx);
-                        if (col != null) groupedTerms.merge(col, entry.getValue(), Double::sum);
-                    }
+            // [STEP 4] FINAL EQUATION ROW
+            emit(sink, "\n[STEP 4] FINAL EQUATION ROW " + i);
+            for (int j = 0; j < M[i].length; j++) {
+                if (Math.abs(M[i][j]) > 1e-10) {
+                    emit(sink, String.format(
+                        "    col %d  coeff=% .6f",
+                        j, M[i][j]
+                    ));
                 }
             }
-
-            boolean first = true;
-            for (Map.Entry<Integer, Double> entry : groupedTerms.entrySet()) {
-                double val = entry.getValue();
-                if (Math.abs(val) < 1e-10) continue;
-                if (!first && val > 0) sb.append(" + ");
-                else if (val < 0) sb.append(" - ");
-                double absVal = Math.abs(val);
-                if (absVal != 1.0) sb.append(String.format("%.4f", absVal)).append("*");
-                sb.append(uNames.get(entry.getKey()));
-                first = false;
-            }
-
-            if (Math.abs(constantPart) > 1e-10) {
-                if (!first && constantPart > 0) { sb.append(" + "); }
-                else if (constantPart < 0) { sb.append(" - "); }
-                sb.append(String.format("%.4f", Math.abs(constantPart)));
-            } else if (first) {
-                sb.append("0.0");
-            }
-
-            sink.accept(sb.toString());
         }
-    }
-
-    // =========================================================================
-    // Utilities
-    // =========================================================================
-
-    private static void emit(Consumer<String> sink, String msg) {
-        if (sink != null) sink.accept(msg);
-    }
-
-    private static void printMatrix(String title, double[][] mat,
-                                    List<String> rowLabels, List<String> colLabels,
-                                    Consumer<String> sink) {
-        if (sink == null) return;
-        sink.accept("  ---- " + title + " ----");
-        int cols = mat[0].length;
-        StringBuilder hdr = new StringBuilder("         ");
-        for (int j = 0; j < cols; j++) {
-            hdr.append(String.format(" %9s", j < colLabels.size() ? colLabels.get(j) : ("c" + j)));
-        }
-        sink.accept(hdr.toString());
-        for (int i = 0; i < mat.length; i++) {
-            String label = i < rowLabels.size() ? rowLabels.get(i) : ("r" + i);
-            StringBuilder row = new StringBuilder(String.format("  %-8s", label));
-            for (int j = 0; j < cols; j++) {
-                row.append(String.format(" %9.4f", mat[i][j]));
-            }
-            sink.accept(row.toString());
-        }
+        return M;
     }
 
     private static Map<CFIndex, Integer> buildCfColumnMap(int[][] lcf) {
