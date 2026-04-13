@@ -46,11 +46,11 @@ public final class CMatrix {
 
         @JsonCreator
         public Result(
-                @JsonProperty("cmat")            List<List<double[][]>> cmat,
-                @JsonProperty("lcv")             int[][]                lcv,
-                @JsonProperty("wcv")             List<List<int[]>>      wcv,
-                @JsonProperty("cfBasisIndices")  int[][]                cfBasisIndices,
-                @JsonProperty("cmatCfNames")     List<String>           cmatCfNames) {
+                @JsonProperty("cmat") List<List<double[][]>> cmat,
+                @JsonProperty("lcv") int[][] lcv,
+                @JsonProperty("wcv") List<List<int[]>> wcv,
+                @JsonProperty("cfBasisIndices") int[][] cfBasisIndices,
+                @JsonProperty("cmatCfNames") List<String> cmatCfNames) {
             this.cmat = cmat;
             this.lcv = lcv;
             this.wcv = wcv;
@@ -62,13 +62,13 @@ public final class CMatrix {
         }
 
         Result(List<List<double[][]>> cmat,
-               int[][]                lcv,
-               List<List<int[]>>      wcv,
-               int[][]                cfBasisIndices,
-               List<String>           cmatCfNames,
-               ClusterMath.PRules     pRules,
-               SubstituteRules        substituteRules,
-               List<Position>         siteList) {
+                int[][] lcv,
+                List<List<int[]>> wcv,
+                int[][] cfBasisIndices,
+                List<String> cmatCfNames,
+                ClusterMath.PRules pRules,
+                SubstituteRules substituteRules,
+                List<Position> siteList) {
             this.cmat = cmat;
             this.lcv = lcv;
             this.wcv = wcv;
@@ -90,21 +90,47 @@ public final class CMatrix {
             this.siteList = null;
         }
 
-        public List<List<double[][]>> getCmat() { return cmat; }
-        public int[][] getLcv() { return lcv; }
-        public List<List<int[]>> getWcv() { return wcv; }
-        public int[][] getCfBasisIndices() { return cfBasisIndices; }
-        public List<String> getCmatCfNames() { return cmatCfNames; }
-        public ClusterMath.PRules getPRules() { return pRules; }
-        public SubstituteRules getSubstituteRules() { return substituteRules; }
-        public List<Position> getSiteList() { return siteList; }
+        public List<List<double[][]>> getCmat() {
+            return cmat;
+        }
+
+        public int[][] getLcv() {
+            return lcv;
+        }
+
+        public List<List<int[]>> getWcv() {
+            return wcv;
+        }
+
+        public int[][] getCfBasisIndices() {
+            return cfBasisIndices;
+        }
+
+        public List<String> getCmatCfNames() {
+            return cmatCfNames;
+        }
+
+        public ClusterMath.PRules getPRules() {
+            return pRules;
+        }
+
+        public SubstituteRules getSubstituteRules() {
+            return substituteRules;
+        }
+
+        public List<Position> getSiteList() {
+            return siteList;
+        }
 
         public void validateCols(int expectedCols, String contextMsg) {
-            if (cmat == null || cmat.isEmpty()) return;
+            if (cmat == null || cmat.isEmpty())
+                return;
             var firstType = cmat.get(0);
-            if (firstType == null || firstType.isEmpty()) return;
+            if (firstType == null || firstType.isEmpty())
+                return;
             double[][] firstBlock = firstType.get(0);
-            if (firstBlock == null || firstBlock.length == 0) return;
+            if (firstBlock == null || firstBlock.length == 0)
+                return;
             int actual = firstBlock[0].length;
             if (actual != expectedCols) {
                 throw new IllegalStateException(contextMsg
@@ -135,7 +161,8 @@ public final class CMatrix {
             for (int icf = 0; icf < ncf; icf++) {
                 int[] indices = cfBasisIndices[icf];
                 double val = 1.0;
-                for (int b : indices) val *= pointCFs[b - 1];
+                for (int b : indices)
+                    val *= pointCFs[b - 1];
                 uRandom[icf] = val;
             }
             return uRandom;
@@ -155,7 +182,7 @@ public final class CMatrix {
                 for (int j = 0; j < cmat.get(t).size(); j++) {
                     double[][] block = cmat.get(t).get(j);
                     sink.accept(String.format("  - Block (t=%-2d, j=%-2d): %d rows x %d cols",
-                        t, j, block.length, block[0].length));
+                            t, j, block.length, block[0].length));
                     for (int r = 0; r < block.length; r++) {
                         StringBuilder row = new StringBuilder("    [ ");
                         for (int c = 0; c < block[r].length; c++) {
@@ -216,7 +243,8 @@ public final class CMatrix {
     }
 
     /**
-     * Internal logic for building the raw orthogonal C-matrix with optional progress sink.
+     * Internal logic for building the raw orthogonal C-matrix with optional
+     * progress sink.
      */
     public static Result buildOrthogonal(
             ClusterIdentificationResult clusterResult,
@@ -234,8 +262,8 @@ public final class CMatrix {
         List<Position> siteList = ClusterBuilders.buildSiteList(maxClusters);
         ClusterMath.PRules pRules = ClusterMath.PRules.build(siteList.size(), numElements);
 
-        List<List<List<List<SiteOp>>>> cfSiteOpList =
-                ClusterBuilders.buildCFSiteOpList(cfResult.getGroupedCFData(), siteList);
+        List<List<List<List<SiteOp>>>> cfSiteOpList = ClusterBuilders.buildCFSiteOpList(cfResult.getGroupedCFData(),
+                siteList);
         SubstituteRules substituteRules = SubstituteRules.build(cfSiteOpList, siteList);
 
         int totalCfs = cfResult.getTcf();
@@ -248,9 +276,8 @@ public final class CMatrix {
         emit(progressSink, "\n[ORTHO DEBUG] CF COLUMN MEANINGS:");
         for (Map.Entry<CFIndex, Integer> e : cfColumn.entrySet()) {
             emit(progressSink, String.format(
-                "  col %d -> CFIndex %s",
-                e.getValue(), e.getKey()
-            ));
+                    "  col %d -> CFIndex %s",
+                    e.getValue(), e.getKey()));
         }
 
         // [ORTHO DEBUG] STEP 2: CF BASIS INDICES
@@ -264,7 +291,6 @@ public final class CMatrix {
         List<List<double[][]>> cmat = new ArrayList<>();
         List<List<int[]>> wcv = new ArrayList<>();
         int[][] lcv = new int[ordClustersByType.size()][];
-
 
         for (int t = 0; t < ordClustersByType.size(); t++) {
             List<Cluster> groups = ordClustersByType.get(t);
@@ -286,7 +312,7 @@ public final class CMatrix {
                     Map<CFIndex, Double> vector = new LinkedHashMap<>();
                     double[] constantHolder = new double[1];
                     computeCvVector(siteIndices, config, pRules, substituteRules, vector, constantHolder);
-                    
+
                     CVKey key = new CVKey(vector, constantHolder[0]);
                     tally.put(key, tally.getOrDefault(key, 0) + 1);
                     expressionMap.putIfAbsent(key, vector);
@@ -303,7 +329,7 @@ public final class CMatrix {
                 for (Map.Entry<CVKey, Integer> entry : tally.entrySet()) {
                     CVKey key = entry.getKey();
                     wcvGroup[idx] = entry.getValue();
-                    
+
                     Map<CFIndex, Double> vector = expressionMap.get(key);
                     for (Map.Entry<CFIndex, Double> ve : vector.entrySet()) {
                         Integer col = cfColumn.get(ve.getKey());
@@ -319,19 +345,22 @@ public final class CMatrix {
                 wcvType.add(wcvGroup);
 
                 // [CV DEBUG] Unique CVs for verification
-                emit(progressSink, String.format("\n[CV DEBUG] Unique CVs for Type t=%d, Group j=%d (ncv=%d):", t, j, ncvCount));
+                emit(progressSink,
+                        String.format("\n[CV DEBUG] Unique CVs for Type t=%d, Group j=%d (ncv=%d):", t, j, ncvCount));
                 for (int i = 0; i < ncvCount; i++) {
                     StringBuilder sb = new StringBuilder();
                     sb.append(String.format("  row %2d (w=%2d): ", i, wcvGroup[i]));
                     // Sort CFs for readable print
-                    List<CFIndex> sortedKeys = new ArrayList<>(expressionMap.get(new ArrayList<>(tally.keySet()).get(i)).keySet());
-                    sortedKeys.sort((a,b) -> cfColumn.get(a).compareTo(cfColumn.get(b)));
+                    List<CFIndex> sortedKeys = new ArrayList<>(
+                            expressionMap.get(new ArrayList<>(tally.keySet()).get(i)).keySet());
+                    sortedKeys.sort((a, b) -> cfColumn.get(a).compareTo(cfColumn.get(b)));
                     for (CFIndex cf : sortedKeys) {
                         double val = expressionMap.get(new ArrayList<>(tally.keySet()).get(i)).get(cf);
                         sb.append(String.format("%+.4f*U%d ", val, cfColumn.get(cf)));
                     }
                     double kVal = constantMap.get(new ArrayList<>(tally.keySet()).get(i));
-                    if (Math.abs(kVal) > 1e-12) sb.append(String.format("%+.4f*K ", kVal));
+                    if (Math.abs(kVal) > 1e-12)
+                        sb.append(String.format("%+.4f*K ", kVal));
                     emit(progressSink, sb.toString());
                 }
             }
@@ -344,7 +373,8 @@ public final class CMatrix {
         for (int t = 0; t < lcv.length; t++) {
             StringBuilder sb = new StringBuilder();
             sb.append(String.format("  Cluster t=%d â†’ ncv per group: ", t));
-            for (int v : lcv[t]) sb.append(v).append(" ");
+            for (int v : lcv[t])
+                sb.append(v).append(" ");
             emit(progressSink, sb.toString());
         }
 
@@ -398,9 +428,8 @@ public final class CMatrix {
                     total += w[r];
                 }
                 emit(progressSink, String.format(
-                    "  t=%d j=%d total weight = %.2f",
-                    t, j, total
-                ));
+                        "  t=%d j=%d total weight = %.2f",
+                        t, j, total));
             }
         }
 
@@ -418,9 +447,8 @@ public final class CMatrix {
                         sum += w[r] * block[r][c];
                     }
                     emit(progressSink, String.format(
-                        "  t=%d j=%d col=%d weighted sum=%.6f",
-                        t, j, c, sum
-                    ));
+                            "  t=%d j=%d col=%d weighted sum=%.6f",
+                            t, j, c, sum));
                 }
             }
         }
@@ -485,7 +513,8 @@ public final class CMatrix {
         for (Sublattice sub : cluster.getSublattices()) {
             for (Site site : sub.getSites()) {
                 int idx = indexOf(siteList, site.getPosition());
-                if (idx < 0) throw new IllegalStateException("Site position not found");
+                if (idx < 0)
+                    throw new IllegalStateException("Site position not found");
                 indices.add(idx);
             }
         }
@@ -494,7 +523,8 @@ public final class CMatrix {
 
     private static int indexOf(List<Position> siteList, Position pos) {
         for (int i = 0; i < siteList.size(); i++) {
-            if (siteList.get(i).equals(pos)) return i;
+            if (siteList.get(i).equals(pos))
+                return i;
         }
         return -1;
     }
@@ -536,9 +566,11 @@ public final class CMatrix {
                 double baseCoeff = entry.getValue();
                 for (int a = 0; a < coeffs.length; a++) {
                     double c = coeffs[a];
-                    if (Math.abs(c) < 1e-12) continue;
+                    if (Math.abs(c) < 1e-12)
+                        continue;
                     List<SiteOp> newOps = new ArrayList<>(baseOps);
-                    if (a > 0) newOps.add(new SiteOp(siteIndex, a));
+                    if (a > 0)
+                        newOps.add(new SiteOp(siteIndex, a));
                     SiteOpProductKey key = new SiteOpProductKey(newOps);
                     next.put(key, next.getOrDefault(key, 0.0) + baseCoeff * c);
                 }
@@ -550,14 +582,15 @@ public final class CMatrix {
             SiteOpProductKey key = entry.getKey();
             double coeff = entry.getValue();
             List<SiteOp> ops = key.getOps();
-            
+
             if (ops.isEmpty()) {
                 constant[0] += coeff;
                 continue;
             }
-            
+
             CFIndex cfIndex = substituteRules.lookup(ops);
-            if (cfIndex == null) throw new IllegalStateException("No CF mapping for " + key);
+            if (cfIndex == null)
+                throw new IllegalStateException("No CF mapping for " + key);
             vector.put(cfIndex, vector.getOrDefault(cfIndex, 0.0) + coeff);
         }
     }
@@ -579,9 +612,11 @@ public final class CMatrix {
                 }
             }
             // Sorting by CFIndex internals: type, group, config
-            sortedIndices.sort((a,b) -> {
-                if (a.getTypeIndex() != b.getTypeIndex()) return Integer.compare(a.getTypeIndex(), b.getTypeIndex());
-                if (a.getGroupIndex() != b.getGroupIndex()) return Integer.compare(a.getGroupIndex(), b.getGroupIndex());
+            sortedIndices.sort((a, b) -> {
+                if (a.getTypeIndex() != b.getTypeIndex())
+                    return Integer.compare(a.getTypeIndex(), b.getTypeIndex());
+                if (a.getGroupIndex() != b.getGroupIndex())
+                    return Integer.compare(a.getGroupIndex(), b.getGroupIndex());
                 return Integer.compare(a.getCfIndex(), b.getCfIndex());
             });
 
@@ -595,12 +630,14 @@ public final class CMatrix {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o)
+                return true;
+            if (o == null || getClass() != o.getClass())
+                return false;
             CVKey cvKey = (CVKey) o;
             return roundedConstant == cvKey.roundedConstant &&
-                   Objects.equals(indices, cvKey.indices) &&
-                   Objects.equals(roundedCoeffs, cvKey.roundedCoeffs);
+                    Objects.equals(indices, cvKey.indices) &&
+                    Objects.equals(roundedCoeffs, cvKey.roundedCoeffs);
         }
 
         @Override

@@ -87,3 +87,11 @@ task runDemo(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'org.ce.demo.BinaryToTernaryDemo'
 }
+
+task runTernaryDebug(type: JavaExec) {
+    group = 'verification'
+    description = 'Run diagnostic C-Matrix generation for Nb-Ti-V ternary system'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.debug.TernaryCMatrixRunner'
+    jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
+}
