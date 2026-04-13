@@ -229,65 +229,10 @@ public class ClusCoordListGenerator {
     /**
      * Canonical cluster-type comparator used for final ordering.
      *
-     * <p>Primary key: descending number of sites (existing behavior).</p>
-     * <p>Secondary key: descending pair-distance signature for equal-size clusters
-     * to keep shell ordering stable (e.g. BCC 2nd-NN pair before 1st-NN pair).</p>
-     * <p>Tertiary key: lexicographic site coordinates for full determinism.</p>
+     * <p>Primary key: descending number of sites (matches Mathematica behavior).</p>
      */
     private static int compareClusterTypesCanonical(Cluster a, Cluster b) {
-        int nCmp = Integer.compare(b.getAllSites().size(), a.getAllSites().size());
-        if (nCmp != 0) {
-            return nCmp;
-        }
-
-        long[] sa = distanceSignatureDesc(a);
-        long[] sb = distanceSignatureDesc(b);
-        int m = Math.min(sa.length, sb.length);
-        for (int i = 0; i < m; i++) {
-            if (sa[i] != sb[i]) {
-                return Long.compare(sb[i], sa[i]); // descending
-            }
-        }
-        if (sa.length != sb.length) {
-            return Integer.compare(sb.length, sa.length);
-        }
-
-        List<Site> fa = a.sorted().getAllSites();
-        List<Site> fb = b.sorted().getAllSites();
-        int s = Math.min(fa.size(), fb.size());
-        for (int i = 0; i < s; i++) {
-            int cmp = Cluster.compareSites(fa.get(i), fb.get(i));
-            if (cmp != 0) {
-                return cmp;
-            }
-        }
-        return Integer.compare(fa.size(), fb.size());
-    }
-
-    /**
-     * Returns sorted (descending) squared pair distances as an integer signature.
-     */
-    private static long[] distanceSignatureDesc(Cluster c) {
-        List<Site> sites = c.getAllSites();
-        if (sites.size() < 2) {
-            return new long[0];
-        }
-        List<Long> d2 = new ArrayList<>();
-        for (int i = 0; i < sites.size(); i++) {
-            for (int j = i + 1; j < sites.size(); j++) {
-                double dx = sites.get(i).getPosition().getX() - sites.get(j).getPosition().getX();
-                double dy = sites.get(i).getPosition().getY() - sites.get(j).getPosition().getY();
-                double dz = sites.get(i).getPosition().getZ() - sites.get(j).getPosition().getZ();
-                long q = Math.round((dx * dx + dy * dy + dz * dz) * 1_000_000_000L);
-                d2.add(q);
-            }
-        }
-        d2.sort((x, y) -> Long.compare(y, x)); // descending
-        long[] out = new long[d2.size()];
-        for (int i = 0; i < d2.size(); i++) {
-            out[i] = d2.get(i);
-        }
-        return out;
+        return Integer.compare(b.getAllSites().size(), a.getAllSites().size());
     }
 
     // -------------------------------------------------------------------------

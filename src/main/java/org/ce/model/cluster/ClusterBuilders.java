@@ -107,7 +107,7 @@ public final class ClusterBuilders {
         return ops;
     }
 
-    private static int indexOf(List<Position> siteList, Position pos) {
+    static int indexOf(List<Position> siteList, Position pos) {
         for (int i = 0; i < siteList.size(); i++) {
             if (siteList.get(i).equals(pos)) {
                 return i;
@@ -116,7 +116,7 @@ public final class ClusterBuilders {
         return -1;
     }
 
-    private static int parseBasisIndex(String symbol) {
+    static int parseBasisIndex(String symbol) {
         if (symbol == null) {
             throw new IllegalArgumentException("Site symbol is null; CF sites must be decorated");
         }

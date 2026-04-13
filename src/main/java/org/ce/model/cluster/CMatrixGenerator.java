@@ -3,7 +3,7 @@ package org.ce.model.cluster;
 import java.util.*;
 import java.util.function.Consumer;
 import static org.ce.model.cluster.ClusterPrimitives.*;
-import static org.ce.model.cluster.ClusterKeys.*;
+import static org.ce.model.cluster.ClusterResults.*;
 
 /**
  * C-Matrix Generator — pure numerical implementation, general K elements.
@@ -246,9 +246,26 @@ public final class CMatrixGenerator {
             double[][]               R,
             Map<SiteOpKey, Integer>  cfTable,
             int                      totalCFs) {
+        return expandConfiguration(siteIndices, config, R, cfTable, totalCFs, null);
+    }
+
+    /**
+     * Internal overload with diagnostic output.
+     */
+    private static double[] expandConfiguration(
+            int[]                    siteIndices,
+            int[]                    config,
+            double[][]               R,
+            Map<SiteOpKey, Integer>  cfTable,
+            int                      totalCFs,
+            Consumer<String>        sink) {
 
         int N = siteIndices.length;
         int K = R.length;
+
+        if (sink != null) {
+            emit(sink, "    [STEP 3] Expanding configuration: " + Arrays.toString(config));
+        }
 
         // Polynomial: monomial → accumulated coefficient
         // A monomial is represented as an ordered list of {siteIndex, basisIndex} pairs.
@@ -286,6 +303,11 @@ public final class CMatrixGenerator {
                 }
             }
 
+            if (sink != null) {
+                emit(sink, String.format("      Site %d (global %d, element %d): poly size %d -> %d",
+                    s, globalSite, elementIdx, poly.size(), next.size()));
+            }
+
             poly = next;
         }
 
@@ -312,6 +334,12 @@ public final class CMatrixGenerator {
             }
         }
 
+        if (sink != null) {
+            int nonZero = 0;
+            for (double v : row) if (Math.abs(v) > 1e-14) nonZero++;
+            emit(sink, "      -> Expansion complete. " + nonZero + " non-zero coefficients.");
+        }
+
         return row;
     }
 
@@ -328,8 +356,18 @@ public final class CMatrixGenerator {
      * Each config is an int[] of length N with values in 0..K-1.
      */
     public static List<int[]> allConfigurations(int N, int K) {
+        return allConfigurations(N, K, null);
+    }
+
+    /**
+     * Returns all K^N element assignments for an N-site cluster.
+     * Internal overload with diagnostic output.
+     */
+    private static List<int[]> allConfigurations(int N, int K, Consumer<String> sink) {
         int total = 1;
         for (int i = 0; i < N; i++) total *= K;   // K^N
+
+        emit(sink, String.format("    [STEP 4] Generating %d configurations for %d sites (K=%d)...", total, N, K));
 
         List<int[]> configs = new ArrayList<>(total);
         for (int i = 0; i < total; i++) {
@@ -565,21 +603,25 @@ public final class CMatrixGenerator {
         int KN = (int) Math.pow(K, N);
         emit(sink, String.format("  Processing cluster with %d sites (K=%d, configs=%d)...", N, K, KN));
 
-        List<int[]> configs = allConfigurations(N, K);
+        List<int[]> configs = allConfigurations(N, K, sink);
 
         // Tally: row key → (row, count)
         Map<RowKey, double[]> seenRows   = new LinkedHashMap<>();
         Map<RowKey, Integer>  seenCounts = new LinkedHashMap<>();
 
+        boolean first = true;
         for (int[] config : configs) {
-            double[] row = expandConfiguration(siteIndices, config, R, cfTable, totalCFs);
+            // Only provide trace for the first configuration to avoid flooding
+            Consumer<String> traceSink = first ? sink : null;
+            double[] row = expandConfiguration(siteIndices, config, R, cfTable, totalCFs, traceSink);
             RowKey   key = new RowKey(row);
             seenRows.putIfAbsent(key, row);
             seenCounts.merge(key, 1, Integer::sum);
+            first = false;
         }
 
         int ncv  = seenRows.size();
-        emit(sink, String.format("    -> Tally complete. Identified %d distinct CV rows.", ncv));
+        emit(sink, String.format("    [STEP 5] Tally complete. Identified %d distinct CV rows.", ncv));
         double[][] cmat = new double[ncv][];
         int[]      wcv  = new int[ncv];
 
@@ -650,105 +692,119 @@ public final class CMatrixGenerator {
     // STEP 7 — Build the CF lookup table from the CF identification result
     // =========================================================================
     //
-    // The CF identification stage produces, for each CF (t, j, k), a list of
-    // representative site-op pairs: [{siteIndex_1, basisIndex_1}, ...].
+    // The CF lookup table maps SiteOpKey → CF column index.
+    // SiteOpKey uses global siteList indices, but CF orbit members can reference
+    // sites outside the siteList (translated copies). So we cannot enumerate orbit
+    // members by applying symops to siteList positions.
     //
-    // We also need geometry-equivalent entries: two different site assignments
-    // that have the same inter-site distance pattern AND same basis indices map
-    // to the same CF column.
+    // Instead we use a two-level lookup:
+    //   Level 1 — geometry signature → CF column (from CF representatives in coordData)
+    //   Level 2 — SiteOpKey → geometry signature (built on-demand from siteList positions)
     //
-    // This method builds the table in two passes:
-    //   Pass 1 — register the representative directly from CF identification.
-    //   Pass 2 — for every combination of sites and basis assignments up to
-    //            maxBody sites, compute the geometry signature and add any
-    //            match found in Pass 1.
+    // Two site-op products have the same geometry signature iff they have the same
+    // body count, same sorted inter-site Cartesian distances (rounded), and same
+    // sorted basis-index pattern. This is exactly the symmetry equivalence defined
+    // by the space group, expressed numerically without needing orbit enumeration.
     //
-    // Geometry signature of a product {(site_i, b_i)}:
-    //   For each site i:  pair = (b_i, sorted list of rounded distances to all other sites)
-    //   Sort all pairs canonically.
-    //   The signature is the string representation of the sorted list.
-    //
-    // IMPORTANT: distances must be Cartesian (apply the lattice matrix to
-    // fractional coordinates first), otherwise non-cubic structures fail.
+    // The signatures for CF representatives come from coordData (exact, symop-derived).
+    // The signatures for monomials generated by expandConfiguration are computed
+    // from siteList Cartesian positions. Since coordData representatives ARE in
+    // siteList, the two signature computations are consistent.
 
     /**
-     * Builds the CF lookup table.
+     * Builds the CF lookup table using geometry signatures derived from CF representatives.
      *
-     * @param cfRepresentatives  list of CF definitions; each entry is a
-     *                           List<int[]> where int[] = {siteIndex, basisIndex},
-     *                           and the list position is the CF column number
-     * @param sitePositions      [numSites][3] Cartesian coordinates of each site
-     * @return                   SiteOpKey → CF column index
+     * @param groupedCFData  grouped CF result from CFIdentifier
+     * @param siteList       ordered site positions (Cartesian)
+     * @return               SiteOpKey → CF column index
      */
-    public static Map<SiteOpKey, Integer> buildCFTable(
-            List<List<int[]>> cfRepresentatives,
-            double[][]        sitePositions) {
-        return buildCFTable(cfRepresentatives, sitePositions, null);
+    public static Map<SiteOpKey, Integer> buildCFTableFromOrbits(
+            GroupedCFResult  groupedCFData,
+            List<Position>   siteList) {
+        return buildCFTableFromOrbits(groupedCFData, siteList, null);
     }
 
     /**
-     * Enhanced version of buildCFTable with diagnostic output.
+     * Enhanced version with diagnostic output.
      */
-    public static Map<SiteOpKey, Integer> buildCFTable(
-            List<List<int[]>> cfRepresentatives,
-            double[][]        sitePositions,
-            Consumer<String>  sink) {
+    public static Map<SiteOpKey, Integer> buildCFTableFromOrbits(
+            GroupedCFResult  groupedCFData,
+            List<Position>   siteList,
+            Consumer<String> sink) {
 
-        emit(sink, "\n[STAGE 2] Building CF Lookup Table (Geometry Augmentation)");
-        Map<SiteOpKey, Integer> table   = new LinkedHashMap<>();
-        Map<String, Integer>    geoMap  = new LinkedHashMap<>();   // signature → column
+        emit(sink, "\n[STAGE 2] Building CF Lookup Table (geometry signatures from CF representatives)");
 
-        int maxBody  = 0;
-        int maxBasis = 0;
-
-        // Pass 1 — register representatives
-        emit(sink, "  Pass 1: Registering " + cfRepresentatives.size() + " representatives...");
-        for (int col = 0; col < cfRepresentatives.size(); col++) {
-            List<int[]> ops = cfRepresentatives.get(col);
-            SiteOpKey   key = new SiteOpKey(ops);
-            table.put(key, col);
-
-            String sig = geometrySignature(ops, sitePositions);
-            geoMap.putIfAbsent(sig, col);
-
-            maxBody  = Math.max(maxBody,  ops.size());
-            for (int[] op : ops) maxBasis = Math.max(maxBasis, op[1]);
+        // Build Cartesian position array for siteList
+        double[][] cartPos = new double[siteList.size()][3];
+        for (int i = 0; i < siteList.size(); i++) {
+            cartPos[i][0] = siteList.get(i).getX();
+            cartPos[i][1] = siteList.get(i).getY();
+            cartPos[i][2] = siteList.get(i).getZ();
         }
-        emit(sink, "    -> Registered " + table.size() + " unique SiteOpKeys.");
 
-        // Pass 2 — geometry augmentation
-        emit(sink, "  Pass 2: Geometry augmentation (maxBody=" + maxBody + ", maxBasis=" + maxBasis + ")...");
-        int countBefore = table.size();
-        int nSites = sitePositions.length;
+        // Pass 1: build geoSignature → col from CF representatives in coordData
+        Map<String, Integer> geoMap = new LinkedHashMap<>();
+        List<List<List<Cluster>>> coordData = groupedCFData.getCoordData();
+        int col = 0;
+        for (List<List<Cluster>> typeGroups : coordData) {
+            for (List<Cluster> group : typeGroups) {
+                for (Cluster rep : group) {
+                    List<int[]> repOps = clusterToOps(rep, siteList);
+                    String sig = geometrySignature(repOps, cartPos);
+                    geoMap.putIfAbsent(sig, col);
+                    col++;
+                }
+            }
+        }
+        emit(sink, "  Pass 1: built geometry signatures for " + col + " CF columns.");
+
+        // Pass 2: for every site combination and basis tuple within siteList,
+        // compute geometry signature and register matching keys
+        Map<SiteOpKey, Integer> table = new LinkedHashMap<>();
+        int nSites = siteList.size();
+        int maxBody  = coordData.stream().flatMap(List::stream).flatMap(List::stream)
+                           .mapToInt(c -> c.getAllSites().size()).max().orElse(0);
+        int maxBasis = coordData.stream().flatMap(List::stream).flatMap(List::stream)
+                           .flatMap(c -> c.getAllSites().stream())
+                           .mapToInt(s -> ClusterBuilders.parseBasisIndex(s.getSymbol())).max().orElse(1);
+
         for (int n = 1; n <= Math.min(maxBody, nSites); n++) {
             for (int[] combo : combinations(nSites, n)) {
                 for (int[] bases : basisTuples(n, maxBasis)) {
                     List<int[]> ops = new ArrayList<>();
                     for (int i = 0; i < n; i++) ops.add(new int[]{combo[i], bases[i]});
-
-                    SiteOpKey key = new SiteOpKey(ops);
-                    if (table.containsKey(key)) continue;
-
-                    String sig = geometrySignature(ops, sitePositions);
-                    Integer col = geoMap.get(sig);
-                    if (col != null) table.put(key, col);
+                    String sig = geometrySignature(ops, cartPos);
+                    Integer c = geoMap.get(sig);
+                    if (c != null) table.putIfAbsent(new SiteOpKey(ops), c);
                 }
             }
         }
-        emit(sink, "    -> Added " + (table.size() - countBefore) + " equivalent keys via geometry.");
-        emit(sink, "    -> Final CF table size: " + table.size() + " entries.");
-
+        emit(sink, "  Pass 2: registered " + table.size() + " SiteOpKey entries.");
+        if (sink != null && !table.isEmpty()) {
+            emit(sink, "    Sample mappings:");
+            int count = 0;
+            for (Map.Entry<SiteOpKey, Integer> entry : table.entrySet()) {
+                emit(sink, String.format("      %s -> CF Col %d", entry.getKey(), entry.getValue()));
+                if (++count >= 5) break; 
+            }
+        }
         return table;
     }
 
-    /**
-     * Geometry signature of a site-op product.
-     * Two products have the same signature iff they belong to the same CF orbit.
-     *
-     * Concretely: for each site in the product, record its basis index and its
-     * sorted list of Cartesian distances to all other sites in the product.
-     * Sort these per-site records lexicographically → canonical signature string.
-     */
+    private static List<int[]> clusterToOps(Cluster cluster, List<Position> siteList) {
+        List<int[]> ops = new ArrayList<>();
+        for (Sublattice sub : cluster.getSublattices()) {
+            for (Site site : sub.getSites()) {
+                int siteIndex = ClusterBuilders.indexOf(siteList, site.getPosition());
+                if (siteIndex < 0) throw new IllegalStateException(
+                    "CF site position not found in siteList: " + site.getPosition());
+                int basisIndex = ClusterBuilders.parseBasisIndex(site.getSymbol());
+                ops.add(new int[]{siteIndex, basisIndex});
+            }
+        }
+        return ops;
+    }
+
     private static String geometrySignature(List<int[]> ops, double[][] cartPos) {
         int n = ops.size();
         List<String> perSite = new ArrayList<>(n);
@@ -759,18 +815,44 @@ public final class CMatrixGenerator {
             for (int j = 0; j < n; j++) {
                 if (j == i) continue;
                 int siteJ = ops.get(j)[0];
-                dists.add(Math.round(cartesianDistance(cartPos[siteI], cartPos[siteJ]) * 1_000_000));
+                double dx = cartPos[siteI][0] - cartPos[siteJ][0];
+                double dy = cartPos[siteI][1] - cartPos[siteJ][1];
+                double dz = cartPos[siteI][2] - cartPos[siteJ][2];
+                dists.add(Math.round(Math.sqrt(dx*dx + dy*dy + dz*dz) * 1_000_000));
             }
             Collections.sort(dists);
-            perSite.add(basisIdx + ":" + dists.toString());
+            perSite.add(basisIdx + ":" + dists);
         }
         Collections.sort(perSite);
         return perSite.toString();
     }
 
-    private static double cartesianDistance(double[] a, double[] b) {
-        double dx = a[0]-b[0], dy = a[1]-b[1], dz = a[2]-b[2];
-        return Math.sqrt(dx*dx + dy*dy + dz*dz);
+    private static List<int[]> combinations(int n, int k) {
+        List<int[]> result = new ArrayList<>();
+        generateCombinations(new int[k], 0, 0, n, k, result);
+        return result;
+    }
+
+    private static void generateCombinations(int[] combo, int depth, int start, int n, int k, List<int[]> out) {
+        if (depth == k) { out.add(combo.clone()); return; }
+        for (int i = start; i < n; i++) {
+            combo[depth] = i;
+            generateCombinations(combo, depth + 1, i + 1, n, k, out);
+        }
+    }
+
+    private static List<int[]> basisTuples(int k, int maxBasis) {
+        List<int[]> result = new ArrayList<>();
+        generateTuples(new int[k], 0, k, maxBasis, result);
+        return result;
+    }
+
+    private static void generateTuples(int[] tuple, int depth, int k, int maxBasis, List<int[]> out) {
+        if (depth == k) { out.add(tuple.clone()); return; }
+        for (int b = 1; b <= maxBasis; b++) {
+            tuple[depth] = b;
+            generateTuples(tuple, depth + 1, k, maxBasis, out);
+        }
     }
 
     // =========================================================================
@@ -808,40 +890,6 @@ public final class CMatrixGenerator {
     }
 
     // =========================================================================
-    // Combinatorics helpers
-    // =========================================================================
-
-    /** All k-element combinations from {0..n-1}. */
-    private static List<int[]> combinations(int n, int k) {
-        List<int[]> result = new ArrayList<>();
-        generateCombinations(new int[k], 0, 0, n, k, result);
-        return result;
-    }
-
-    private static void generateCombinations(int[] combo, int depth, int start, int n, int k, List<int[]> out) {
-        if (depth == k) { out.add(combo.clone()); return; }
-        for (int i = start; i < n; i++) {
-            combo[depth] = i;
-            generateCombinations(combo, depth + 1, i + 1, n, k, out);
-        }
-    }
-
-    /** All k-tuples with values in {1..maxBasis}. */
-    private static List<int[]> basisTuples(int k, int maxBasis) {
-        List<int[]> result = new ArrayList<>();
-        generateTuples(new int[k], 0, k, maxBasis, result);
-        return result;
-    }
-
-    private static void generateTuples(int[] tuple, int depth, int k, int maxBasis, List<int[]> out) {
-        if (depth == k) { out.add(tuple.clone()); return; }
-        for (int b = 1; b <= maxBasis; b++) {
-            tuple[depth] = b;
-            generateTuples(tuple, depth + 1, k, maxBasis, out);
-        }
-    }
-
-    // =========================================================================
     // DIAGNOSTIC — print a ClusterCMatrix block
     // =========================================================================
 
@@ -863,7 +911,6 @@ public final class CMatrixGenerator {
 
     /**
      * Runs the C-matrix generation pipeline end-to-end and prints results.
-     * Uses only existing public methods from cluster builders; reads but does not modify.
      *
      * @param clusterResult    cluster identification result
      * @param cfResult         CF identification result
@@ -872,10 +919,10 @@ public final class CMatrixGenerator {
      * @param sink             output sink for all printed lines
      */
     public static void runAndPrint(
-            ClusterIdentificationResult clusterResult,
-            CFIdentificationResult      cfResult,
-            List<Cluster>               maxClusters,
-            int                         K,
+            ClusterIdentificationResult  clusterResult,
+            CFIdentificationResult       cfResult,
+            List<Cluster>                maxClusters,
+            int                          K,
             java.util.function.Consumer<String> sink) {
 
         // Step a: Build siteList
@@ -883,51 +930,9 @@ public final class CMatrixGenerator {
         sink.accept("[CMatrixGenerator.runAndPrint]");
         sink.accept("  siteList size: " + siteList.size());
 
-        // Step b: Build CF site-operator list
-        List<List<List<List<SiteOp>>>> cfSiteOpList = ClusterBuilders.buildCFSiteOpList(
-            cfResult.getGroupedCFData(), siteList);
-        sink.accept("  cfSiteOpList size: " + cfSiteOpList.size());
-
-        // Step c: Build cfTable, then apply geometry augmentation
-        List<List<int[]>> cfRepresentatives = new ArrayList<>();
-
-        // Convert cfSiteOpList to cfRepresentatives (list of int[][] per CF)
-        for (int t = 0; t < cfSiteOpList.size(); t++) {
-            List<List<List<int[]>>> typeGroups = new ArrayList<>();
-            for (int j = 0; j < cfSiteOpList.get(t).size(); j++) {
-                List<List<int[]>> groupList = new ArrayList<>();
-                for (int k = 0; k < cfSiteOpList.get(t).get(j).size(); k++) {
-                    List<SiteOp> siteOpList = cfSiteOpList.get(t).get(j).get(k);
-                    List<int[]> siteOpInts = new ArrayList<>();
-                    for (SiteOp op : siteOpList) {
-                        siteOpInts.add(new int[]{op.getSiteIndex(), op.getBasisIndex()});
-                    }
-                    groupList.add(siteOpInts);
-                }
-                typeGroups.add(groupList);
-            }
-
-            // Flatten: t -> j -> k -> siteOp list
-            for (List<List<int[]>> typeGroup : typeGroups) {
-                for (List<int[]> cfOps : typeGroup) {
-                    cfRepresentatives.add(cfOps);
-                }
-            }
-        }
-
-        // Build cfTable: first register representatives
-        Map<SiteOpKey, Integer> cfTable = new LinkedHashMap<>();
-        double[][] siteCartesian = new double[siteList.size()][3];
-        for (int i = 0; i < siteList.size(); i++) {
-            Position p = siteList.get(i);
-            siteCartesian[i][0] = p.getX();
-            siteCartesian[i][1] = p.getY();
-            siteCartesian[i][2] = p.getZ();
-            // Note: assuming cubic structure; for non-cubic, apply lattice matrix first
-        }
-
-        // Use buildCFTable for geometry augmentation
-        cfTable = buildCFTable(cfRepresentatives, siteCartesian, sink);
+        // Step b: Build cfTable from CF representatives using geometry signatures
+        Map<SiteOpKey, Integer> cfTable = buildCFTableFromOrbits(
+            cfResult.getGroupedCFData(), siteList, sink);
 
         // Step d: Get totalCFs
         int totalCFs = cfResult.getTcf();

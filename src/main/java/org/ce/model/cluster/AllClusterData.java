@@ -368,6 +368,7 @@ public class AllClusterData {
         // [STAGE 0a/b]: Load resources
         emit(progressSink, "\n[STAGE 0a]: Loading Disordered clusters...");
         List<Cluster> disorderedClusters = InputLoader.parseClusterFile(config.getDisorderedClusterFile());
+        disorderedClusters.replaceAll(Cluster::sorted);
         emit(progressSink, "  Loaded: " + config.getDisorderedClusterFile() + " — OK (" + disorderedClusters.size() + " clusters)");
         SpaceGroup disorderedSpaceGroup = InputLoader.parseSpaceGroup(config.getDisorderedSymmetryGroup());
         List<SpaceGroup.SymmetryOperation> disorderedSymOps = disorderedSpaceGroup.getOperations();
@@ -375,6 +376,7 @@ public class AllClusterData {
 
         emit(progressSink, "[STAGE 0b]: Loading Ordered clusters...");
         List<Cluster> orderedClusters = InputLoader.parseClusterFile(config.getOrderedClusterFile());
+        orderedClusters.replaceAll(Cluster::sorted);
         emit(progressSink, "  Loaded: " + config.getOrderedClusterFile() + " — OK (" + orderedClusters.size() + " clusters)");
         SpaceGroup orderedSpaceGroup = InputLoader.parseSpaceGroup(config.getOrderedSymmetryGroup());
         List<SpaceGroup.SymmetryOperation> orderedSymOps = orderedSpaceGroup.getOperations();

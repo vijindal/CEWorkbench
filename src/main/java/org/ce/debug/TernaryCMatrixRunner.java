@@ -4,7 +4,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import org.ce.model.cluster.*;
-import org.ce.model.cluster.ClusterPrimitives.Position;
 import org.ce.model.storage.InputLoader;
 
 /**
@@ -15,7 +14,7 @@ public class TernaryCMatrixRunner {
     public static void main(String[] args) {
         String structure = "BCC_A2";
         String model = "T";
-        int K = 3; // Ternary Nb-Ti-V
+        int K = 4; // Ternary Nb-Ti-V
 
         System.out.println("=== Ternary C-Matrix Diagnostic Run: Nb-Ti-V / BCC_A2 / T ===");
 
@@ -43,7 +42,7 @@ public class TernaryCMatrixRunner {
                     .orderedSymmetryGroup(symGroup)
                     .transformationMatrix(sg.getRotateMat())
                     .translationVector(new org.ce.model.cluster.ClusterPrimitives.Vector3D(
-                        sg.getTranslateMat()[0], sg.getTranslateMat()[1], sg.getTranslateMat()[2]))
+                            sg.getTranslateMat()[0], sg.getTranslateMat()[1], sg.getTranslateMat()[2]))
                     .build();
 
             // 3. Run Identification Stages 1 and 2
@@ -55,8 +54,8 @@ public class TernaryCMatrixRunner {
                     sg.getOperations(),
                     request.getTransformationMatrix(),
                     new double[] { request.getTranslationVector().getX(),
-                                  request.getTranslationVector().getY(),
-                                  request.getTranslationVector().getZ() });
+                            request.getTranslationVector().getY(),
+                            request.getTranslationVector().getZ() });
 
             System.out.println("[Stage 2] Identifying CF Orbits...");
             CFIdentificationResult cfResult = CFIdentifier.identify(
@@ -73,12 +72,11 @@ public class TernaryCMatrixRunner {
             System.out.println("\n[Stage 3] Executing Instrumented C-Matrix Generation...");
             List<Cluster> maxClusters = disorderedClusters;
             CMatrixGenerator.runAndPrint(
-                clusterResult,
-                cfResult,
-                maxClusters,
-                K,
-                System.out::println
-            );
+                    clusterResult,
+                    cfResult,
+                    maxClusters,
+                    K,
+                    System.out::println);
 
             System.out.println("\n=== Run Complete ===");
 

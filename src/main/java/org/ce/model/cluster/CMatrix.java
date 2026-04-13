@@ -470,7 +470,9 @@ public final class CMatrix {
     }
 
     private static void emit(Consumer<String> sink, String line) {
-        sink.accept(line);
+        if (sink != null) {
+            sink.accept(line);
+        }
     }
 
     private static int[][] extractCfBasisIndices(
