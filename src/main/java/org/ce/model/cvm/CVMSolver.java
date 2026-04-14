@@ -1,14 +1,9 @@
 package org.ce.model.cvm;
 
 import org.ce.model.cluster.LinearAlgebra;
-import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
-import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMGibbsModel.ModelResult;
-import org.ce.model.cvm.CVMEquilibriumState;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CancellationException;
 
 /**
@@ -21,61 +16,31 @@ public class CVMSolver {
 
     /**
      * Result of CVM equilibrium calculation.
-     *
-     * <p>
-     * Separates thermodynamic contract (state) from solver metadata (convergence
-     * info, trace).
-     * The calculation layer should check {@link #converged} before using
-     * {@link #state}.
-     * </p>
      */
     public static final class EquilibriumResult {
 
-        /** The thermodynamic equilibrium state. Use this in the calculation layer. */
-        public final CVMEquilibriumState state;
+        /** Physics values at the equilibrium point. */
+        public final ModelResult modelResult;
 
-        /** Solver metadata: convergence flag. Check this before using state. */
-        public final boolean converged;
-
-        /** Solver metadata: iteration count. */
-        public final int iterations;
-
-        /** Solver metadata: final gradient norm ||∇G||. */
-        public final double finalGradientNorm;
-
-        /** Debug trace: iteration snapshots. Only populated for diagnostics. */
-        public final List<IterationSnapshot> trace;
-
-        /**
-         * @param state             thermodynamic equilibrium state (u, G/H/S)
-         * @param converged         convergence flag
-         * @param iterations        iteration count at convergence/failure
-         * @param finalGradientNorm final ||∇G|| norm
-         * @param trace             iteration snapshots for debugging (may be empty)
-         */
-        public EquilibriumResult(CVMEquilibriumState state, boolean converged, int iterations,
-                double finalGradientNorm, List<IterationSnapshot> trace) {
-            this.state = state;
-            this.converged = converged;
-            this.iterations = iterations;
-            this.finalGradientNorm = finalGradientNorm;
-            this.trace = trace;
-        }
-    }
-
-    public static final class IterationSnapshot {
-        public final int iteration;
-        public final double G, H, S;
-        public final double gradientNorm;
+        /** Equilibrium non-point CVCF correlation functions (length = ncf). */
         public final double[] u;
 
-        public IterationSnapshot(int iteration, double G, double H, double S, double gradientNorm, double[] u) {
-            this.iteration = iteration;
-            this.G = G;
-            this.H = H;
-            this.S = S;
-            this.gradientNorm = gradientNorm;
-            this.u = u;
+        /** Convergence flag. Check before using modelResult. */
+        public final boolean converged;
+
+        /** Iteration count at convergence or failure. */
+        public final int iterations;
+
+        /** Final gradient norm ||∇G|| at exit. */
+        public final double finalGradientNorm;
+
+        public EquilibriumResult(ModelResult modelResult, double[] u, boolean converged,
+                int iterations, double finalGradientNorm) {
+            this.modelResult        = modelResult;
+            this.u                  = u;
+            this.converged          = converged;
+            this.iterations         = iterations;
+            this.finalGradientNorm  = finalGradientNorm;
         }
     }
 
@@ -92,7 +57,6 @@ public class CVMSolver {
         }
         int n = model.getNcf();
         double[] u = model.computeRandomCFs(moleFractions);
-        List<IterationSnapshot> trace = new ArrayList<>();
 
         double errf = 0;
         ModelResult current = null;
@@ -104,12 +68,10 @@ public class CVMSolver {
             // Evaluate physics from model
             current = model.evaluate(u, moleFractions, temperature);
 
-            // Calculate gradient norm (L1 norm for simplicity and consistency with legacy)
+            // Calculate gradient norm (L1 norm)
             errf = 0;
             for (double g : current.Gu)
                 errf += Math.abs(g);
-
-            trace.add(new IterationSnapshot(its, current.G, current.H, current.S, errf, u.clone()));
 
             // Progress reporting
             if (progressSink != null) {
@@ -132,8 +94,7 @@ public class CVMSolver {
 
             // Convergence check
             if (errf <= tolerance) {
-                CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS);
-                return new EquilibriumResult(state, true, its, errf, trace);
+                return new EquilibriumResult(current, u.clone(), true, its, errf);
             }
 
             try {
@@ -157,19 +118,15 @@ public class CVMSolver {
                 // X-convergence check
                 if (errx <= TOLX) {
                     current = model.evaluate(u, moleFractions, temperature);
-                    CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS);
-                    return new EquilibriumResult(state, true, its, errf, trace);
+                    return new EquilibriumResult(current, u.clone(), true, its, errf);
                 }
 
             } catch (Exception e) {
-                CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS)
-                        : null;
-                return new EquilibriumResult(state, false, its, errf, trace);
+                return new EquilibriumResult(current, u.clone(), false, its, errf);
             }
         }
 
-        CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS) : null;
-        return new EquilibriumResult(state, false, MAX_ITER, errf, trace);
+        return new EquilibriumResult(current, u.clone(), false, MAX_ITER, errf);
     }
 
     /** Overload for cases where progress reporting is not needed. */

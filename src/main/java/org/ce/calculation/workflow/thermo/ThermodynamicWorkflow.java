@@ -5,8 +5,8 @@ import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
+import org.ce.model.cvm.CVMGibbsModel.ModelResult;
 import org.ce.model.cvm.CVMSolver;
-import org.ce.model.cvm.CVMEquilibriumState;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.hamiltonian.CECEvaluator;
@@ -116,18 +116,15 @@ public class ThermodynamicWorkflow {
 
         validateConvergence(solverResult, progressSink);
 
-        // Extract thermodynamic state from solver result
-        CVMEquilibriumState eqState = solverResult.state;
-        printEquilibriumResults(progressSink, eqState);
-
+        ModelResult mr = solverResult.modelResult;
         ThermodynamicResult result = new ThermodynamicResult(
                 temperature, composition.clone(),
-                eqState.getGibbsEnergy(),     // gibbsEnergy
-                eqState.getEnthalpy(),        // enthalpy
-                eqState.getEntropy(),         // entropy
+                mr.G,          // gibbsEnergy
+                mr.H,          // enthalpy
+                mr.S,          // entropy
                 Double.NaN, Double.NaN,       // stdEnthalpy, heatCapacity
-                eqState.getCFs(),             // optimizedCFs
-                null, null                    // avgCFs, stdCFs
+                solverResult.u,// optimizedCFs (equilibrium non-point CFs)
+                null, null     // avgCFs, stdCFs
         );
 
         emit(progressSink, "================================================================================");
@@ -300,14 +297,6 @@ public class ThermodynamicWorkflow {
         emit(sink, "  - Structure:      " + structurePhase);
         emit(sink, "  - Temperature:    " + temperature + " K");
         emit(sink, "  - Composition:    [" + formatArray(composition) + "]");
-    }
-
-    private void printEquilibriumResults(Consumer<String> sink, CVMEquilibriumState state) {
-        emit(sink, "\nEQUILIBRIUM RESULTS");
-        emit(sink, "-------------------");
-        emit(sink, String.format("  - G(eq): %.6e J/mol", state.getGibbsEnergy()));
-        emit(sink, String.format("  - H(eq): %.6e J/mol", state.getEnthalpy()));
-        emit(sink, String.format("  - S(eq): %.6e J/(mol·K)", state.getEntropy()));
     }
 
     private void validateInputs(double temperature, double[] composition) {
