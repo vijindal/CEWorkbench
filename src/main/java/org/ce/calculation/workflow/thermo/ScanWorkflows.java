@@ -86,18 +86,6 @@ public class ScanWorkflows {
             return grid;
         }
 
-        @Deprecated
-        public List<List<ThermodynamicResult>> scanTX(
-                ModelSession session,
-                double tStart, double tEnd, double tStep,
-                double xStart, double xEnd, double xStep,
-                Consumer<String> strSink,
-                Consumer<ProgressEvent> eventSink) throws Exception {
-            return scan2D(session, 
-                new Varying("T", true, -1, tStart, tEnd, tStep),
-                new Varying("X", false, 0, xStart, xEnd, xStep),
-                new double[]{xStart}, tStart, strSink, eventSink);
-        }
     }
 
     // =========================================================================
@@ -136,25 +124,6 @@ public class ScanWorkflows {
             return results;
         }
 
-        @Deprecated
-        public List<ThermodynamicResult> scanTemperature(
-                ModelSession session, double[] composition,
-                double tStart, double tEnd, double tStep,
-                int mcsL, int mcsNEquil, int mcsNAvg,
-                Consumer<String> progressSink, Consumer<ProgressEvent> eventSink) throws Exception {
-            return scan1D(session, new Varying("T", true, -1, tStart, tEnd, tStep), 
-                null, 0, mcsL, mcsNEquil, mcsNAvg, progressSink, eventSink);
-        }
-
-        @Deprecated
-        public List<ThermodynamicResult> scanComposition(
-                ModelSession session, double temperature,
-                double xStart, double xEnd, double xStep,
-                int mcsL, int mcsNEquil, int mcsNAvg,
-                Consumer<String> progressSink, Consumer<ProgressEvent> eventSink) throws Exception {
-            return scan1D(session, new Varying("X", false, 0, xStart, xEnd, xStep),
-                new double[]{xStart}, temperature, mcsL, mcsNEquil, mcsNAvg, progressSink, eventSink);
-        }
     }
 
     // =========================================================================
