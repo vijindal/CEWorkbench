@@ -1,6 +1,6 @@
 package org.ce.model.hamiltonian;
 
-import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CvCfBasis;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;

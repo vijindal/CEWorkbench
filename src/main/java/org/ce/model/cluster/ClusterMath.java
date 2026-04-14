@@ -119,7 +119,7 @@ public final class ClusterMath {
         int[][] nijTable = new int[numClus][numClus];
 
         for (int i = 0; i < numClus; i++) {
-            List<Cluster> subClusters = SubClusterGenerators.generateSubClusters(disClusCoordList.get(i));
+            List<Cluster> subClusters = ClusterCFIdentificationPipeline.genSubClusCoord(disClusCoordList.get(i));
             for (int k = subClusters.size() - 1; k >= 0; k--) {
                 Cluster subClus = subClusters.get(k);
                 int subSize = subClus.getAllSites().size();

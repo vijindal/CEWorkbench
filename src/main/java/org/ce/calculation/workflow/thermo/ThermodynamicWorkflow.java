@@ -9,9 +9,8 @@ import org.ce.model.cvm.CVMEquilibriumState;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.hamiltonian.CECEvaluator;
-import org.ce.model.cluster.CMatrix;
 import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
-import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CvCfBasis;
 
 import java.util.Arrays;
 import java.util.logging.Logger;
@@ -103,15 +102,11 @@ public class ThermodynamicWorkflow {
 
         validateInputs(temperature, composition);
 
-        CVMGibbsModel gibbsModel = new CVMGibbsModel(
-                session.clusterData.getDisorderedClusterResult(),
-                session.clusterData.getDisorderedCFResult(),
-                session.clusterData.getCMatrixResult(),
-                session.cvcfBasis);
+        CVMGibbsModel gibbsModel = new CVMGibbsModel();
+        gibbsModel.initialize(session.systemId.elements, session.systemId.structure, session.systemId.model, session.cecEntry, progressSink);
 
-        double[] eci = evaluateEci(session.cecEntry, temperature, session.cvcfBasis, progressSink);
         CVMSolver.EquilibriumResult solverResult = new CVMSolver().minimize(
-                gibbsModel, composition, temperature, eci, 1.0e-5,
+                gibbsModel, composition, temperature, 1.0e-5,
                 progressSink, request.eventSink);
 
         validateConvergence(solverResult, progressSink);
@@ -142,13 +137,16 @@ public class ThermodynamicWorkflow {
                 session.clusterData.getDisorderedClusterResult().getDisClusterData();
 
         // Validate C-matrix dimensions match basis
-        CMatrix.Result cmatResult = session.clusterData.getCMatrixResult();
-        cmatResult.validateCols(
-                session.cvcfBasis.totalCfs(),
-                "C-matrix dimension mismatch (basis.numNonPointCfs=" + session.cvcfBasis.numNonPointCfs
-                + " + " + session.cvcfBasis.numComponents + " point variables)"
-        );
-        LOG.fine("✓ C-matrix dimensions valid: " + session.cvcfBasis.totalCfs() + " columns");
+        org.ce.model.cluster.CMatrixPipeline.CMatrixData matrixData = session.clusterData.getMatrixData();
+        int cmatCols = (matrixData.getCmat().isEmpty() || matrixData.getCmat().get(0).isEmpty() 
+                        || matrixData.getCmat().get(0).get(0).length == 0) 
+                        ? 0 : matrixData.getCmat().get(0).get(0)[0].length;
+        
+        if (cmatCols != session.cvcfBasis.totalCfs()) {
+            throw new IllegalStateException("C-matrix dimension mismatch (cmatCols=" + cmatCols 
+                + ", basis.totalCfs=" + session.cvcfBasis.totalCfs() + ")");
+        }
+        LOG.fine("✓ C-matrix dimensions valid: " + cmatCols + " columns");
 
         double[] eci = CECEvaluator.evaluate(session.cecEntry, request.temperature, session.cvcfBasis, "MCS");
 
@@ -170,7 +168,7 @@ public class ThermodynamicWorkflow {
                 .seed(System.currentTimeMillis())
                 .R(GAS_CONSTANT)
                 .basis(session.cvcfBasis)
-                .cmatResult(cmatResult)
+                .matrixData(matrixData)
                 .cancellationCheck(Thread.currentThread()::isInterrupted);
 
         Consumer<String> strSink = progressSink;
@@ -270,12 +268,6 @@ public class ThermodynamicWorkflow {
     }
 
     // ---- CVM helpers ----
-
-    private double[] evaluateEci(org.ce.model.hamiltonian.CECEntry cec, double temperature,
-                                 CvCfBasis basis, Consumer<String> sink) {
-        emit(sink, "\n  - Evaluating Hamiltonian at T=" + temperature + " K...");
-        return CECEvaluator.evaluate(cec, temperature, basis, "CVM");
-    }
 
     private void validateConvergence(CVMSolver.EquilibriumResult result, Consumer<String> sink) {
         if (!result.converged) {

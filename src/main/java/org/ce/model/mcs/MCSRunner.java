@@ -7,9 +7,10 @@ import org.ce.model.mcs.EmbeddingGenerator;
 import org.ce.model.mcs.LatticeConfig;
 import org.ce.model.mcs.CvCfEvaluator;
 import org.ce.model.cluster.Cluster;
-import org.ce.model.cluster.CMatrix;
+import org.ce.model.cluster.CMatrixPipeline;
+import org.ce.model.cluster.ClusterIdentificationResult;
 import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
-import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.mcs.MCSUpdate;
 
 import java.util.ArrayList;
@@ -38,7 +39,7 @@ public class MCSRunner {
     private final Consumer<MCSUpdate> updateListener;
     private final BooleanSupplier     cancellationCheck;
     private final CvCfBasis           basis;
-    private final CMatrix.Result       cmatResult;
+    private final CMatrixPipeline.CMatrixData matrixData;
 
     private MCSRunner(Builder b) {
         this.clusterData       = b.clusterData;
@@ -55,7 +56,7 @@ public class MCSRunner {
         this.updateListener    = b.updateListener;
         this.cancellationCheck = b.cancellationCheck;
         this.basis             = b.basis;
-        this.cmatResult        = b.cmatResult;
+        this.matrixData        = b.matrixData;
     }
 
     /**
@@ -94,8 +95,8 @@ public class MCSRunner {
         // New Direct Measurement Structures
         List<List<EmbeddingData.Embedding>> cfEmbeddings = null;
         double[][] basisMatrix = null;
-        if (basis != null && cmatResult != null) {
-            cfEmbeddings = EmbeddingGenerator.generateCfEmbeddings(emb.getAllEmbeddings(), clusterData, cmatResult.getCfBasisIndices());
+        if (basis != null && matrixData != null) {
+            cfEmbeddings = EmbeddingGenerator.generateCfEmbeddings(emb.getAllEmbeddings(), clusterData, matrixData.getCfBasisIndices());
             basisMatrix  = CvCfEvaluator.buildBasisValues(numComp);
         }
 
@@ -186,8 +187,8 @@ public class MCSRunner {
         private double              R                 = 1.0;
         private Consumer<MCSUpdate> updateListener    = null;
         private BooleanSupplier     cancellationCheck = null;
-        private CvCfBasis           basis             = null;
-        private CMatrix.Result       cmatResult        = null;
+        private CvCfBasis                  basis             = null;
+        private CMatrixPipeline.CMatrixData matrixData        = null;
 
         private Builder() {}
 
@@ -206,7 +207,7 @@ public class MCSRunner {
         public Builder updateListener(Consumer<MCSUpdate> l)    { this.updateListener = l;     return this; }
         public Builder cancellationCheck(BooleanSupplier check) { this.cancellationCheck = check; return this; }
         public Builder basis(CvCfBasis b)                       { this.basis = b;              return this; }
-        public Builder cmatResult(CMatrix.Result r)              { this.cmatResult = r;         return this; }
+        public Builder matrixData(CMatrixPipeline.CMatrixData d) { this.matrixData = d;         return this; }
 
         public MCSRunner build() {
             if (clusterData == null) throw new IllegalStateException("clusterData required");

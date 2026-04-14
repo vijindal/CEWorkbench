@@ -95,6 +95,19 @@ public class ClusterIdentificationRequest {
     }
 
     /**
+     * Creates a standard identification request from a high-level system identity.
+     * Automatically derives component count and standard file paths.
+     */
+    public static ClusterIdentificationRequest fromSystem(String elements, String structure, String model) {
+        int ncomp = elements.split("-").length;
+        return builder()
+                .numComponents(ncomp)
+                .structurePhase(structure)
+                .model(model)
+                .build();
+    }
+
+    /**
      * Builder for constructing ClusterIdentificationRequest with fluent API.
      */
     public static class Builder {

@@ -214,7 +214,7 @@ public class MCResult {
         }
 
         public static void printEciInfo(double[] eciCvcf, double[] eciOrth,
-                                        org.ce.model.cluster.cvcf.CvCfBasis basis,
+                                        org.ce.model.cvm.CvCfBasis basis,
                                         int N, int[] orbitSizes) {
             System.out.println("============================================================");
             System.out.println("  MCS ECI & ORBIT DIAGNOSTIC");

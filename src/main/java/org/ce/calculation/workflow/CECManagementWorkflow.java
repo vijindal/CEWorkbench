@@ -9,7 +9,7 @@ import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.cluster.CFIdentificationResult;
 import org.ce.model.cluster.ClusterIdentificationRequest;
-import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.NumericalCECTransformer;
 import org.ce.model.storage.DataStore;
@@ -176,11 +176,11 @@ public class CECManagementWorkflow {
         int numComponents = elements.split("-").length;
 
         // Validate CVCF basis is supported for this (structure, model, numComponents)
-        if (!CvCfBasis.Registry.INSTANCE.isSupported(structurePhase, model, numComponents)) {
+        if (!CvCfBasis.isSupported(structurePhase, model, numComponents)) {
             String msg = "CVCF basis not supported for " + structurePhase
                     + " with model=" + model + " and " + numComponents + " components.\n"
                     + "Cannot scaffold CEC for unsupported basis.\n"
-                    + CvCfBasis.Registry.INSTANCE.supportedSummary();
+                    + CvCfBasis.supportedSummary();
             throw new IllegalArgumentException(msg);
         }
 
@@ -195,10 +195,9 @@ public class CECManagementWorkflow {
         CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
-        // Single source of truth: CVCF basis from the Registry
-        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(structurePhase, model, numComponents);
-        int ncf = basis.numNonPointCfs;
-        List<String> eciNames = basis.eciNames;
+        // Single source of truth: CVCF basis metadata
+        int ncf = CvCfBasis.getNumNonPointCfs(structurePhase, model, numComponents);
+        List<String> eciNames = cfResult.getEONames().subList(0, ncf);
 
         CECEntry.CECTerm[] terms = new CECEntry.CECTerm[ncf];
         for (int i = 0; i < ncf; i++) {
@@ -285,11 +284,11 @@ public class CECManagementWorkflow {
 
         CECEntry entry = store.load(hamiltonianId);
 
-        // Determine expected ncf from basis registry
+        // Determine expected ncf from basis definition
         int numComponents = entry.elements.split("-").length;
-        CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(entry.structurePhase, entry.model, numComponents);
-
-        validateCEC(entry, basis.numNonPointCfs);
+        int expectedNcf = CvCfBasis.getNumNonPointCfs(entry.structurePhase, entry.model, numComponents);
+        
+        validateCEC(entry, expectedNcf);
 
         return entry;
     }

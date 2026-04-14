@@ -77,7 +77,7 @@ public class CVMSolver {
      * Minimizes the Gibbs free energy for the given model and conditions.
      */
     public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions,
-                                     double temperature, double[] eci, double tolerance,
+                                     double temperature, double tolerance,
                                      java.util.function.Consumer<String> progressSink,
                                      java.util.function.Consumer<ProgressEvent> eventSink) {
 
@@ -95,7 +95,7 @@ public class CVMSolver {
             if (Thread.currentThread().isInterrupted()) throw new CancellationException();
 
             // Evaluate physics from model
-            current = model.evaluate(u, moleFractions, temperature, eci);
+            current = model.evaluate(u, moleFractions, temperature);
 
             // Calculate gradient norm (L1 norm for simplicity and consistency with legacy)
             errf = 0;
@@ -137,7 +137,7 @@ public class CVMSolver {
 
                 // X-convergence check
                 if (errx <= TOLX) {
-                    current = model.evaluate(u, moleFractions, temperature, eci);
+                    current = model.evaluate(u, moleFractions, temperature);
                     CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, R_GAS);
                     return new EquilibriumResult(state, true, its, errf, trace);
                 }
@@ -154,7 +154,7 @@ public class CVMSolver {
 
     /** Overload for cases where progress reporting is not needed. */
     public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions,
-                                     double temperature, double[] eci, double tolerance) {
-        return minimize(model, moleFractions, temperature, eci, tolerance, null, null);
+                                     double temperature, double tolerance) {
+        return minimize(model, moleFractions, temperature, tolerance, null, null);
     }
 }

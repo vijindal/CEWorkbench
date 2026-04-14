@@ -188,15 +188,33 @@ public final class LinearAlgebra {
      * @return a Â· b = Î£ a[i]Â·b[i]
      * @throws IllegalArgumentException if vectors have different lengths
      */
-    public static double dot(double[] a, double[] b) {
-        if (a.length != b.length) {
-            throw new IllegalArgumentException("Vector lengths must match");
+    /**
+     * Computes the matrix product C = A Â· B.
+     *
+     * @param A  left matrix (m Ã— n)
+     * @param B  right matrix (n Ã— p)
+     * @return   product matrix C (m Ã— p)
+     * @throws IllegalArgumentException if dimensions mismatch
+     */
+    public static double[][] multiply(double[][] A, double[][] B) {
+        int m = A.length;
+        int n = A[0].length;
+        int p = B[0].length;
+        if (B.length != n) {
+            throw new IllegalArgumentException("Matrix dimension mismatch: " + n + " != " + B.length);
         }
-        double sum = 0.0;
-        for (int i = 0; i < a.length; i++) {
-            sum += a[i] * b[i];
+
+        double[][] C = new double[m][p];
+        for (int i = 0; i < m; i++) {
+            for (int k = 0; k < n; k++) {
+                double aik = A[i][k];
+                if (aik == 0.0) continue; // Optimization for sparse C-matrix
+                for (int j = 0; j < p; j++) {
+                    C[i][j] += aik * B[k][j];
+                }
+            }
         }
-        return sum;
+        return C;
     }
 }
 

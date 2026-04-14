@@ -1,14 +1,14 @@
 package org.ce.model.cvm;
 
-import org.ce.model.cluster.AllClusterData;
-import org.ce.model.cluster.ClusterVariableEvaluator;
-import org.ce.model.cluster.cvcf.CvCfBasis;
-import org.ce.model.cluster.CFIdentificationResult;
-import org.ce.model.cluster.CMatrix;
-import org.ce.model.cluster.ClusterIdentificationResult;
-import org.ce.model.cluster.ClusterMath;
+import org.ce.model.cluster.CMatrixPipeline;
+import org.ce.model.cluster.Cluster;
+import org.ce.model.cluster.SpaceGroup;
+import org.ce.model.storage.InputLoader;
+import org.ce.model.hamiltonian.CECEntry;
+import org.ce.model.hamiltonian.CECEvaluator;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Physical model for the Cluster Variation Method (CVM).
@@ -21,20 +21,22 @@ import java.util.List;
  */
 public class CVMGibbsModel {
 
-
     public static final double R_GAS = 8.3144598;
     private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
 
-    private final int tcdis, tcf, ncf;
-    private final List<Double> mhdis;
-    private final double[] kb;
-    private final double[][] mh;
-    private final int[] lc;
-    private final List<List<double[][]>> cmat;
-    private final int[][] lcv;
-    private final List<List<int[]>> wcv;
-    private final int[][] orthCfBasisIndices;
-    private final CvCfBasis basis;
+    private String elements;
+    private int numComponents;
+    private int tcdis, tcf, ncf;
+    private double[] mhdis;
+    private double[] kb;
+    private double[][] mh;
+    private int[] lc;
+    private List<List<double[][]>> cmat;
+    private int[][] lcv;
+    private List<List<int[]>> wcv;
+    private int[][] orthCfBasisIndices;
+    private CvCfBasis basis;
+    private CECEntry cecEntry;
 
     /**
      * Calculated free energy and derivatives.
@@ -62,39 +64,106 @@ public class CVMGibbsModel {
     }
 
     /**
-     * Main constructor that initializes from cluster identification results and basis.
+     * Default constructor for lazy initialization.
      */
-    public CVMGibbsModel(
-            ClusterIdentificationResult stage1,
-            CFIdentificationResult stage2,
-            CMatrix.Result stage3,
-            CvCfBasis basis) {
-        this.tcdis = stage1.getTcdis();
-        this.mhdis = stage1.getDisClusterData().getMultiplicities();
-        this.kb = stage1.getKbCoefficients();
-        this.mh = stage1.getMh();
-        this.lc = stage1.getLc();
+    public CVMGibbsModel() {}
 
-        this.cmat = stage3.getCmat();
-        this.lcv = stage3.getLcv();
-        this.wcv = stage3.getWcv();
-        this.orthCfBasisIndices = stage3.getCfBasisIndices();
+    /**
+     * Primary entry point for model formation. Orchestrates the 4-stage pipeline
+     * to identify clusters, generate C-matrix, and resolve CVCF basis using
+     * the system identity.
+     */
+    public void initialize(
+            String elements,
+            String structure,
+            String model,
+            CECEntry cecEntry,
+            Consumer<String> progressSink) {
 
-        this.basis = basis;
-        this.ncf = basis.numNonPointCfs;
-        this.tcf = basis.totalCfs();
+        this.elements = elements;
+        this.numComponents = elements.split("-").length;
+        this.cecEntry = cecEntry;
+        // 1. Create the identification request from the system identity
+        org.ce.model.cluster.ClusterIdentificationRequest request = 
+                org.ce.model.cluster.ClusterIdentificationRequest.fromSystem(elements, structure, model);
+
+        // 2. Load resources
+        if (progressSink != null) progressSink.accept("\n[STAGE 0]: Loading Inputs...");
+        List<Cluster> disorderedClusters = InputLoader.parseClusterFile(request.getDisorderedClusterFile());
+        disorderedClusters.replaceAll(Cluster::sorted);
+        SpaceGroup disorderedSG = InputLoader.parseSpaceGroup(request.getDisorderedSymmetryGroup());
+        
+        List<Cluster> orderedClusters = InputLoader.parseClusterFile(request.getOrderedClusterFile());
+        orderedClusters.replaceAll(Cluster::sorted);
+        SpaceGroup orderedSG = InputLoader.parseSpaceGroup(request.getOrderedSymmetryGroup());
+
+        // 2. Stage 1 & 2: Identification Pipeline
+        org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult pr = 
+                org.ce.model.cluster.ClusterCFIdentificationPipeline.run(
+                        disorderedClusters,
+                        disorderedSG.getOperations(),
+                        orderedClusters,
+                        orderedSG.getOperations(),
+                        request.getTransformationMatrix(),
+                        new double[] { 
+                            request.getTranslationVector().getX(),
+                            request.getTranslationVector().getY(),
+                            request.getTranslationVector().getZ() 
+                        },
+                        request.getNumComponents(),
+                        progressSink);
+
+        // 3. Stage 3: Orthogonal C-Matrix Generation
+        org.ce.model.cluster.CMatrixPipeline.CMatrixData mdOrth = 
+                org.ce.model.cluster.CMatrixPipeline.run(
+                    pr.toClusterIdentificationResult(), 
+                    pr.toCFIdentificationResult(), 
+                    disorderedClusters, 
+                    pr.getNumComponents(), 
+                    progressSink);
+
+        // 4. Stage 4: CVCF Basis Generation (includes internal self-test)
+        org.ce.model.cvm.CvCfBasis basisRef = 
+                org.ce.model.cvm.CvCfBasis.generate(
+                    structure, 
+                    pr, 
+                    mdOrth, 
+                    model, 
+                    progressSink);
+
+        // 5. Directly access bound CVCF C-Matrix natively from the Basis
+        org.ce.model.cluster.CMatrixPipeline.CMatrixData mdCvcf = basisRef.cvcfCMatrixData;
+
+        // 6. Populate State
+        this.tcdis = pr.getTcdis();
+        this.mhdis = pr.getMhdis();
+        this.kb = pr.getKbdis();
+        this.mh = pr.getMh();
+        this.lc = pr.getLc();
+
+        this.cmat = mdCvcf.getCmat();
+        this.lcv = mdCvcf.getLcv();
+        this.wcv = mdCvcf.getWcv();
+        this.orthCfBasisIndices = mdCvcf.getCfBasisIndices();
+
+        this.basis = basisRef;
+        this.ncf = basisRef.numNonPointCfs;
+        this.tcf = basisRef.totalCfs();
     }
 
     /**
      * Internal physics evaluator shared by instance and static methods.
      */
     private static ModelResult evaluateInternal(
-            double[] u, double[] moleFractions, double temperature, double[] eci,
-            int tcdis, int tcf, int ncf, List<Double> mhdis, double[] kb, double[][] mh, int[] lc,
+            double[] u, double[] moleFractions, double temperature, CECEntry cecEntry, CvCfBasis basis,
+            int tcdis, int ncf, double[] mhdis, double[] kb, double[][] mh, int[] lc,
             List<List<double[][]>> cmat, int[][] lcv, List<List<int[]>> wcv) {
 
-        double[] uFull = ClusterVariableEvaluator.buildFullCVCFVector(u, moleFractions, ncf, tcf);
-        double[][][] cv = ClusterVariableEvaluator.evaluate(uFull, cmat, lcv, tcdis, lc);
+        // Dynamically evaluate ECIs for the current temperature
+        double[] eci = CECEvaluator.evaluate(cecEntry, temperature, basis, "CVM");
+
+        double[] uFull = CMatrixPipeline.buildFullCVCFVector(u, moleFractions, ncf);
+        double[][][] cv = CMatrixPipeline.evaluateCVs(uFull, cmat, lcv, tcdis, lc);
 
         double Hval = 0.0;
         double Sval = 0.0;
@@ -107,7 +176,7 @@ public class CVMGibbsModel {
         }
 
         for (int t = 0; t < tcdis; t++) {
-            double coeff_t = kb[t] * mhdis.get(t);
+            double coeff_t = kb[t] * mhdis[t];
             for (int j = 0; j < lc[t]; j++) {
                 double mh_tj = mh[t][j];
                 double[][] cm = cmat.get(t).get(j);
@@ -175,104 +244,25 @@ public class CVMGibbsModel {
     /**
      * Evaluates the CVM Gibbs free energy at the given state.
      */
-    public ModelResult evaluate(double[] u, double[] moleFractions, double temperature, double[] eci) {
-        return evaluateInternal(u, moleFractions, temperature, eci,
-                tcdis, tcf, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
+    public ModelResult evaluate(double[] u, double[] moleFractions, double temperature) {
+        return evaluateInternal(u, moleFractions, temperature, cecEntry, basis,
+                tcdis, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
     }
 
-    /**
-     * Static evaluator for one-off calculations (e.g. from tests or CLI).
-     */
     public static ModelResult evaluate(
-            double[] u, double[] moleFractions, double temperature, double[] eci,
-            int tcdis, int tcf, int ncf, List<Double> mhdis, double[] kb, double[][] mh, int[] lc,
+            double[] u, double[] moleFractions, double temperature, CECEntry cecEntry, CvCfBasis basis,
+            int tcdis, int ncf, double[] mhdis, double[] kb, double[][] mh, int[] lc,
             List<List<double[][]>> cmat, int[][] lcv, List<List<int[]>> wcv) {
-        return evaluateInternal(u, moleFractions, temperature, eci,
-                tcdis, tcf, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
+        return evaluateInternal(u, moleFractions, temperature, cecEntry, basis,
+                tcdis, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
     }
 
     /**
-     * Computes the full disordered-state (random) CVCF vector for N-R solver initialization.
-     *
-     * <h3>Algorithm (derived from Stage 2 CF definitions and Stage 3 data)</h3>
-     * <ol>
-     *   <li><b>Point CFs (orthogonal)</b>: compute the K-1 orthogonal point CFs from
-     *       composition using the Inden (1992) basis:
-     *       {@code ⟨σ^k⟩ = Σ_i x_i · t_i^k}  for k=1…K-1,
-     *       where {@code t_i} comes from {@link ClusterMath#buildBasis(int)}.</li>
-     *   <li><b>Non-point CFs (orthogonal)</b>: for each CF column, its random value is
-     *       the product of the point CFs at the basis indices recorded by Stage 2:
-     *       {@code u_rand[col] = Π_{b ∈ cfBasisIndices[col]} ⟨σ^b⟩}
-     *       (indices are 1-based powers of σ).</li>
-     *   <li><b>Full orthogonal vector</b>: assemble [u_non-point | u_point], then
-     *       append the empty-cluster value {@code 1.0} so the vector length matches
-     *       the T matrix.</li>
-     *   <li><b>Transform to CVCF basis</b>: apply {@code Tinv} (inverse of the orthogonal-to-CVCF
-     *       transformation matrix) to obtain the CVCF coordinates.</li>
-     * </ol>
-     *
-     * @param moleFractions   mole fractions (length K = 2 or more, Σ = 1.0)
-     * @return full CVCF vector of length {@link #getTcf()} = numNonPointCfs + K
-     * @throws IllegalArgumentException if {@code orthCfBasisIndices} is null or empty
+     * Computes the full disordered-state (random) CVCF vector for initialization.
+     * Uses the standardized logic from CvCfBasis.
      */
     public double[] computeRandomCFs(double[] moleFractions) {
-        int K    = moleFractions.length;
-        int nxcf = K - 1;                         // # orthogonal point CFs
-        int orthTcf = orthCfBasisIndices.length;   // total orthogonal CFs (non-point + point)
-        int orthNcf = orthTcf - nxcf;             // # orthogonal non-point CFs
-
-        // ── Step 1: K-1 orthogonal point CFs from composition ───────────────
-        double[] basisVec = ClusterMath.buildBasis(K);
-        double[] pointCF  = new double[nxcf];
-        for (int k = 0; k < nxcf; k++) {
-            for (int i = 0; i < K; i++) {
-                pointCF[k] += moleFractions[i] * Math.pow(basisVec[i], k + 1);
-            }
-        }
-
-        // ── Step 2: orthogonal non-point random CFs ──────────────────────────
-        double[] uNonPoint = new double[orthNcf];
-        for (int col = 0; col < orthNcf; col++) {
-            double val = 1.0;
-            for (int b : orthCfBasisIndices[col]) val *= pointCF[b - 1];
-            uNonPoint[col] = val;
-        }
-
-        // ── Step 3: full orthogonal vector [u_non-point | u_point | 1.0] ────
-        double[] uPoint = new double[nxcf];
-        for (int k = 0; k < nxcf; k++) {
-            int col = orthNcf + k;
-            int power = orthCfBasisIndices[col][0];
-            uPoint[k] = pointCF[power - 1];
-        }
-
-        double[][] tInv = basis.Tinv;
-        int tRows = tInv[0].length;
-
-        double[] uOrthFull = new double[tRows];
-        System.arraycopy(uNonPoint, 0, uOrthFull, 0, orthNcf);
-        System.arraycopy(uPoint,    0, uOrthFull, orthNcf, nxcf);
-        if (tRows == orthTcf + 1) {
-            uOrthFull[tRows - 1] = 1.0;
-        } else if (tRows != orthTcf) {
-            throw new IllegalStateException(
-                "T row count mismatch: T.rows=" + tRows
-                + ", orthTcf=" + orthTcf
-                + "  (expected T.rows == orthTcf or orthTcf+1)");
-        }
-
-        // ── Step 4: transform to CVCF ────────────────────────────────────────
-        double[] vFull = new double[tcf];
-        for (int j = 0; j < tcf; j++) {
-            double sum = 0.0;
-            double[] row = tInv[j];
-            for (int i = 0; i < row.length; i++) sum += row[i] * uOrthFull[i];
-            vFull[j] = sum;
-        }
-
-        for (int i = 0; i < K; i++) vFull[ncf + i] = moleFractions[i];
-
-        return vFull;
+        return basis.computeRandomState(moleFractions, orthCfBasisIndices);
     }
 
     /**
@@ -303,11 +293,19 @@ public class CVMGibbsModel {
     }
 
     private double[][][] updateCVInternal(double[] u, double[] moleFractions) {
-        double[] uFull = ClusterVariableEvaluator.buildFullCVCFVector(u, moleFractions, ncf, tcf);
-        return ClusterVariableEvaluator.evaluate(uFull, cmat, lcv, tcdis, lc);
+        double[] uFull = CMatrixPipeline.buildFullCVCFVector(u, moleFractions, ncf);
+        return CMatrixPipeline.evaluateCVs(uFull, cmat, lcv, tcdis, lc);
     }
 
     // Accessors
+    public int getNumComponents() {
+        return numComponents;
+    }
+
+    public String getElements() {
+        return elements;
+    }
+
     public CvCfBasis getBasis() {
         return basis;
     }

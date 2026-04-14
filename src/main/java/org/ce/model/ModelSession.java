@@ -2,7 +2,7 @@ package org.ce.model;
 
 import org.ce.model.cluster.AllClusterData;
 import org.ce.model.cluster.ClusterIdentificationRequest;
-import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.storage.Workspace.SystemId;
 import org.ce.model.storage.DataStore;
@@ -204,12 +204,11 @@ public final class ModelSession {
             CECEntry cecEntry = hamiltonianStore.load(resolvedHamiltonianId);
 
             // Validate CEC: term count must be > 0 and <= basis.numNonPointCfs
-            CvCfBasis basis = CvCfBasis.Registry.INSTANCE.get(
-                    systemId.structure, systemId.model, numComponents);
+            int ncf = CvCfBasis.getNumNonPointCfs(systemId.structure, systemId.model, numComponents);
             int termCount = cecEntry.cecTerms == null ? 0 : cecEntry.cecTerms.length;
-            if (termCount <= 0 || termCount > basis.numNonPointCfs) {
+            if (termCount <= 0 || termCount > ncf) {
                 throw new IllegalStateException("CEC term count (" + termCount
-                        + ") is invalid (must be > 0 and <= " + basis.numNonPointCfs + ")");
+                        + ") is invalid (must be > 0 and <= " + ncf + ")");
             }
             for (CECEntry.CECTerm term : cecEntry.cecTerms) {
                 term.validate();
@@ -217,13 +216,18 @@ public final class ModelSession {
 
             emit(progressSink, "  [Session] ✓ Hamiltonian loaded (" + cecEntry.ncf + " terms)");
 
-            // ── Stage 4: CVCF basis already resolved during validation ─────────────
-            emit(progressSink, "  [Session] Stage 4: CVCF basis resolved...");
+            // ── Stage 4: CVCF basis explicit generation ─────────────
+            emit(progressSink, "  [Session] Stage 4: Generating CVCF basis...");
+            CvCfBasis cvcfBasis = CvCfBasis.generate(
+                    systemId.structure,
+                    clusterData.getPipelineResult(),
+                    clusterData.getMatrixData(),
+                    systemId.model,
+                    progressSink
+            );
             emit(progressSink, "  [Session] ✓ Basis resolved: "
-                    + basis.numNonPointCfs + " non-point CFs, "
-                    + basis.numComponents + " point variables");
-            CvCfBasis cvcfBasis = basis;
-
+                    + cvcfBasis.numNonPointCfs + " non-point CFs, "
+                    + cvcfBasis.numComponents + " point variables");
             emit(progressSink, "  [Session] ✓ Session ready — " + systemId.elements
                     + " / " + systemId.structure + " / " + systemId.model);
 
