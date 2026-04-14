@@ -1,7 +1,6 @@
 package org.ce.calculation.workflow;
 
 import org.ce.model.ProgressEvent;
-import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 import org.ce.calculation.workflow.thermo.ScanWorkflows;
 import org.ce.calculation.workflow.thermo.ThermodynamicRequest;
@@ -100,7 +99,7 @@ public class CalculationService {
             // 0D: Single Point
             double[] xIndep = (xStarts != null) ? xStarts : new double[session.numComponents() - 1];
             double[] fullComp = ScanWorkflows.deriveComposition(xIndep, session);
-            return runSinglePoint(session, new ThermodynamicRequest(
+            return thermoWorkflow.runCalculation(session, new ThermodynamicRequest(
                     tStart, fullComp, textSink, eventSink,
                     mcsL, mcsNEquil, mcsNAvg,
                     calcSpecs.getOrDefault(Parameter.FIXED_CORRELATIONS)
@@ -115,69 +114,6 @@ public class CalculationService {
             }
             return gridScan.scan2D(session, vars.get(0), vars.get(1), xStarts, tStart, textSink, eventSink);
         }
-    }
-
-    /**
-     * Unified execution entry point for scans that return multiple results.
-     * Legacy support for binary-only X_START/END.
-     */
-    public List<ThermodynamicResult> executeScan(
-            ModelSpecifications modelSpecs,
-            CalculationSpecifications calcSpecs,
-            Consumer<String> textSink,
-            Consumer<ProgressEvent> eventSink) throws Exception {
-
-        ModelSession session = getOrBuildSession(modelSpecs, textSink);
-
-        double tStart = calcSpecs.getOrDefault(Parameter.T_START);
-        double tEnd   = calcSpecs.getOrDefault(Parameter.T_END);
-        double tStep  = calcSpecs.getOrDefault(Parameter.T_STEP);
-        boolean tVaries = Math.abs(tStart - tEnd) > 1e-6;
-
-        double xStart = calcSpecs.getOrDefault(Parameter.X_START);
-        double xEnd   = calcSpecs.getOrDefault(Parameter.X_END);
-        double xStep  = calcSpecs.getOrDefault(Parameter.X_STEP);
-        boolean xVaries = Math.abs(xStart - xEnd) > 1e-6;
-
-        int mcsL = calcSpecs.getOrDefault(Parameter.MCS_L);
-        int mcsNEquil = calcSpecs.getOrDefault(Parameter.MCS_NEQUIL);
-        int mcsNAvg = calcSpecs.getOrDefault(Parameter.MCS_NAVG);
-
-        if (tVaries && !xVaries) {
-            return lineScan.scan1D(session, new ScanWorkflows.Varying("T", true, -1, tStart, tEnd, tStep),
-                    new double[]{xStart}, tStart, mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
-        } else if (!tVaries && xVaries) {
-            return lineScan.scan1D(session, new ScanWorkflows.Varying("X", false, 0, xStart, xEnd, xStep),
-                    new double[]{xStart}, tStart, mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
-        }
-
-        throw new UnsupportedOperationException("executeScan called for non-linear mode under ANALYSIS");
-    }
-
-    /**
-     * Unified execution entry point for 2D grid scans.
-     * Legacy support for binary-only X_START/END.
-     */
-    public List<List<ThermodynamicResult>> executeGridScan(
-            ModelSpecifications modelSpecs,
-            CalculationSpecifications calcSpecs,
-            Consumer<String> textSink,
-            Consumer<ProgressEvent> eventSink) throws Exception {
-
-        ModelSession session = getOrBuildSession(modelSpecs, textSink);
-        
-        double tStart = calcSpecs.getOrDefault(Parameter.T_START);
-        double tEnd   = calcSpecs.getOrDefault(Parameter.T_END);
-        double tStep  = calcSpecs.getOrDefault(Parameter.T_STEP);
-        
-        double xStart = calcSpecs.getOrDefault(Parameter.X_START);
-        double xEnd   = calcSpecs.getOrDefault(Parameter.X_END);
-        double xStep  = calcSpecs.getOrDefault(Parameter.X_STEP);
-
-        return gridScan.scan2D(session,
-                new ScanWorkflows.Varying("T", true, -1, tStart, tEnd, tStep),
-                new ScanWorkflows.Varying("X", false, 0, xStart, xEnd, xStep),
-                new double[]{xStart}, tStart, textSink, eventSink);
     }
 
     /**
@@ -198,9 +134,4 @@ public class CalculationService {
         return cachedSession;
     }
 
-    private ThermodynamicResult runSinglePoint(
-            ModelSession session,
-            ThermodynamicRequest request) throws Exception {
-        return thermoWorkflow.runCalculation(session, request);
-    }
 }

@@ -189,10 +189,8 @@ public class Main {
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
-                service.executeScan(modelSpecs, calcSpecs, sink, null);
-                
-                // For the CLI table output, we call executeScan to get the full list
-                List<ThermodynamicResult> results = service.executeScan(modelSpecs, calcSpecs, sink, null);
+                @SuppressWarnings("unchecked")
+                List<ThermodynamicResult> results = (List<ThermodynamicResult>) service.execute(modelSpecs, calcSpecs, sink, null);
 
                 System.out.print(ResultFormatter.table(results));
             }
