@@ -25,7 +25,6 @@ public class CEWorkbenchContext {
     private final DataStore.HamiltonianStore hamiltonianStore;
     private final CECManagementWorkflow cecWorkflow;
     private final CalculationService calculationService;
-    private final ModelSession.Builder sessionBuilder;
     private Consumer<String> logSink = System.out::println;
     private Runnable logClearer = null;
 
@@ -45,8 +44,7 @@ public class CEWorkbenchContext {
         this.cecWorkflow = new CECManagementWorkflow(hamiltonianStore);
 
         ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow();
-        this.sessionBuilder = new ModelSession.Builder(hamiltonianStore);
-        this.calculationService = new CalculationService(sessionBuilder, thermoWorkflow);
+        this.calculationService = new CalculationService(new ModelSession.Builder(hamiltonianStore), thermoWorkflow);
     }
 
     // =========================================================================
@@ -67,10 +65,6 @@ public class CEWorkbenchContext {
 
     public CalculationService getCalculationService() {
         return calculationService;
-    }
-
-    public ModelSession.Builder getSessionBuilder() {
-        return sessionBuilder;
     }
 
     /**

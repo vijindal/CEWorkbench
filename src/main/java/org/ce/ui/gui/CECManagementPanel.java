@@ -335,9 +335,10 @@ public class CECManagementPanel extends JPanel {
         SwingWorker<org.ce.model.ModelSession, String> sw = new SwingWorker<>() {
             @Override
             protected org.ce.model.ModelSession doInBackground() throws Exception {
-                return appCtx.getSessionBuilder().build(
-                        sysId,
-                        org.ce.model.ModelSession.EngineConfig.cvm(),
+                return appCtx.getCalculationService().getOrBuildSession(
+                        new org.ce.calculation.CalculationDescriptor.ModelSpecifications(
+                                sysId.elements, sysId.structure, sysId.model,
+                                org.ce.model.ModelSession.EngineConfig.CVM),
                         this::publish);
             }
 
