@@ -6,7 +6,7 @@ import org.ce.model.ModelSession;
 import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMGibbsModel.ModelResult;
-import org.ce.model.cvm.CVMSolver;
+import org.ce.model.cvm.CVMGibbsModel.EquilibriumResult;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.hamiltonian.CECEvaluator;
@@ -109,7 +109,7 @@ public class ThermodynamicWorkflow {
             cachedSession = session;
         }
 
-        CVMSolver.EquilibriumResult solverResult = cachedGibbsModel.getEquilibriumState(
+        EquilibriumResult solverResult = cachedGibbsModel.getEquilibriumState(
                 temperature, composition, 1.0e-5,
                 progressSink, request.eventSink);
 
@@ -270,7 +270,7 @@ public class ThermodynamicWorkflow {
 
     // ---- CVM helpers ----
 
-    private void validateConvergence(CVMSolver.EquilibriumResult result, Consumer<String> sink) {
+    private void validateConvergence(EquilibriumResult result, Consumer<String> sink) {
         if (!result.converged) {
             emit(sink, "  [!] CVM minimization FAILED to converge!");
             throw new RuntimeException(
