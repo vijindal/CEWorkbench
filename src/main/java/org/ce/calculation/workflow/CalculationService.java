@@ -112,7 +112,7 @@ public class CalculationService {
             if (vars.size() > 2) {
                 textSink.accept("Warning: More than 2 variables vary. Truncating to first two.");
             }
-            return gridScan.scan2D(session, vars.get(0), vars.get(1), xStarts, tStart, textSink, eventSink);
+            return gridScan.scan2D(session, vars.get(0), vars.get(1), xStarts, tStart, mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
         }
     }
 

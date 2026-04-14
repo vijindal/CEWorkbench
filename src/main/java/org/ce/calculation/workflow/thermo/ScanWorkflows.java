@@ -60,6 +60,7 @@ public class ScanWorkflows {
                 Varying var2,
                 double[] baseIndepComp,
                 double baseT,
+                int mcsL, int mcsNEquil, int mcsNAvg,
                 Consumer<String> strSink,
                 Consumer<ProgressEvent> eventSink) throws Exception {
 
@@ -69,19 +70,19 @@ public class ScanWorkflows {
                 if (strSink != null) strSink.accept(String.format("Scanning row: %s = %.2f", var1.label, v1));
                 List<ThermodynamicResult> row = new ArrayList<>();
                 for (double v2 = var2.start; (var2.step > 0 ? v2 <= var2.end + 1e-9 : v2 >= var2.end - 1e-9); v2 += var2.step) {
-                    
+
                     double T = baseT;
                     double[] xIndep = (baseIndepComp != null) ? baseIndepComp.clone() : new double[session.numComponents()-1];
-                    
+
                     if (var1.isTemp) T = v1; else xIndep[var1.compIndex] = v1;
                     if (var2.isTemp) T = v2; else xIndep[var2.compIndex] = v2;
 
                     row.add(thermoWorkflow.runCalculation(session,
-                            new ThermodynamicRequest(T, deriveComposition(xIndep, session), strSink, eventSink, 4, 1000, 2000)));
+                            new ThermodynamicRequest(T, deriveComposition(xIndep, session), strSink, eventSink, mcsL, mcsNEquil, mcsNAvg)));
                     if (Math.abs(var2.step) < 1e-10) break;
                 }
                 grid.add(row);
-                if (Math.abs(var1.step) < 1e-10) break; 
+                if (Math.abs(var1.step) < 1e-10) break;
             }
             return grid;
         }
