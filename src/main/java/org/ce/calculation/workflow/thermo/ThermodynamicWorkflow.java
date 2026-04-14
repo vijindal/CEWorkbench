@@ -54,15 +54,14 @@ public class ThermodynamicWorkflow {
         LOG.info("  session: " + session.label());
         LOG.info("  temperature: " + request.temperature + " K");
         LOG.info("  composition: " + Arrays.toString(request.composition));
-        LOG.info("  engineType: " + session.engineConfig.engineType);
+        LOG.info("  engineType: " + session.engineConfig);
 
         emit(request.progressSink, "STAGE 3: Using pre-loaded Hamiltonian '"
                 + session.resolvedHamiltonianId + "'");
 
-        ThermodynamicResult result = switch (session.engineConfig.engineType) {
-            case "CVM" -> runCvm(session, request);
-            case "MCS" -> runMcs(session, request);
-            default -> throw new IllegalArgumentException("Unknown engine: " + session.engineConfig.engineType);
+        ThermodynamicResult result = switch (session.engineConfig) {
+            case CVM -> runCvm(session, request);
+            case MCS -> runMcs(session, request);
         };
 
         if (request.progressSink != null) {

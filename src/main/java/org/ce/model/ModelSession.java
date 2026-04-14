@@ -25,38 +25,18 @@ import java.util.logging.Logger;
  */
 public final class ModelSession {
 
-    // =========================================================================
-    // Immutable value object capturing the engine configuration for a calculation session.
-    //
-    // <p>Resolved once at session-creation time so the calculation layer never
-    // needs to re-derive which engine or basis to use. CVM always uses the CVCF basis.</p>
-    // =========================================================================
-    public static final class EngineConfig {
+    /** Engine type for a calculation session. CVM always uses the CVCF basis. */
+    public enum EngineConfig {
+        CVM, MCS;
 
-        /** Engine type: {@code "CVM"} or {@code "MCS"}. */
-        public final String engineType;
+        /** Convenience factory — kept for source compatibility. */
+        public static EngineConfig cvm() { return CVM; }
 
-        public EngineConfig(String engineType) {
-            this.engineType = engineType != null ? engineType.toUpperCase() : "CVM";
-        }
+        /** Convenience factory — kept for source compatibility. */
+        public static EngineConfig mcs() { return MCS; }
 
-        /** Convenience factory for CVM (always uses CVCF basis). */
-        public static EngineConfig cvm() {
-            return new EngineConfig("CVM");
-        }
-
-        /** Convenience factory for MCS. */
-        public static EngineConfig mcs() {
-            return new EngineConfig("MCS");
-        }
-
-        public boolean isCvm() { return "CVM".equals(engineType); }
-        public boolean isMcs() { return "MCS".equals(engineType); }
-
-        @Override
-        public String toString() {
-            return engineType;
-        }
+        public boolean isCvm() { return this == CVM; }
+        public boolean isMcs() { return this == MCS; }
     }
 
     // =========================================================================

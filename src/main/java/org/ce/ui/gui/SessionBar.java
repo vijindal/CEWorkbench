@@ -134,7 +134,7 @@ public class SessionBar extends JPanel {
             return;
         }
 
-        ModelSpecifications specs = new ModelSpecifications(el, str, mod, new EngineConfig(eng));
+        ModelSpecifications specs = new ModelSpecifications(el, str, mod, EngineConfig.valueOf(eng));
 
         building = true;
         rebuildBtn.setEnabled(false);
@@ -198,7 +198,7 @@ public class SessionBar extends JPanel {
             dotIcon.setColor(DOT_READY);
             statusLabel.setText("Ready: " + session.label());
             // Sync engine combo to actual session engine
-            engineCombo.setSelectedItem(session.engineConfig.engineType);
+            engineCombo.setSelectedItem(session.engineConfig.name());
         } else {
             dotIcon.setColor(DOT_NONE);
             statusLabel.setText("No session");
