@@ -15,15 +15,19 @@ import java.util.concurrent.CancellationException;
  */
 public class CVMSolver {
 
-    private static final int MAX_ITER = 400;
+    private static final int MAX_ITER = 20;
     private static final double TOLX = 1.0e-12;
-    private static final double R_GAS = 8.3144598;  // J/(mol·K)
+    private static final double R_GAS = 8.3144598; // J/(mol·K)
 
     /**
      * Result of CVM equilibrium calculation.
      *
-     * <p>Separates thermodynamic contract (state) from solver metadata (convergence info, trace).
-     * The calculation layer should check {@link #converged} before using {@link #state}.</p>
+     * <p>
+     * Separates thermodynamic contract (state) from solver metadata (convergence
+     * info, trace).
+     * The calculation layer should check {@link #converged} before using
+     * {@link #state}.
+     * </p>
      */
     public static final class EquilibriumResult {
 
@@ -43,14 +47,14 @@ public class CVMSolver {
         public final List<IterationSnapshot> trace;
 
         /**
-         * @param state thermodynamic equilibrium state (u, G/H/S)
-         * @param converged convergence flag
-         * @param iterations iteration count at convergence/failure
+         * @param state             thermodynamic equilibrium state (u, G/H/S)
+         * @param converged         convergence flag
+         * @param iterations        iteration count at convergence/failure
          * @param finalGradientNorm final ||∇G|| norm
-         * @param trace iteration snapshots for debugging (may be empty)
+         * @param trace             iteration snapshots for debugging (may be empty)
          */
         public EquilibriumResult(CVMEquilibriumState state, boolean converged, int iterations,
-                                 double finalGradientNorm, List<IterationSnapshot> trace) {
+                double finalGradientNorm, List<IterationSnapshot> trace) {
             this.state = state;
             this.converged = converged;
             this.iterations = iterations;
@@ -67,7 +71,9 @@ public class CVMSolver {
 
         public IterationSnapshot(int iteration, double G, double H, double S, double gradientNorm, double[] u) {
             this.iteration = iteration;
-            this.G = G; this.H = H; this.S = S;
+            this.G = G;
+            this.H = H;
+            this.S = S;
             this.gradientNorm = gradientNorm;
             this.u = u;
         }
@@ -77,9 +83,9 @@ public class CVMSolver {
      * Minimizes the Gibbs free energy for the given model and conditions.
      */
     public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions,
-                                     double temperature, double tolerance,
-                                     java.util.function.Consumer<String> progressSink,
-                                     java.util.function.Consumer<ProgressEvent> eventSink) {
+            double temperature, double tolerance,
+            java.util.function.Consumer<String> progressSink,
+            java.util.function.Consumer<ProgressEvent> eventSink) {
 
         if (eventSink != null) {
             eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
@@ -92,21 +98,33 @@ public class CVMSolver {
         ModelResult current = null;
 
         for (int its = 0; its < MAX_ITER; its++) {
-            if (Thread.currentThread().isInterrupted()) throw new CancellationException();
+            if (Thread.currentThread().isInterrupted())
+                throw new CancellationException();
 
             // Evaluate physics from model
             current = model.evaluate(u, moleFractions, temperature);
 
             // Calculate gradient norm (L1 norm for simplicity and consistency with legacy)
             errf = 0;
-            for (double g : current.Gu) errf += Math.abs(g);
+            for (double g : current.Gu)
+                errf += Math.abs(g);
 
             trace.add(new IterationSnapshot(its, current.G, current.H, current.S, errf, u.clone()));
 
             // Progress reporting
             if (progressSink != null) {
-                progressSink.accept(String.format("  iter %3d  |∇G| = %.3e  G = %11.4f  H = %11.4f  S = %9.6f",
+                StringBuilder sb = new StringBuilder();
+                sb.append(String.format("    iter %3d  |∇G| = %.3e  G = %11.4f  H = %11.4f  S = %9.6f",
                         its, errf, current.G, current.H, current.S));
+                if (current.cfs != null && current.cfs.length > 0) {
+                    sb.append("  CFs: [");
+                    for (int i = 0; i < current.cfs.length; i++) {
+                        if (i > 0) sb.append(", ");
+                        sb.append(String.format("%.4f", current.cfs[i]));
+                    }
+                    sb.append("]");
+                }
+                progressSink.accept(sb.toString());
             }
             if (eventSink != null) {
                 eventSink.accept(new ProgressEvent.CvmIteration(its, current.G, errf, current.H, current.S, u));
@@ -121,7 +139,8 @@ public class CVMSolver {
             try {
                 // Newton step: Guu * p = -Gu
                 double[] negGu = new double[n];
-                for (int i = 0; i < n; i++) negGu[i] = -current.Gu[i];
+                for (int i = 0; i < n; i++)
+                    negGu[i] = -current.Gu[i];
 
                 double[] p = LinearAlgebra.solve(current.Guu, negGu);
 
@@ -143,7 +162,8 @@ public class CVMSolver {
                 }
 
             } catch (Exception e) {
-                CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, R_GAS) : null;
+                CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, R_GAS)
+                        : null;
                 return new EquilibriumResult(state, false, its, errf, trace);
             }
         }
@@ -154,7 +174,7 @@ public class CVMSolver {
 
     /** Overload for cases where progress reporting is not needed. */
     public EquilibriumResult minimize(CVMGibbsModel model, double[] moleFractions,
-                                     double temperature, double tolerance) {
+            double temperature, double tolerance) {
         return minimize(model, moleFractions, temperature, tolerance, null, null);
     }
 }

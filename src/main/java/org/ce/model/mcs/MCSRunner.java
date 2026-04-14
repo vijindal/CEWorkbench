@@ -9,7 +9,7 @@ import org.ce.model.mcs.CvCfEvaluator;
 import org.ce.model.cluster.Cluster;
 import org.ce.model.cluster.CMatrixPipeline;
 import org.ce.model.cluster.ClusterIdentificationResult;
-import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.mcs.MCSUpdate;
 
@@ -25,7 +25,7 @@ public class MCSRunner {
 
     private static final Logger LOG = Logger.getLogger(MCSRunner.class.getName());
 
-    private final ClusCoordListResult clusterData;
+    private final ClusCoordListData clusterData;
     private final double[]            eci;
     private final int                 numComp;
     private final double              T;
@@ -174,7 +174,7 @@ public class MCSRunner {
     public static Builder builder() { return new Builder(); }
 
     public static class Builder {
-        private ClusCoordListResult clusterData;
+        private ClusCoordListData clusterData;
         private double[]            eci;
         private int                 numComp           = 2;
         private double              T;
@@ -192,7 +192,7 @@ public class MCSRunner {
 
         private Builder() {}
 
-        public Builder clusterData(ClusCoordListResult d)       { this.clusterData = d;        return this; }
+        public Builder clusterData(ClusCoordListData d)       { this.clusterData = d;        return this; }
         public Builder eci(double[] e)                          { this.eci = e;                return this; }
         public Builder numComp(int n)                           { this.numComp = n;            return this; }
         public Builder T(double t)                              { this.T = t;                  return this; }

@@ -1,8 +1,13 @@
 package org.ce.model.cluster;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
+import org.ce.model.cluster.SpaceGroup.SymmetryOperation;
 
 /**
  * Unified container for cluster-related mathematical operations and rules.
@@ -18,6 +23,7 @@ import java.util.List;
 public final class ClusterMath {
 
     private static final double EPS = 1e-12;
+    private static final double DELTA = 1e-6;
 
     private ClusterMath() {}
 
@@ -127,7 +133,7 @@ public final class ClusterMath {
 
                 for (int j = i; j < numClus; j++) {
                     if (subSize != disClusCoordList.get(j).getAllSites().size()) continue;
-                    if (ClusterUtils.isContained(disClusOrbitList.get(j), subClus)) {
+                    if (isContained(disClusOrbitList.get(j), subClus)) {
                         nijTable[i][j]++;
                     }
                 }
@@ -179,6 +185,80 @@ public final class ClusterMath {
         System.out.printf("  %-6s %-12s %-14s%n", "Type", "mhdis", "KB coeff");
         for (int t = 0; t < kb.length; t++) {
             System.out.printf("  t=%-4d %-12.4f %-14.8f%n", t, multiplicities[t], kb[t]);
+        }
+    }
+
+    // =========================================================================
+    // 5. Geometric Utilities (formerly ClusterUtils)
+    // =========================================================================
+
+    public static boolean isTranslated(Cluster c1, Cluster c2) {
+        if (c1.getSublattices().size() != c2.getSublattices().size())
+            return false;
+
+        Set<Position> diffSet = new HashSet<>();
+        for (int i = 0; i < c1.getSublattices().size(); i++) {
+            Sublattice sub1 = c1.getSublattices().get(i);
+            Sublattice sub2 = c2.getSublattices().get(i);
+            List<Site> s1 = sub1.getSites();
+            List<Site> s2 = sub2.getSites();
+            if (s1.size() != s2.size()) return false;
+            for (int j = 0; j < s1.size(); j++) {
+                Site site1 = s1.get(j);
+                Site site2 = s2.get(j);
+                if (!site1.getSymbol().equals(site2.getSymbol())) return false;
+                diffSet.add(site2.getPosition().subtract(site1.getPosition()));
+            }
+        }
+        if (diffSet.size() > 1) return false;
+        if (diffSet.isEmpty())  return true;
+        Position d = diffSet.iterator().next();
+        return isIntegerShift(d.getX()) && isIntegerShift(d.getY()) && isIntegerShift(d.getZ());
+    }
+
+    private static boolean isIntegerShift(double value) {
+        return Math.abs(value - Math.round(value)) < DELTA;
+    }
+
+    public static boolean isContained(List<Cluster> orbit, Cluster cluster) {
+        for (Cluster existing : orbit) {
+            if (isTranslated(existing, cluster)) return true;
+        }
+        return false;
+    }
+
+    public static List<Cluster> generateOrbit(Cluster cluster, List<SymmetryOperation> spaceGroup) {
+        List<Cluster> orbit = new ArrayList<>();
+        for (SymmetryOperation op : spaceGroup) {
+            Cluster transformed = op.applyToCluster(cluster);
+            if (!isContained(orbit, transformed))
+                orbit.add(transformed);
+        }
+        return orbit;
+    }
+
+    // =========================================================================
+    // 6. List/Summary operations
+    // =========================================================================
+
+    public static int countNonEmpty(ClusCoordListData data) {
+        if (data == null || data.getClusCoordList().isEmpty()) return 0;
+        List<Cluster> list = data.getClusCoordList();
+        int count = 0;
+        for (Cluster c : list) {
+            if (c.getAllSites().size() > 0) count++;
+        }
+        return count;
+    }
+
+    public static void printOrbitDebug(Cluster cluster, List<SymmetryOperation> spaceGroup) {
+        List<Cluster> orbit = generateOrbit(cluster, spaceGroup);
+        System.out.println("[ClusterMath.generateOrbit]");
+        System.out.println("  seed cluster       : " + cluster);
+        System.out.println("  space group ops    : " + spaceGroup.size());
+        System.out.println("  generated orbit size : " + orbit.size());
+        for (int i = 0; i < orbit.size(); i++) {
+            System.out.println("  orbit[" + i + "] : " + orbit.get(i));
         }
     }
 }

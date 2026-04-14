@@ -9,7 +9,7 @@ import org.ce.model.cvm.CVMEquilibriumState;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.hamiltonian.CECEvaluator;
-import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 import org.ce.model.cvm.CvCfBasis;
 
 import java.util.Arrays;
@@ -30,6 +30,9 @@ public class ThermodynamicWorkflow {
 
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
     private static final double GAS_CONSTANT = 8.314;  // J/(mol·K)
+
+    private CVMGibbsModel cachedGibbsModel;
+    private ModelSession cachedSession;
 
     public ThermodynamicWorkflow() {
         // No injected engines; dispatch directly to model layer
@@ -102,11 +105,14 @@ public class ThermodynamicWorkflow {
 
         validateInputs(temperature, composition);
 
-        CVMGibbsModel gibbsModel = new CVMGibbsModel();
-        gibbsModel.initialize(session.systemId.elements, session.systemId.structure, session.systemId.model, session.cecEntry, progressSink);
+        if (cachedGibbsModel == null || cachedSession != session) {
+            cachedGibbsModel = new CVMGibbsModel();
+            cachedGibbsModel.initialize(session.systemId.elements, session.systemId.structure, session.systemId.model, session.cecEntry, progressSink);
+            cachedSession = session;
+        }
 
-        CVMSolver.EquilibriumResult solverResult = new CVMSolver().minimize(
-                gibbsModel, composition, temperature, 1.0e-5,
+        CVMSolver.EquilibriumResult solverResult = cachedGibbsModel.getEquilibriumState(
+                temperature, composition, 1.0e-5,
                 progressSink, request.eventSink);
 
         validateConvergence(solverResult, progressSink);
@@ -133,7 +139,7 @@ public class ThermodynamicWorkflow {
             throws Exception {
 
         Consumer<String> progressSink = request.progressSink;
-        ClusCoordListResult clusterData =
+        ClusCoordListData clusterData =
                 session.clusterData.getDisorderedClusterResult().getDisClusterData();
 
         // Validate C-matrix dimensions match basis

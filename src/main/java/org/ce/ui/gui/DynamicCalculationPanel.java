@@ -30,6 +30,7 @@ public class DynamicCalculationPanel extends JPanel {
     private final WorkbenchContext          context;
     private final CalculationService        service;
     private final Consumer<String>          statusSink;
+    private final Consumer<String>          logSink;
     private final Consumer<Object>          resultSink;
     private final Consumer<ProgressEvent>   chartSink;
 
@@ -45,6 +46,7 @@ public class DynamicCalculationPanel extends JPanel {
     public DynamicCalculationPanel(org.ce.CEWorkbenchContext appCtx,
                                    WorkbenchContext context,
                                    Consumer<String> statusSink,
+                                   Consumer<String> logSink,
                                    Consumer<Object> resultSink,
                                    Consumer<ProgressEvent> chartSink,
                                    QuantityDescriptor.SelectionModel quantityModel) {
@@ -52,6 +54,7 @@ public class DynamicCalculationPanel extends JPanel {
         this.context    = context;
         this.service    = appCtx.getCalculationService();
         this.statusSink = statusSink;
+        this.logSink    = logSink;
         this.resultSink = resultSink;
         this.chartSink  = chartSink;
 
@@ -310,7 +313,7 @@ public class DynamicCalculationPanel extends JPanel {
 
             @Override
             protected void process(List<String> chunks) {
-                chunks.forEach(statusSink::accept);
+                chunks.forEach(logSink::accept);
             }
 
             @Override

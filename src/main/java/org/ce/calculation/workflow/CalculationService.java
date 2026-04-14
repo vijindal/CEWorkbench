@@ -187,6 +187,11 @@ public class CalculationService {
         SystemId systemId = new SystemId(specs.elements, specs.structure, specs.modelName);
         if (cachedSession != null && cachedSession.systemId.equals(systemId)
                 && cachedSession.engineConfig.equals(specs.engineConfig)) {
+            if (sink != null) {
+                sink.accept("[Session] Reusing cached session: " + systemId.elements + " / " + systemId.structure + " / " + systemId.model);
+                sink.accept("  [Session] ✓ Basis resolved: " + cachedSession.cvcfBasis.numNonPointCfs + " non-point CFs, " 
+                                                           + cachedSession.cvcfBasis.numComponents + " point variables");
+            }
             return cachedSession;
         }
         cachedSession = sessionBuilder.build(systemId, specs.engineConfig, sink);

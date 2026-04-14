@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
-import org.ce.model.cluster.AllClusterData;
+
 import org.ce.model.cluster.ClusterCFIdentificationPipeline;
 import org.ce.model.cluster.ClusterMath;
 import org.ce.model.cluster.LinearAlgebra;

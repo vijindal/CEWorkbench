@@ -1,11 +1,11 @@
 package org.ce.model.cluster;
 
-import static org.ce.model.cluster.ClusterResults.*;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClassifiedData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 
 /**
  * Immutable result of the two-stage Cluster Identification pipeline.
@@ -66,7 +66,7 @@ public class ClusterIdentificationResult {
     // ---- Stage 1a outputs ----
 
     /** HSP cluster types (A2 binary): tc, multiplicities, orbits, rc. */
-    private final ClusCoordListResult disClusterData;
+    private final ClusCoordListData disClusterData;
 
     /**
      * Nij containment table.
@@ -86,14 +86,14 @@ public class ClusterIdentificationResult {
     // ---- Stage 1b outputs ----
 
     /** Phase cluster types (B2 binary), before classification. */
-    private final ClusCoordListResult phaseClusterData;
+    private final ClusCoordListData phaseClusterData;
 
     /**
      * Ordered-phase clusters classified into HSP cluster types.
      * {@code ordClusterData.getCoordList().get(t)} is the list of ordered-phase
      * cluster representatives that map to HSP cluster type {@code t}.
      */
-    private final ClassifiedClusterResult ordClusterData;
+    private final ClassifiedData ordClusterData;
 
     /**
      * Number of ordered-phase cluster representatives per HSP cluster type.
@@ -129,11 +129,11 @@ public class ClusterIdentificationResult {
 
     @JsonCreator
     public ClusterIdentificationResult(
-            @JsonProperty("disClusterData")   ClusCoordListResult     disClusterData,
+            @JsonProperty("disClusterData")   ClusCoordListData       disClusterData,
             @JsonProperty("nijTable")         int[][]                 nijTable,
             @JsonProperty("kbCoefficients")   double[]                kbCoefficients,
-            @JsonProperty("phaseClusterData") ClusCoordListResult     phaseClusterData,
-            @JsonProperty("ordClusterData")   ClassifiedClusterResult ordClusterData,
+            @JsonProperty("phaseClusterData") ClusCoordListData       phaseClusterData,
+            @JsonProperty("ordClusterData")   ClassifiedData          ordClusterData,
             @JsonProperty("lc")               int[]                   lc,
             @JsonProperty("mh")               double[][]              mh,
             @JsonProperty("tcdis")            int                     tcdis,
@@ -161,13 +161,13 @@ public class ClusterIdentificationResult {
     // -------------------------------------------------------------------------
 
     @JsonProperty("disClusterData")
-    public ClusCoordListResult getDisClusterData() { return disClusterData; }
+    public ClusCoordListData getDisClusterData() { return disClusterData; }
     @JsonProperty("kbCoefficients")
     public double[] getKbCoefficients() { return kbCoefficients; }
     @JsonProperty("phaseClusterData")
-    public ClusCoordListResult getPhaseClusterData() { return phaseClusterData; }
+    public ClusCoordListData getPhaseClusterData() { return phaseClusterData; }
     @JsonProperty("ordClusterData")
-    public ClassifiedClusterResult getOrdClusterData() { return ordClusterData; }
+    public ClassifiedData getOrdClusterData() { return ordClusterData; }
     @JsonProperty("lc")
     public int[] getLc() { return lc; }
     @JsonProperty("mh")
@@ -213,11 +213,11 @@ public class ClusterIdentificationResult {
         System.out.println("  nxcdis = " + nxcdis + "  (HSP point-cluster types)");
         System.out.printf("  %-6s %-12s %-10s %-20s%n",
                 "Type", "mhdis", "rcdis", "KB coeff");
-        List<Double>       mhdis = disClusterData.getMultiplicities();
-        List<List<Integer>> rcdis = disClusterData.getRcList();
+        List<Double>       mhdis_list = disClusterData.getMultiplicities();
+        List<List<Integer>> rcdis_list = disClusterData.getRcList();
         for (int t = 0; t < tcdis; t++) {
             System.out.printf("  t=%-4d %-12.4f %-10s %-20.8f%n",
-                    t, mhdis.get(t), rcdis.get(t), kbCoefficients[t]);
+                    t, mhdis_list.get(t), rcdis_list.get(t), kbCoefficients[t]);
         }
 
         // --- Stage 1b ---

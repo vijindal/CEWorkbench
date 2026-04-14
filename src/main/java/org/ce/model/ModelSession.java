@@ -1,6 +1,7 @@
 package org.ce.model;
 
-import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
 import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
@@ -69,7 +70,7 @@ public final class ModelSession {
      * Full cluster identification result (clusters, symmetry matrices, C-matrix,
      * CF list). Pre-computed by {@link Builder#build}.
      */
-    public final AllClusterData clusterData;
+    public final PipelineResult clusterData;
 
     /** Loaded and validated Hamiltonian (ECI parameters). */
     public final CECEntry cecEntry;
@@ -95,7 +96,7 @@ public final class ModelSession {
 
     ModelSession(
             SystemId systemId,
-            AllClusterData clusterData,
+            PipelineResult clusterData,
             CECEntry cecEntry,
             String resolvedHamiltonianId,
             CvCfBasis cvcfBasis,
@@ -190,7 +191,7 @@ public final class ModelSession {
                     .orderedSymmetryGroup(symGroup)
                     .build();
 
-            AllClusterData clusterData = AllClusterData.identify(clusterReq, progressSink);
+            PipelineResult clusterData = ClusterCFIdentificationPipeline.runFullWorkflow(clusterReq, progressSink);
             clusterData.printSummary(System.out::println);
             emit(progressSink, "  [Session] ✓ Cluster identification complete");
 
@@ -220,7 +221,7 @@ public final class ModelSession {
             emit(progressSink, "  [Session] Stage 4: Generating CVCF basis...");
             CvCfBasis cvcfBasis = CvCfBasis.generate(
                     systemId.structure,
-                    clusterData.getPipelineResult(),
+                    clusterData,
                     clusterData.getMatrixData(),
                     systemId.model,
                     progressSink

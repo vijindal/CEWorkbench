@@ -8,9 +8,9 @@ Three classes of work are supported:
 
 | Type | Name | Description |
 |------|------|-------------|
-| **1a** | Cluster Identification | Load ordered/disordered cluster files and symmetry groups. Four stages: geometric identification (1–2), orthogonal basis / C-matrix construction (3), CVCF transformation (4). |
-| **1b** | Hamiltonian Scaffold | Auto-generate an empty ECI (Hamiltonian) JSON file from cluster identification results, ready for editing. |
-| **2** | Thermodynamic Equilibrium | Minimize free energy with CVM (Newton–Raphson, CVCF basis) or Monte Carlo (MCS) to produce G / H / S at given T and composition. |
+| **1a** | Cluster Identification | Load ordered/disordered cluster files and symmetry groups. Unified pipeline handles geometric identification, C-matrix construction, and CVCF transformation in one sweep. |
+| **1b** | Hamiltonian Scaffold | Auto-generate an empty ECI (Hamiltonian) JSON file from consolidated pipeline results, ready for editing. |
+| **2** | Thermodynamic Equilibrium | Minimize free energy with CVM (Newton–Raphson, CVCF basis) or Monte Carlo (MCS) via a metadata-driven calculation interface. |
 
 ---
 
@@ -93,17 +93,15 @@ Static, persistent physics evaluators. Built once from system info (elements, st
 
 | Package | Key Classes | Role |
 |---------|-------------|------|
-| `model` | `ModelSession`, `EngineConfig` | Immutable session holding pre-computed cluster data, Hamiltonian, and CVCF basis for one system identity |
-| `model.cluster` | `ClusterIdentifier`, `CFIdentifier`, `CMatrix`, `AllClusterData`, `ClusterVariableEvaluator`, `ClusterPrimitives` | Cluster geometry, CF basis construction, C-matrix, correlation function evaluation |
-| `model.cluster.cvcf` | `CvCfBasis`, `CvCfBasisTransformer`, `CvCfMatrixGenerator`, `CvCfDefinition` | CVCF basis and transformation machinery |
-| `model.cvm` | `CVMGibbsModel`, `CVMSolver` | CVM Gibbs functional evaluator + Newton–Raphson minimizer (NR loop, convergence logic) |
-| `model.mcs` | `LatticeConfig`, `EmbeddingData`, `Embedding`, `EmbeddingGenerator`, `SiteOperatorBasis`, `CvCfEvaluator`, `Vector3D`, `MCEngine`, `MCSampler`, `MCSRunner`, `ExchangeStep`, `LocalEnergyCalc`, `MCResult` | MCS supercell state, physics evaluators, algorithm drivers (equilibration+averaging loops, statistics, Metropolis step) |
-| `model.hamiltonian` | `CECEntry`, `CECTerm`, `CECEvaluator` | ECI model objects; `CECEvaluator` computes `eci[i] = a + b·T` |
-| `model` | `ThermodynamicInput` | Bundled input to CVM/MCS optimizers |
-| `model.result` | `ThermodynamicResult` | Output value object (unified; no EquilibriumState wrapper) |
-| `model.storage` | `Workspace`, `InputLoader`, `HamiltonianStore`, `DataStore` | All disk I/O — path resolution, cluster file parsing, JSON persistence |
+| `model` | `ModelSession`, `EngineConfig` | Immutable session holding pre-computed `PipelineResult` and Hamiltonian for one system identity |
+| `model.cluster` | `ClusterCFIdentificationPipeline`, `PipelineResult`, `ClusterVariableEvaluator`, `ClusterPrimitives`, `ClusterMath` | Consolidated identification pipeline (Stages 1–4), CF basis construction, C-matrix, and correlation function evaluation |
+| `model.cluster.cvcf` | `CvCfBasis`, `CvCfBasisTransformer`, `CvCfMatrixGenerator` | CVCF basis and transformation machinery |
+| `model.cvm` | `CVMGibbsModel`, `CVMSolver` | CVM Gibbs functional evaluator + Newton–Raphson minimizer |
+| `model.mcs` | `MCSRunner`, `LatticeConfig`, `ExchangeStep`, `LocalEnergyCalc`, `MCSampler`, `MCResult` | MCS supercell state, physics evaluators, and algorithm drivers |
+| `model.hamiltonian` | `CECEntry`, `CECTerm`, `CECEvaluator` | ECI model objects and temperature-dependent evaluation |
+| `model.storage` | `Workspace`, `InputLoader`, `HamiltonianStore` | Disk I/O, path resolution, and JSON persistence |
 
-**`ModelSession` is the session contract.** It is built once per (elements, structure, model) identity by `ModelSession.Builder`, which runs cluster identification, resolves the Hamiltonian, and looks up the CVCF basis. All calculations within a session reuse this pre-computed state — no redundant disk reads or re-identification.
+**`ModelSession` is the session contract.** It is built once per (elements, structure, model) identity by `ModelSession.Builder`, which runs the consolidated `ClusterCFIdentificationPipeline`, resolves the Hamiltonian, and generates the CVCF basis. All calculations within a session reuse this pre-computed `PipelineResult` — no redundant disk reads or re-identification.
 
 ### Calculation Layer — `org.ce.calculation`
 
@@ -111,10 +109,10 @@ Active algorithm drivers. Accepts a `ModelSession`; drives algorithms using mode
 
 | Package | Key Classes | Role |
 |---------|-------------|------|
-| `calculation` | `CalculationDescriptor`, `CalculationSpecifications`, `CalculationRegistry` | **Discovery-based Metadata**: Defines Property, Mode, and Parameter vocabularies; provides available options for a given engine. |
-| `calculation.workflow` | `CalculationService` | **Unified Entry Point**: Orchestrates model construction (`execute`) and result dispatching (`executeScan`). |
+| `calculation` | `CalculationSpecifications`, `CalculationRegistry` | **Discovery-based Metadata**: Defines available properties and configurations for CVM and MCS engines. |
+| `calculation.workflow` | `CalculationService` | **Unified Entry Point**: Orchestrates model construction and result dispatching for scans. |
 | `calculation.workflow.cec` | `CECManagementWorkflow` | Type-1b: scaffold, load, validate, save Hamiltonian. |
-| `calculation.workflow.thermo` | `ThermodynamicWorkflow`, `LineScanWorkflow`, `GridScanWorkflow`, `FiniteSizeScanWorkflow` | Type-2 internal implementation: single-point, temperature/composition/grid scans, finite-size scaling. |
+| `calculation.workflow.thermo` | `ThermodynamicWorkflow`, `LineScanWorkflow`, `GridScanWorkflow` | Type-2 implementation: single-point calculations and multi-dimensional scans. |
 
 ### UI Layer — `org.ce.ui`
 
@@ -122,8 +120,8 @@ Active algorithm drivers. Accepts a `ModelSession`; drives algorithms using mode
 |---------|-------------|------|
 | `ui.cli` | `Main` | CLI entry point; argument parsing for all modes |
 | `ui.gui` | `MainWindow`, `WorkbenchContext` | Window frame; shared observable session state |
-| `ui.gui` | `CalculationPanel` | System identity fields, session rebuild, CVM/MCS calculation |
-| `ui.gui` | `DataPreparationPanel` | Type-1a inputs: cluster files, symmetry groups, component count |
+| `ui.gui` | `DynamicCalculationPanel`, `ParameterFieldFactory` | **Metadata-Driven Calculation**: Dynamic UI for CVM/MCS system parameters and scans |
+| `ui.gui` | `DataPreparationPanel` | Type-1a: Cluster identification entry point |
 | `ui.gui` | `CECManagementPanel` | Type-1b: scaffold / load / edit / save Hamiltonian ECI table |
 | `ui.gui` | `OutputPanel`, `ResultsPanel` | Always-visible results display and scrollable log |
 | `ui.gui` | `ActivityBar`, `ExplorerPanel`, `HeaderBar`, `StatusBar` | Chrome and navigation |
@@ -143,11 +141,11 @@ JFrame (BorderLayout)
 
 **Session lifecycle in the GUI:**
 
-1. Open the app → Calculation panel is shown with pre-filled defaults (`Nb-Ti / BCC_A2 / T`).
-2. Edit elements / structure / model as needed → fields sync to `WorkbenchContext`.
-3. Click **Rebuild Session** → `ModelSession.Builder.build()` runs on a background thread (cluster identification + Hamiltonian load).
+1. Open the app → **Calculation** panel is shown (Dynamic UI based on the active engine).
+2. Select engine (CVM/MCS) and edit system identity fields → fields sync to `WorkbenchContext`.
+3. Click **Rebuild Session** → `ModelSession.Builder.build()` runs on a background thread (unified Stage 1–4 pipeline).
 4. Session status turns teal → **Calculate** button becomes enabled.
-5. Set temperature and composition → click **Calculate** → results stream to the output panel in real time.
+5. Set parameters (Temperature, Composition) → click **Calculate** → results stream to the output panel in real time.
 
 Alternatively, complete Type-1a (Data Prep panel) or load a Hamiltonian (Hamiltonian panel) — those panels also trigger a session build on success, so the Calculation panel becomes ready automatically.
 
@@ -160,13 +158,13 @@ Alternatively, complete Type-1a (Data Prep panel) or load a Hamiltonian (Hamilto
 ```
 Input files (clus/*.txt + sym/*.txt)
   ↓
-ClusterIdentificationWorkflow.identify(request)
-  Stage 1 — ClusterIdentifier     (geometric symmetry)
-  Stage 2 — CFIdentifier          (algebraic CF basis)
-  Stage 3 — CMatrix               (orthogonal basis / C-matrix)
-  Stage 4 — CvCfBasisTransformer  (CVCF transformation)
+ClusterCFIdentificationPipeline.runFullWorkflow(config)
+  Stage 1 — Cluster identification (Geometric)
+  Stage 2 — CF identification (Algebraic)
+  Stage 3 — C-Matrix foundation
+  Stage 4 — CVCF transformation
   ↓
-AllClusterData  (held in ModelSession.clusterData)
+PipelineResult  (held in ModelSession.clusterData)
 ```
 
 ### Type-1b — Hamiltonian Scaffold
@@ -181,7 +179,7 @@ hamiltonian.json  (all ECI terms a=0, b=0 — edit and save)
 ### Type-2 — Thermodynamic Calculation (CVM)
 
 ```
-ModelSession (pre-built: AllClusterData + CECEntry + CvCfBasis)
+ModelSession (pre-built: PipelineResult + CECEntry + CvCfBasis)
   ↓
 ThermodynamicWorkflow.runCalculation(session, request)
   ↓
@@ -204,22 +202,18 @@ src/main/java/org/ce
 ├─ CEWorkbenchContext.java
 │
 ├─ model/
-│  ├─ ThermodynamicInput.java    (bundled input to optimizers)
 │  ├─ EngineConfig.java
 │  ├─ ModelSession.java          (+ nested Builder)
 │  ├─ cluster/
-│  │  ├─ AllClusterData.java
-│  │  ├─ ClusterIdentifier.java
-│  │  ├─ CFIdentifier.java
-│  │  ├─ CMatrix.java
+│  │  ├─ ClusterCFIdentificationPipeline.java (Unified Stages 1-4)
+│  │  ├─ PipelineResult.java     (Consolidated data bundle)
 │  │  ├─ ClusterVariableEvaluator.java
 │  │  ├─ ClusterPrimitives.java
-│  │  └─ (15+ supporting classes)
+│  │  └─ (Supporting geometric and algebraic core classes)
 │  │  └─ cvcf/
 │  │     ├─ CvCfBasis.java
 │  │     ├─ CvCfBasisTransformer.java
-│  │     ├─ CvCfMatrixGenerator.java
-│  │     └─ CvCfDefinition.java
+│  │     └─ CvCfMatrixGenerator.java
 │  ├─ cvm/
 │  │  ├─ CVMGibbsModel.java      (Gibbs functional; evaluates G/H/S/gradients)
 │  │  └─ CVMSolver.java          (Newton–Raphson loop; NR minimizer)
@@ -243,8 +237,7 @@ src/main/java/org/ce
 │  │  ├─ CECEvaluator.java
 │  │  └─ Hamiltonian.java
 │  ├─ result/
-│  │  ├─ ThermodynamicResult.java
-│  │  └─ EquilibriumState.java
+│  │  └─ ThermodynamicResult.java
 │  └─ storage/
 │     ├─ Workspace.java
 │     ├─ InputLoader.java
@@ -252,7 +245,6 @@ src/main/java/org/ce
 │     └─ DataStore.java
 │
 ├─ calculation/
-│  ├─ CalculationDescriptor.java
 │  ├─ CalculationSpecifications.java
 │  ├─ CalculationRegistry.java
 │  └─ workflow/
@@ -261,8 +253,7 @@ src/main/java/org/ce
 │     └─ thermo/
 │        ├─ ThermodynamicWorkflow.java
 │        ├─ LineScanWorkflow.java
-│        ├─ GridScanWorkflow.java
-│        └─ FiniteSizeScanWorkflow.java
+│        └─ GridScanWorkflow.java
 │
 └─ ui/
    ├─ cli/
@@ -272,13 +263,17 @@ src/main/java/org/ce
       ├─ WorkbenchContext.java
       ├─ ActivityBar.java
       ├─ ExplorerPanel.java
+      ├─ DynamicCalculationPanel.java
+      ├─ ParameterFieldFactory.java
+      ├─ SidebarPanel.java
+      ├─ SessionBar.java
       ├─ OutputPanel.java
       ├─ ResultsPanel.java
+      ├─ QuantitiesPanel.java
       ├─ HeaderBar.java
       ├─ StatusBar.java
       ├─ DataPreparationPanel.java
       ├─ CECManagementPanel.java
-      └─ CalculationPanel.java
 ```
 
 ---
@@ -325,12 +320,13 @@ All persistent data is stored under `~/CEWorkbench/`:
 
 **Complete:**
 - Three-layer architecture (Model / Calculation / UI) with one-way dependencies
-- `ModelSession` — immutable session object; cluster identification + Hamiltonian load run once per system identity, reused across all scan points
-- Cluster identification — Stages 1–4 (cluster, CF, C-matrix, CVCF transformation)
-- CVM thermodynamic engine with Newton–Raphson minimisation
-- MCS thermodynamic engine with finite-size scaling
+- `ModelSession` — immutable session object; consolidated Stages 1–4 pipeline runs once per system identity, reused across all scan points
+- Unified `ClusterCFIdentificationPipeline` — Stages 1–4 (cluster, CF, C-matrix, CVCF transformation) merged into a single orchestration flow
+- Full elimination of disk-based cluster data stores in favor of on-the-fly identification
+- CVM thermodynamic engine with Newton–Raphson core
+- MCS thermodynamic engine with automatic ECI basis transformation
 - Hamiltonian scaffold, load, edit, save workflow
-- VS Code dark GUI — self-contained Calculation panel, Activity Bar, Explorer, Output panel
+- Modern VS Code-style GUI — Metadata-driven `DynamicCalculationPanel`, Activity Bar, Explorer, Output panel
 - Bidirectional system identity sync across all GUI panels via `WorkbenchContext`
 - CLI with all modes: `type1a`, `type1b`, `type2`, `all`, `calc_min`, `calc_fixed`, `view`
 

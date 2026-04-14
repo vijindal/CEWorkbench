@@ -72,6 +72,16 @@ public final class ClusterCFIdentificationPipeline {
         public List<List<Integer>> getRcList() { return rcList; }
         public int getTc() { return tc; }
         public int getNumPointSubClusFound() { return numPointSubClusFound; }
+
+        public void printSummary(Consumer<String> sink) {
+            if (sink == null) return;
+            sink.accept(String.format("  - Total cluster types (tc): %d (excl. empty)", tc));
+            sink.accept(String.format("  - Point sub-clusters found: %d", numPointSubClusFound));
+            for (int i = 0; i < tc; i++) {
+                sink.accept(String.format("    t=%-3d nc=%-2d mult=%-8.4f rc=%s",
+                    i, clusCoordList.get(i).getAllSites().size(), multiplicities.get(i), rcList.get(i)));
+            }
+        }
     }
 
     // =====================================================================
@@ -98,6 +108,17 @@ public final class ClusterCFIdentificationPipeline {
         public List<List<Double>> getMultiplicityList() { return multiplicityList; }
         public List<List<List<Cluster>>> getOrbitList() { return orbitList; }
         public List<List<List<Integer>>> getRcList() { return rcList; }
+
+        public void printSummary(Consumer<String> sink) {
+            if (sink == null) return;
+            for (int t = 0; t < coordList.size(); t++) {
+                for (int j = 0; j < coordList.get(t).size(); j++) {
+                    sink.accept(String.format("    t=%-3d j=%-2d nc=%-2d mult=%-8.4f rc=%s",
+                            t, j, coordList.get(t).get(j).getAllSites().size(),
+                            multiplicityList.get(t).get(j), rcList.get(t).get(j)));
+                }
+            }
+        }
     }
 
     // =====================================================================
@@ -126,6 +147,18 @@ public final class ClusterCFIdentificationPipeline {
         public List<List<List<Double>>> getMultiplicityData() { return multiplicityData; }
         public List<List<List<List<Cluster>>>> getOrbitData() { return orbitData; }
         public List<List<List<List<Integer>>>> getRcData() { return rcData; }
+
+        public void printSummary(Consumer<String> sink) {
+            if (sink == null) return;
+            for (int t = 0; t < coordData.size(); t++) {
+                for (int j = 0; j < coordData.get(t).size(); j++) {
+                    for (int p = 0; p < coordData.get(t).get(j).size(); p++) {
+                        sink.accept(String.format("    t=%-3d j=%-2d p=%-2d mult=%-8.4f rc=%s",
+                                t, j, p, multiplicityData.get(t).get(j).get(p), rcData.get(t).get(j).get(p)));
+                    }
+                }
+            }
+        }
     }
 
     // =====================================================================
@@ -171,6 +204,14 @@ public final class ClusterCFIdentificationPipeline {
         // Number of components
         private final int numComponents;
 
+        // Expanded fields for consolidated bundle
+        private final CMatrixPipeline.CMatrixData matrixData;
+        private final List<String> uList;
+        private final List<String> vList;
+        private final List<String> eOList;
+        private final List<String> eList;
+        private final double[] equiatomicCVCF;
+
         PipelineResult(
                 ClusCoordListData disClusData, int tcdis, int nxcdis, int ncdis,
                 double[] mhdis, int[][] nijTable, double[] kbdis,
@@ -179,7 +220,11 @@ public final class ClusterCFIdentificationPipeline {
                 ClusCoordListData disCFData, int tcfdis,
                 ClusCoordListData phaseCFDataRaw, ClassifiedData ordCFData,
                 GroupedCFData cfData, int[][] lcf, int tcf, int nxcf, int ncf,
-                int[][] cfBasisIndices, int numComponents) {
+                int[][] cfBasisIndices, int numComponents,
+                CMatrixPipeline.CMatrixData matrixData,
+                List<String> uList, List<String> vList,
+                List<String> eOList, List<String> eList,
+                double[] equiatomicCVCF) {
             this.disClusData = disClusData;
             this.tcdis = tcdis; this.nxcdis = nxcdis; this.ncdis = ncdis;
             this.mhdis = mhdis; this.nijTable = nijTable; this.kbdis = kbdis;
@@ -194,6 +239,12 @@ public final class ClusterCFIdentificationPipeline {
             this.lcf = lcf; this.tcf = tcf; this.nxcf = nxcf; this.ncf = ncf;
             this.cfBasisIndices = cfBasisIndices;
             this.numComponents = numComponents;
+            this.matrixData = matrixData;
+            this.uList = uList;
+            this.vList = vList;
+            this.eOList = eOList;
+            this.eList = eList;
+            this.equiatomicCVCF = equiatomicCVCF;
         }
 
         // Stage 1a getters
@@ -229,6 +280,13 @@ public final class ClusterCFIdentificationPipeline {
         public int getNcf() { return ncf; }
         public int[][] getCfBasisIndices() { return cfBasisIndices; }
         public int getNumComponents() { return numComponents; }
+
+        public CMatrixPipeline.CMatrixData getMatrixData() { return matrixData; }
+        public List<String> getUList() { return uList; }
+        public List<String> getVList() { return vList; }
+        public List<String> getEOList() { return eOList; }
+        public List<String> getEList() { return eList; }
+        public double[] getEquiatomicCVCF() { return equiatomicCVCF; }
 
         // =================================================================
         //  Random CF computation — CFs as functions of composition
@@ -313,11 +371,11 @@ public final class ClusterCFIdentificationPipeline {
 
         public ClusterIdentificationResult toClusterIdentificationResult() {
             return new ClusterIdentificationResult(
-                    toOldResult(disClusData),
+                    disClusData,
                     nijTable,
                     kbdis,
-                    toOldResult(phaseClusterData),
-                    toOldResult(ordClusData),
+                    phaseClusterData,
+                    ordClusData,
                     lc,
                     mh,
                     tcdis,
@@ -345,11 +403,11 @@ public final class ClusterCFIdentificationPipeline {
             uNames.add(String.format("u[%d][1][1]", tcdis + 1));
 
             return new CFIdentificationResult(
-                    toOldResult(disCFData),
+                    disCFData,
                     tcfdis,
-                    toOldResult(phaseCFDataRaw),
-                    toOldResult(ordCFData),
-                    toOldResult(cfData),
+                    phaseCFDataRaw,
+                    ordCFData,
+                    cfData,
                     lcf,
                     tcf,
                     nxcf,
@@ -358,38 +416,70 @@ public final class ClusterCFIdentificationPipeline {
                     eoNames
             );
         }
+
+        // Compatibility aliases matching AllClusterData
+        public ClusterIdentificationResult getDisorderedClusterResult() { return toClusterIdentificationResult(); }
+        public ClusterIdentificationResult getOrderedClusterResult() { return toClusterIdentificationResult(); }
+        public CFIdentificationResult getDisorderedCFResult() { return toCFIdentificationResult(); }
+        public CFIdentificationResult getOrderedCFResult() { return toCFIdentificationResult(); }
+
+        // =========================================================================
+        // Print Methods (Moved from AllClusterData)
+        // =========================================================================
+
+        /**
+         * Prints a detailed summary of all identification results.
+         */
+        public void printSummary(Consumer<String> sink) {
+            if (sink == null) return;
+            sink.accept("================================================================================");
+            sink.accept("                       CLUSTER IDENTIFICATION RESULT");
+            sink.accept("================================================================================");
+
+            sink.accept(String.format("\nIDENTIFICATION PIPELINE: ncf=%d, total-cfs=%d", getNcf(), getTcf()));
+
+            if (matrixData != null) {
+                sink.accept(String.format("C-MATRIX PIPELINE: %d types, %d sites",
+                        matrixData.getCmat().size(), matrixData.getSiteList().size()));
+            }
+
+            printStage3Diagnostics(sink);
+            printStage4Diagnostics(sink);
+
+            sink.accept("================================================================================");
+        }
+
+        private void printStage3Diagnostics(Consumer<String> sink) {
+            if (sink == null || matrixData == null) return;
+
+            sink.accept("\n  [STAGE 3 DIAGNOSTICS: Random state at equiatomic composition]");
+            int K = getNumComponents();
+            double[] x = new double[K];
+            java.util.Arrays.fill(x, 1.0 / K);
+            CMatrixPipeline.verifyRandomCVs(x, this, matrixData, sink);
+        }
+
+        private void printStage4Diagnostics(Consumer<String> sink) {
+            if (sink == null || matrixData == null || equiatomicCVCF == null) return;
+
+            sink.accept("\n  [STAGE 4 DIAGNOSTICS: Random state equiatomic (CVCF Basis)]");
+            double[][][] cv = CMatrixPipeline.evaluateCVs(
+                    equiatomicCVCF,
+                    matrixData.getCmat(),
+                    matrixData.getLcv(),
+                    getTcdis(),
+                    getLc());
+
+            sink.accept("    Resulting CVs (rho_v):");
+            for (int t = 0; t < cv.length; t++) {
+                for (int j = 0; j < cv[t].length; j++) {
+                    sink.accept(String.format("      Type %d, Group %d: %s", t, j, java.util.Arrays.toString(cv[t][j])));
+                }
+            }
+        }
     }
 
-    private static ClusterResults.ClusCoordListResult toOldResult(ClusCoordListData data) {
-        return new ClusterResults.ClusCoordListResult(
-                data.getClusCoordList(),
-                data.getMultiplicities(),
-                data.getOrbitList(),
-                data.getRcList(),
-                data.getTc(),
-                data.getNumPointSubClusFound()
-        );
-    }
 
-
-
-    private static ClusterResults.ClassifiedClusterResult toOldResult(ClassifiedData data) {
-        return new ClusterResults.ClassifiedClusterResult(
-                data.getCoordList(),
-                data.getMultiplicityList(),
-                data.getOrbitList(),
-                data.getRcList()
-        );
-    }
-
-    private static ClusterResults.GroupedCFResult toOldResult(GroupedCFData data) {
-        return new ClusterResults.GroupedCFResult(
-                data.getCoordData(),
-                data.getMultiplicityData(),
-                data.getOrbitData(),
-                data.getRcData()
-        );
-    }
 
     // =====================================================================
     //  PIPELINE ENTRY POINT
@@ -416,6 +506,25 @@ public final class ClusterCFIdentificationPipeline {
             double[][] rotateMat,
             double[] translateMat,
             int numComp,
+            Consumer<String> sink) {
+
+        return run(disMaxClusCoord, disSymOpList, maxClusCoord, symOpList,
+                   rotateMat, translateMat, numComp,
+                   null, null, null, null, null, sink);
+    }
+
+    /** Inner core run with expansion fields for bundling. */
+    private static PipelineResult run(
+            List<Cluster> disMaxClusCoord,
+            List<SymmetryOperation> disSymOpList,
+            List<Cluster> maxClusCoord,
+            List<SymmetryOperation> symOpList,
+            double[][] rotateMat,
+            double[] translateMat,
+            int numComp,
+            CMatrixPipeline.CMatrixData matrixData,
+            List<String> uList, List<String> vList,
+            List<String> eOList, List<String> eList,
             Consumer<String> sink) {
 
         emit(sink, "=== ClusterCFIdentificationPipeline: START ===");
@@ -546,7 +655,12 @@ public final class ClusterCFIdentificationPipeline {
                 phaseClusterData, ordClusData, lc, tc, nxc, nc, mh, rc,
                 disCFData, tcfdis,
                 phaseCFDataRaw, ordCFData, cfData, lcf, tcf, nxcf, ncf,
-                cfBasisIndices, numComp);
+                cfBasisIndices, numComp,
+                matrixData,
+                uList, vList,
+                eOList, eList,
+                null // equiatomicCVCF filled by runFullWorkflow
+        );
     }
 
     // =====================================================================
@@ -1444,7 +1558,92 @@ public final class ClusterCFIdentificationPipeline {
         return sizes;
     }
 
-    private static void emit(Consumer<String> sink, String msg) {
-        if (sink != null) sink.accept(msg);
+
+    private static void emit(Consumer<String> sink, String message) {
+        if (sink != null) {
+            sink.accept(message);
+        }
+    }
+
+    /**
+     * Orchestrates the full Stages 0-4 workflow, returning a consolidated PipelineResult.
+     * (Logic moved from AllClusterData.identify)
+     */
+    public static PipelineResult runFullWorkflow(ClusterIdentificationRequest config, Consumer<String> progressSink) {
+        java.util.logging.Logger LOG = java.util.logging.Logger.getLogger(ClusterCFIdentificationPipeline.class.getName());
+        LOG.info("ClusterCFIdentificationPipeline.runFullWorkflow — START");
+
+        int numComponents = config.getNumComponents();
+        String structurePhase = config.getStructurePhase();
+        String model = config.getModel();
+
+        // 1. Load resources
+        emit(progressSink, "\n[STAGE 0]: Loading Inputs...");
+        List<Cluster> disorderedClusters = org.ce.model.storage.InputLoader.parseClusterFile(config.getDisorderedClusterFile());
+        disorderedClusters.replaceAll(Cluster::sorted);
+        SpaceGroup disorderedSpaceGroup = org.ce.model.storage.InputLoader.parseSpaceGroup(config.getDisorderedSymmetryGroup());
+
+        List<Cluster> orderedClusters = org.ce.model.storage.InputLoader.parseClusterFile(config.getOrderedClusterFile());
+        orderedClusters.replaceAll(Cluster::sorted);
+        SpaceGroup orderedSpaceGroup = org.ce.model.storage.InputLoader.parseSpaceGroup(config.getOrderedSymmetryGroup());
+
+        // 2. Stage 1 & 2: Cluster + CF Identification
+        emit(progressSink, "\n[STAGE 1/2]: Running Identification Pipeline...");
+        PipelineResult partialResult = run(
+                disorderedClusters,
+                disorderedSpaceGroup.getOperations(),
+                orderedClusters,
+                orderedSpaceGroup.getOperations(),
+                config.getTransformationMatrix(),
+                new double[] { config.getTranslationVector().getX(),
+                        config.getTranslationVector().getY(),
+                        config.getTranslationVector().getZ() },
+                numComponents,
+                progressSink);
+
+        // 3. Stage 3: C-Matrix foundation
+        emit(progressSink, "\n[STAGE 3]: Running C-Matrix Pipeline...");
+        CMatrixPipeline.CMatrixData matrixData = CMatrixPipeline.run(
+                partialResult.toClusterIdentificationResult(),
+                partialResult.toCFIdentificationResult(),
+                disorderedClusters,
+                numComponents,
+                progressSink);
+
+        // 4. Stage 4: CVCF Transformation
+        emit(progressSink, "\n[STAGE 4]: Basis Transformation...");
+        org.ce.model.cvm.CvCfBasis cvcfBasis = org.ce.model.cvm.CvCfBasis.generate(
+                structurePhase,
+                partialResult,
+                matrixData,
+                model, 
+                progressSink);
+
+        // Final bundle
+        double[] equiX = new double[numComponents];
+        java.util.Arrays.fill(equiX, 1.0 / numComponents);
+        double[] vRandEqui = cvcfBasis.computeRandomState(equiX, matrixData.getCfBasisIndices());
+
+        PipelineResult finalResult = new PipelineResult(
+                partialResult.getDisClusData(),
+                partialResult.getTcdis(), partialResult.getNxcdis(), partialResult.getNcdis(),
+                partialResult.getMhdis(), partialResult.getNijTable(), partialResult.getKbdis(),
+                partialResult.getPhaseClusterData(), partialResult.getOrdClusData(),
+                partialResult.getLc(), partialResult.getTc(), partialResult.getNxc(), partialResult.getNc(),
+                partialResult.getMh(), partialResult.getRc(),
+                partialResult.getDisCFData(), partialResult.getTcfdis(),
+                partialResult.getPhaseCFDataRaw(), partialResult.getOrdCFData(),
+                partialResult.getCfData(), partialResult.getLcf(), partialResult.getTcf(), partialResult.getNxcf(), partialResult.getNcf(),
+                partialResult.getCfBasisIndices(), numComponents,
+                matrixData,
+                partialResult.toCFIdentificationResult().getUNames(),
+                cvcfBasis.cfNames,
+                partialResult.toCFIdentificationResult().getEONames(),
+                cvcfBasis.eciNames,
+                vRandEqui
+        );
+
+        LOG.info("ClusterCFIdentificationPipeline.runFullWorkflow — EXIT");
+        return finalResult;
     }
 }

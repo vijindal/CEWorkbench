@@ -4,7 +4,7 @@ import java.util.*;
 import java.util.function.Consumer;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
-import static org.ce.model.cluster.ClusterResults.*;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.GroupedCFData;
 import static org.ce.model.cluster.ClusterKeys.*;
 
 /**
@@ -160,7 +160,7 @@ public final class CMatrixPipeline {
         }
 
         // groupCfCoordList = groupSubClus[maxClusCoord, cfData, basisSymbolList]
-        GroupedCFResult groupedCF = cfResult.getGroupedCFData();
+        GroupedCFData groupedCF = cfResult.getGroupedCFData();
         List<List<List<List<Cluster>>>> cfOrbitList = groupedCF.getOrbitData();
         List<List<List<List<Cluster>>>> groupCfCoordList =
                 groupSubClusters(maxClusters, cfOrbitList, basisSymbolList, sink);
@@ -276,7 +276,7 @@ public final class CMatrixPipeline {
                         List<Cluster> subClusCoordList =
                                 ClusterCFIdentificationPipeline.genSubClusCoord(maxClus, basisSymbolList);
                         for (Cluster subClus : subClusCoordList) {
-                            if (ClusterUtils.isContained(cfOrbit, subClus)) {
+                            if (ClusterMath.isContained(cfOrbit, subClus)) {
                                 matched.add(subClus);
                             }
                         }

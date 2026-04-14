@@ -5,7 +5,7 @@ import org.ce.model.storage.Workspace;
 import org.ce.calculation.workflow.CalculationService;
 import org.ce.calculation.workflow.CECManagementWorkflow;
 import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
-import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
 import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.ModelSession;
 
@@ -115,8 +115,8 @@ public class CEWorkbenchContext {
      * Runs Type-1a: Cluster identification.
      * Does NOT save results automatically.
      */
-    public AllClusterData identifyClusters(ClusterIdentificationRequest request, Consumer<String> progressSink) throws IOException {
-        return AllClusterData.identify(request, progressSink);
+    public PipelineResult identifyClusters(ClusterIdentificationRequest request, Consumer<String> progressSink) throws IOException {
+        return org.ce.model.cluster.ClusterCFIdentificationPipeline.runFullWorkflow(request, progressSink);
     }
 
 }

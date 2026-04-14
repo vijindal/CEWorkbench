@@ -6,7 +6,10 @@ import org.ce.model.cluster.SpaceGroup;
 import org.ce.model.storage.InputLoader;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
+import org.ce.model.ProgressEvent;
+import org.ce.model.cvm.CVMSolver;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -37,6 +40,12 @@ public class CVMGibbsModel {
     private int[][] orthCfBasisIndices;
     private CvCfBasis basis;
     private CECEntry cecEntry;
+
+    // State Tracking for Caching internal minimization 
+    private boolean isMinimized = false;
+    private double currentTemperature = -1.0;
+    private double[] currentComposition = null;
+    private CVMSolver.EquilibriumResult lastResult = null;
 
     /**
      * Calculated free energy and derivatives.
@@ -245,6 +254,7 @@ public class CVMGibbsModel {
      * Evaluates the CVM Gibbs free energy at the given state.
      */
     public ModelResult evaluate(double[] u, double[] moleFractions, double temperature) {
+        // System.out.println("[DEBUG/CVMGibbsModel] evaluate() called by Solver loop");
         return evaluateInternal(u, moleFractions, temperature, cecEntry, basis,
                 tcdis, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
     }
@@ -255,6 +265,39 @@ public class CVMGibbsModel {
             List<List<double[][]>> cmat, int[][] lcv, List<List<int[]>> wcv) {
         return evaluateInternal(u, moleFractions, temperature, cecEntry, basis,
                 tcdis, ncf, mhdis, kb, mh, lc, cmat, lcv, wcv);
+    }
+
+    /**
+     * Internal Stateful Resolution of Equilibrium Properties.
+     * Caches the state unless temperature or composition shifts.
+     */
+    public CVMSolver.EquilibriumResult getEquilibriumState(double temperature, double[] composition, double tolerance, Consumer<String> progressSink, Consumer<ProgressEvent> eventSink) {
+        boolean compositionChanged = currentComposition == null || !Arrays.equals(currentComposition, composition);
+        boolean temperatureChanged = Math.abs(currentTemperature - temperature) > 1.0e-5;
+
+        if (temperatureChanged || compositionChanged) {
+            if (progressSink != null) progressSink.accept("  [Model] Parameters updated (T=" + temperature + " K) — resetting equilibrium state.");
+            isMinimized = false;
+            currentTemperature = temperature;
+            currentComposition = Arrays.copyOf(composition, composition.length);
+        } else {
+            if (progressSink != null) progressSink.accept("  [Model] Using currently cached equilibrium state.");
+        }
+
+        if (!isMinimized || lastResult == null) {
+            if (progressSink != null) progressSink.accept("  [Model] Initiating internal minimization (Newton-Raphson loop)...");
+            CVMSolver solver = new CVMSolver();
+            // Solver maintains requirement to initiate with Random CFs internally.
+            lastResult = solver.minimize(this, currentComposition, currentTemperature, tolerance, progressSink, eventSink);
+            if (progressSink != null) {
+                String resultMsg = lastResult.converged ? "  [Model] ✓ Minimization converged in " + lastResult.iterations + " iterations." 
+                                                        : "  [Model] ⚠ Minimization FAILED to converge.";
+                progressSink.accept(resultMsg);
+            }
+            isMinimized = true;
+        }
+
+        return lastResult;
     }
 
     /**

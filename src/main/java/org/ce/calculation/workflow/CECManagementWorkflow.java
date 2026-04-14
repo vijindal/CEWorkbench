@@ -1,12 +1,7 @@
 package org.ce.calculation.workflow;
 
-import static org.ce.model.cluster.AllClusterData.ClusterData;
-
-import static org.ce.model.cluster.ClusterResults.*;
-
-import static org.ce.model.cluster.ClusterPrimitives.*;
-
-import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.GroupedCFData;
 import org.ce.model.cluster.CFIdentificationResult;
 import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cvm.CvCfBasis;
@@ -191,8 +186,8 @@ public class CECManagementWorkflow {
                 .numComponents(numComponents)
                 .build();
 
-        AllClusterData clusterData = AllClusterData.identify(request, null);
-        CFIdentificationResult cfResult = clusterData.getDisorderedCFResult();
+        PipelineResult pipelineResult = org.ce.model.cluster.ClusterCFIdentificationPipeline.runFullWorkflow(request, null);
+        CFIdentificationResult cfResult = pipelineResult.toCFIdentificationResult();
         CFMetadata[] cfMetadata = extractCFMetadata(cfResult);
 
         // Single source of truth: CVCF basis metadata
@@ -236,7 +231,7 @@ public class CECManagementWorkflow {
      * @return array of CFMetadata, one for each CF (or null if data unavailable)
      */
     private CFMetadata[] extractCFMetadata(CFIdentificationResult cfResult) {
-        GroupedCFResult grouped = cfResult.getGroupedCFData();
+        GroupedCFData grouped = cfResult.getGroupedCFData();
         if (grouped == null) {
             return null;
         }

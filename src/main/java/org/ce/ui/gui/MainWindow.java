@@ -111,7 +111,7 @@ public class MainWindow extends JFrame {
                 appCtx, context, statusSink, cecResultSink, cecEditApplySink);
 
         DynamicCalculationPanel calcPanel = new DynamicCalculationPanel(
-                appCtx, context, statusSink, resultSink, chartSink, quantityModel);
+                appCtx, context, statusSink, logSink, resultSink, chartSink, quantityModel);
 
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();

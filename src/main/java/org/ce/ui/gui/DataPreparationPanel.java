@@ -1,6 +1,6 @@
 package org.ce.ui.gui;
 
-import org.ce.model.cluster.AllClusterData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
 import org.ce.model.cluster.ClusterIdentificationRequest;
 
 import javax.swing.*;
@@ -354,9 +354,9 @@ public class DataPreparationPanel extends JPanel {
 
         runBtn.setEnabled(false);
 
-        SwingWorker<AllClusterData, String> worker = new SwingWorker<AllClusterData, String>() {
+        SwingWorker<PipelineResult, String> worker = new SwingWorker<PipelineResult, String>() {
             @Override
-            protected AllClusterData doInBackground() throws Exception {
+            protected PipelineResult doInBackground() throws Exception {
                 publish("Stage 1-2: Cluster + CF identification...");
 
                 ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()

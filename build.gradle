@@ -95,3 +95,10 @@ task runTernaryDebug(type: JavaExec) {
     mainClass = 'org.ce.debug.TernaryCMatrixRunner'
     jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
 }
+
+task runPipelineTest(type: JavaExec) {
+    group = 'verification'
+    description = 'Run ClusterCFIdentificationPipeline test for Nb-Ti-V ternary'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.debug.PipelineTestRunner'
+}

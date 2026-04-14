@@ -2,7 +2,7 @@ package org.ce.model.mcs;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 
-import org.ce.model.cluster.ClusterResults.ClusCoordListResult;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 
 import org.ce.model.cluster.Cluster;
 import java.util.*;
@@ -17,7 +17,7 @@ public class EmbeddingGenerator {
 
     public static EmbeddingData generateEmbeddings(
             List<Vector3D>      latticePositions,
-            ClusCoordListResult clusterData,
+            ClusCoordListData   clusterData,
             int                 L) {
 
         int N = latticePositions.size();
@@ -85,7 +85,7 @@ public class EmbeddingGenerator {
         return new EmbeddingData(allEmbeddings, siteToEmbeddings);
     }
 
-    private static List<ClusterTemplate> buildTemplates(ClusCoordListResult clusterData) {
+    private static List<ClusterTemplate> buildTemplates(ClusCoordListData clusterData) {
         List<ClusterTemplate> templates = new ArrayList<>();
         List<List<Cluster>>   orbitList = clusterData.getOrbitList();
 
@@ -183,7 +183,7 @@ public class EmbeddingGenerator {
      */
     public static List<List<EmbeddingData.Embedding>> generateCfEmbeddings(
             List<EmbeddingData.Embedding> baseEmbeddings,
-            ClusCoordListResult clusterData,
+            ClusCoordListData   clusterData,
             int[][] cfBasisIndices) {
 
         if (cfBasisIndices == null || baseEmbeddings == null) return null;

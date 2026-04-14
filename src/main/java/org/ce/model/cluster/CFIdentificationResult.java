@@ -1,11 +1,12 @@
 package org.ce.model.cluster;
 
-import static org.ce.model.cluster.ClusterResults.*;
-
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClassifiedData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
+import org.ce.model.cluster.ClusterCFIdentificationPipeline.GroupedCFData;
 
 /**
  * Placeholder for correlation function identification result.
@@ -13,11 +14,11 @@ import java.util.List;
  */
 public class CFIdentificationResult {
 
-    private final ClusCoordListResult disCFData;
+    private final ClusCoordListData disCFData;
     private final int tcfdis;
-    private final ClusCoordListResult phaseCFData;
-    private final ClassifiedClusterResult ordCFData;
-    private final GroupedCFResult groupedCFData;
+    private final ClusCoordListData phaseCFData;
+    private final ClassifiedData ordCFData;
+    private final GroupedCFData groupedCFData;
     private final int[][] lcf;
     private final int tcf;
     private final int nxcf;
@@ -28,11 +29,11 @@ public class CFIdentificationResult {
 
     @JsonCreator
     public CFIdentificationResult(
-            @JsonProperty("disCFData")     ClusCoordListResult     disCFData,
+            @JsonProperty("disCFData")     ClusCoordListData     disCFData,
             @JsonProperty("tcfdis")        int                     tcfdis,
-            @JsonProperty("phaseCFData")   ClusCoordListResult     phaseCFData,
-            @JsonProperty("ordCFData")     ClassifiedClusterResult ordCFData,
-            @JsonProperty("groupedCFData") GroupedCFResult         groupedCFData,
+            @JsonProperty("phaseCFData")   ClusCoordListData     phaseCFData,
+            @JsonProperty("ordCFData")     ClassifiedData        ordCFData,
+            @JsonProperty("groupedCFData") GroupedCFData         groupedCFData,
             @JsonProperty("lcf")           int[][]                 lcf,
             @JsonProperty("tcf")           int                     tcf,
             @JsonProperty("nxcf")          int                     nxcf,
@@ -54,15 +55,15 @@ public class CFIdentificationResult {
     }
 
     @JsonProperty("disCFData")
-    public ClusCoordListResult getDisCFData() { return disCFData; }
+    public ClusCoordListData getDisCFData() { return disCFData; }
     @JsonProperty("tcfdis")
     public int getTcfdis() { return tcfdis; }
     @JsonProperty("phaseCFData")
-    public ClusCoordListResult getPhaseCFData() { return phaseCFData; }
+    public ClusCoordListData getPhaseCFData() { return phaseCFData; }
     @JsonProperty("ordCFData")
-    public ClassifiedClusterResult getOrdCFData() { return ordCFData; }
+    public ClassifiedData getOrdCFData() { return ordCFData; }
     @JsonProperty("groupedCFData")
-    public GroupedCFResult getGroupedCFData() { return groupedCFData; }
+    public GroupedCFData getGroupedCFData() { return groupedCFData; }
     @JsonProperty("lcf")
     public int[][] getLcf() { return lcf; }
     @JsonProperty("tcf")
