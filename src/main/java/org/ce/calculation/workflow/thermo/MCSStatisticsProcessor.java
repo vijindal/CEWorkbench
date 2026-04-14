@@ -1,7 +1,5 @@
 package org.ce.calculation.workflow.thermo;
 
-import java.util.List;
-
 /**
  * Calculation-layer post-processor for MCS time series statistics.
  *
@@ -16,12 +14,12 @@ import java.util.List;
  */
 public class MCSStatisticsProcessor {
 
-    private final double N;
-    private final double R;
-    private final double T;
-    private final List<Double> seriesHmix;
-    private final List<Double> seriesE;
-    private final List<Double>[] seriesCF;
+    private final double   N;
+    private final double   R;
+    private final double   T;
+    private final double[] seriesHmix;
+    private final double[] seriesE;
+    private final double[][] seriesCF;
 
     // Computed statistics
     private double   tauInt            = Double.NaN;
@@ -41,11 +39,11 @@ public class MCSStatisticsProcessor {
      * @param T temperature (K)
      * @param seriesHmix raw Hmix time series (in J, not J/site)
      * @param seriesE raw total energy time series (in J)
-     * @param seriesCF raw CVCF correlation function time series per CF
+     * @param seriesCF raw CVCF correlation function time series per CF; may be null
      */
     public MCSStatisticsProcessor(double N, double R, double T,
-                                   List<Double> seriesHmix, List<Double> seriesE,
-                                   List<Double>[] seriesCF) {
+                                   double[] seriesHmix, double[] seriesE,
+                                   double[][] seriesCF) {
         if (N <= 0) throw new IllegalArgumentException("N must be > 0");
         if (R <= 0) throw new IllegalArgumentException("R must be > 0");
         if (T <= 0) throw new IllegalArgumentException("T must be > 0");
@@ -53,8 +51,8 @@ public class MCSStatisticsProcessor {
         this.N          = N;
         this.R          = R;
         this.T          = T;
-        this.seriesHmix = seriesHmix;
-        this.seriesE    = seriesE;
+        this.seriesHmix = seriesHmix != null ? seriesHmix : new double[0];
+        this.seriesE    = seriesE    != null ? seriesE    : new double[0];
         this.seriesCF   = seriesCF;
     }
 
@@ -64,12 +62,11 @@ public class MCSStatisticsProcessor {
      * averaging, and jackknife resampling for unbiased Cv.
      */
     public void computeStatistics() {
-        int n = seriesHmix.size();
+        int n = seriesHmix.length;
         if (n < 4) return;
 
         // 1. τ_int for Hmix (primary observable for block-size determination)
-        double[] hmixArr = toArray(seriesHmix);
-        tauInt           = computeTauInt(hmixArr);
+        tauInt           = computeTauInt(seriesHmix);
         statInefficiency = 1.0 + 2.0 * tauInt;
         nEff             = (int) Math.max(1, Math.round(n / statInefficiency));
 
@@ -83,16 +80,16 @@ public class MCSStatisticsProcessor {
         }
 
         // 3. Block averages for E, Hmix, each CVCF CF
-        double[] blockE    = blockMeans(toArray(seriesE), blockSizeUsed, nBlocks);
-        double[] blockHmix = blockMeans(toArray(seriesHmix), blockSizeUsed, nBlocks);
+        double[] blockE    = blockMeans(seriesE,    blockSizeUsed, nBlocks);
+        double[] blockHmix = blockMeans(seriesHmix, blockSizeUsed, nBlocks);
 
         stdEnergyPerSite = sem(blockE) / N;
         stdHmixPerSite   = sem(blockHmix) / N;
         int ncf = (seriesCF != null) ? seriesCF.length : 0;
         stdCFs  = new double[ncf];
         for (int l = 0; l < ncf; l++) {
-            if (seriesCF[l].size() == n) {
-                double[] blk = blockMeans(toArray(seriesCF[l]), blockSizeUsed, nBlocks);
+            if (seriesCF[l] != null && seriesCF[l].length == n) {
+                double[] blk = blockMeans(seriesCF[l], blockSizeUsed, nBlocks);
                 stdCFs[l] = sem(blk);
             }
         }
@@ -187,15 +184,6 @@ public class MCSStatisticsProcessor {
         double sumSq = 0;
         for (double v : x) sumSq += (v - m) * (v - m);
         return sumSq / (x.length - 1);
-    }
-
-    /** Convert List<Double> to primitive double[]. */
-    private static double[] toArray(List<Double> list) {
-        double[] arr = new double[list.size()];
-        for (int i = 0; i < list.size(); i++) {
-            arr[i] = list.get(i);
-        }
-        return arr;
     }
 
     // ===== Public getters for computed statistics =====

@@ -216,9 +216,9 @@ public class ThermodynamicWorkflow {
                 mcResult.getNSites(),
                 PhysicsConstants.R_GAS,
                 request.temperature,
-                toDoubleList(mcResult.getSeriesHmix()),
-                toDoubleList(mcResult.getSeriesE()),
-                toListArray(mcResult.getSeriesCF()));
+                mcResult.getSeriesHmix(),
+                mcResult.getSeriesE(),
+                mcResult.getSeriesCF());
         statsProcessor.computeStatistics();
 
         // Post-run statistics summary with computed error bars
@@ -337,22 +337,4 @@ public class ThermodynamicWorkflow {
         if (sink != null) sink.accept(line);
     }
 
-    // ---- Helper methods for array/list conversion ----
-
-    private static java.util.List<Double> toDoubleList(double[] arr) {
-        if (arr == null) return new java.util.ArrayList<>();
-        java.util.List<Double> list = new java.util.ArrayList<>(arr.length);
-        for (double v : arr) list.add(v);
-        return list;
-    }
-
-    private static java.util.List<Double>[] toListArray(double[][] arr) {
-        if (arr == null || arr.length == 0) return null;
-        @SuppressWarnings("unchecked")
-        java.util.List<Double>[] lists = new java.util.ArrayList[arr.length];
-        for (int i = 0; i < arr.length; i++) {
-            lists[i] = toDoubleList(arr[i]);
-        }
-        return lists;
-    }
 }

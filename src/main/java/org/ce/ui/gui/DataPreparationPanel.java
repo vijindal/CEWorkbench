@@ -371,7 +371,7 @@ public class DataPreparationPanel extends JPanel {
                         .model(resolvedModel)
                         .build();
 
-                return appCtx.identifyClusters(config, this::publish);
+                return org.ce.model.cluster.ClusterCFIdentificationPipeline.runFullWorkflow(config, this::publish);
             }
 
             @Override
