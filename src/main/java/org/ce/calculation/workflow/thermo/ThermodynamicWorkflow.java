@@ -1,5 +1,6 @@
 package org.ce.calculation.workflow.thermo;
 
+import org.ce.model.PhysicsConstants;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.ModelSession;
 import org.ce.model.ProgressEvent;
@@ -10,7 +11,6 @@ import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCResult;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
-import org.ce.model.cvm.CvCfBasis;
 
 import java.util.Arrays;
 import java.util.logging.Logger;
@@ -29,7 +29,6 @@ import java.util.function.Consumer;
 public class ThermodynamicWorkflow {
 
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
-    private static final double GAS_CONSTANT = 8.314;  // J/(mol·K)
 
     private CVMGibbsModel cachedGibbsModel;
     private ModelSession cachedSession;
@@ -172,7 +171,7 @@ public class ThermodynamicWorkflow {
                 .nAvg(nAvg)
                 .L(L)
                 .seed(System.currentTimeMillis())
-                .R(GAS_CONSTANT)
+                .R(PhysicsConstants.R_GAS)
                 .basis(session.cvcfBasis)
                 .matrixData(matrixData)
                 .cancellationCheck(Thread.currentThread()::isInterrupted);
@@ -219,7 +218,7 @@ public class ThermodynamicWorkflow {
         // Compute statistics from raw time series in the calculation layer
         MCSStatisticsProcessor statsProcessor = new MCSStatisticsProcessor(
                 mcResult.getNSites(),
-                GAS_CONSTANT,
+                PhysicsConstants.R_GAS,
                 request.temperature,
                 toDoubleList(mcResult.getSeriesHmix()),
                 toDoubleList(mcResult.getSeriesE()),

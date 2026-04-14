@@ -7,7 +7,7 @@ import org.ce.model.storage.InputLoader;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.ProgressEvent;
-import org.ce.model.cvm.CVMSolver;
+import org.ce.model.PhysicsConstants;
 
 import java.util.Arrays;
 import java.util.List;
@@ -24,7 +24,6 @@ import java.util.function.Consumer;
  */
 public class CVMGibbsModel {
 
-    public static final double R_GAS = 8.3144598;
     private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
 
     private String elements;
@@ -57,10 +56,12 @@ public class CVMGibbsModel {
         public final double[] Hu;
         public final double[] Su;
         public final double[][] Suu;
+        public final double[] cfs;
 
         public ModelResult(double G, double H, double S,
                 double[] Gu, double[][] Guu,
-                double[] Hu, double[] Su, double[][] Suu) {
+                double[] Hu, double[] Su, double[][] Suu,
+                double[] cfs) {
             this.G = G;
             this.H = H;
             this.S = S;
@@ -69,6 +70,7 @@ public class CVMGibbsModel {
             this.Hu = Hu;
             this.Su = Su;
             this.Suu = Suu;
+            this.cfs = cfs;
         }
     }
 
@@ -211,12 +213,12 @@ public class CVMGibbsModel {
                     }
 
                     double prefix = coeff_t * mh_tj * wv;
-                    Sval -= R_GAS * prefix * sContrib;
+                    Sval -= PhysicsConstants.R_GAS * prefix * sContrib;
 
                     for (int l = 0; l < ncf; l++) {
                         double cml = cm[incv][l];
                         if (cml != 0.0)
-                            Su[l] -= R_GAS * prefix * cml * logEff;
+                            Su[l] -= PhysicsConstants.R_GAS * prefix * cml * logEff;
                     }
 
                     for (int l1 = 0; l1 < ncf; l1++) {
@@ -227,7 +229,7 @@ public class CVMGibbsModel {
                             double cml2 = cm[incv][l2];
                             if (cml2 == 0.0)
                                 continue;
-                            double val = -R_GAS * prefix * cml1 * cml2 * invEff;
+                            double val = -PhysicsConstants.R_GAS * prefix * cml1 * cml2 * invEff;
                             Suu[l1][l2] += val;
                             if (l1 != l2)
                                 Suu[l2][l1] += val;
@@ -247,7 +249,7 @@ public class CVMGibbsModel {
             }
         }
 
-        return new ModelResult(Gval, Hval, Sval, Gu, Guu, eci, Su, Suu);
+        return new ModelResult(Gval, Hval, Sval, Gu, Guu, eci, Su, Suu, uFull);
     }
 
     /**

@@ -1,6 +1,7 @@
 package org.ce.model.cvm;
 
 import org.ce.model.cluster.LinearAlgebra;
+import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMGibbsModel.ModelResult;
@@ -17,7 +18,6 @@ public class CVMSolver {
 
     private static final int MAX_ITER = 20;
     private static final double TOLX = 1.0e-12;
-    private static final double R_GAS = 8.3144598; // J/(mol·K)
 
     /**
      * Result of CVM equilibrium calculation.
@@ -132,7 +132,7 @@ public class CVMSolver {
 
             // Convergence check
             if (errf <= tolerance) {
-                CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, R_GAS);
+                CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS);
                 return new EquilibriumResult(state, true, its, errf, trace);
             }
 
@@ -157,18 +157,18 @@ public class CVMSolver {
                 // X-convergence check
                 if (errx <= TOLX) {
                     current = model.evaluate(u, moleFractions, temperature);
-                    CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, R_GAS);
+                    CVMEquilibriumState state = new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS);
                     return new EquilibriumResult(state, true, its, errf, trace);
                 }
 
             } catch (Exception e) {
-                CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, R_GAS)
+                CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS)
                         : null;
                 return new EquilibriumResult(state, false, its, errf, trace);
             }
         }
 
-        CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, R_GAS) : null;
+        CVMEquilibriumState state = (current != null) ? new CVMEquilibriumState(u, current, temperature, PhysicsConstants.R_GAS) : null;
         return new EquilibriumResult(state, false, MAX_ITER, errf, trace);
     }
 
