@@ -44,7 +44,7 @@ class CMatrixGeneratorOutputTest {
         ModelSession.Builder builder = new ModelSession.Builder(hamiltonianStore);
         ModelSession session = builder.build(
             systemId,
-            EngineConfig.cvm(),
+            EngineConfig.CVM,
             line -> { }  // no-op progress sink (silent but never null)
         );
 

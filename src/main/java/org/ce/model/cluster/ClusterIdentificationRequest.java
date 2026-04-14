@@ -1,7 +1,6 @@
 package org.ce.model.cluster;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
-import org.ce.model.cluster.SpaceGroup;
 import org.ce.model.storage.InputLoader;
 
 /**
@@ -22,12 +21,6 @@ public class ClusterIdentificationRequest {
     private final int numComponents;
     private final String structurePhase;
     private final String model;
-    private final String engineType;
-
-    private static String sanitize(String id) {
-        if (id == null) return null;
-        return id.replace("_CVCF", "");
-    }
 
     private ClusterIdentificationRequest(Builder builder) {
         this.disorderedClusterFile = builder.disorderedClusterFile;
@@ -39,7 +32,6 @@ public class ClusterIdentificationRequest {
         this.numComponents = builder.numComponents;
         this.structurePhase = builder.structurePhase;
         this.model = builder.model;
-        this.engineType = builder.engineType;
     }
 
     // =========================================================================
@@ -82,10 +74,6 @@ public class ClusterIdentificationRequest {
         return model;
     }
 
-    public String getEngineType() {
-        return engineType;
-    }
-
     // =========================================================================
     // Builder
     // =========================================================================
@@ -120,12 +108,6 @@ public class ClusterIdentificationRequest {
         private int numComponents;
         private String structurePhase = "BCC_A2";
         private String model = "T";
-        private String engineType = "CVM";
-
-        public Builder engineType(String type) {
-            this.engineType = type;
-            return this;
-        }
 
         public Builder disorderedClusterFile(String file) {
             this.disorderedClusterFile = file;

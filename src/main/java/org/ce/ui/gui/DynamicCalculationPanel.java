@@ -100,7 +100,7 @@ public class DynamicCalculationPanel extends JPanel {
     private void onSessionChanged(ModelSession session) {
         ModelSession.EngineConfig engine = (session != null) 
                 ? session.engineConfig 
-                : ModelSession.EngineConfig.cvm();
+                : ModelSession.EngineConfig.CVM;
 
         rebuildPropertyOptions(engine);
         updateButtonState();
@@ -108,7 +108,7 @@ public class DynamicCalculationPanel extends JPanel {
 
     private void rebuildPropertyOptions(ModelSession.EngineConfig engine) {
         propertyCombo.removeAllItems();
-        List<Property> props = CalculationRegistry.INSTANCE.getAvailableProperties(engine);
+        List<Property> props = CalculationRegistry.getAvailableProperties(engine);
         for (Property p : props) propertyCombo.addItem(p);
         rebuildParameterForm();
     }
@@ -143,8 +143,8 @@ public class DynamicCalculationPanel extends JPanel {
         // Default to ANALYSIS mode
         Mode mode = Mode.ANALYSIS;
         ModelSession session = context.getActiveSession();
-        ModelSession.EngineConfig engine = (session != null) ? session.engineConfig : ModelSession.EngineConfig.cvm();
-        List<Parameter> requirements = CalculationRegistry.INSTANCE.getRequirements(prop, mode, engine);
+        ModelSession.EngineConfig engine = (session != null) ? session.engineConfig : ModelSession.EngineConfig.CVM;
+        List<Parameter> requirements = CalculationRegistry.getRequirements(prop, mode, engine);
 
         // ── Parameter Rows ──
         int i = 0;

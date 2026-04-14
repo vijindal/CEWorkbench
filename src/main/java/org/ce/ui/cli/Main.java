@@ -142,7 +142,7 @@ public class Main {
                         .model(model)
                         .build();
 
-                appCtx.identifyClusters(config, sink);
+                org.ce.model.cluster.ClusterCFIdentificationPipeline.runFullWorkflow(config, sink);
                 if (verbose) System.out.println("Identification complete.");
             }
 
@@ -176,7 +176,7 @@ public class Main {
 
                 double tStart = 1000.0, tEnd = 1000.0, tStep = 100.0;
 
-                ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
+                ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
                 CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
                 calcSpecs.set(Parameter.COMPOSITION, composition);
                 calcSpecs.set(Parameter.T_START, tStart);
@@ -247,7 +247,7 @@ public class Main {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
-            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
+            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
             CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
             calcSpecs.set(Parameter.TEMPERATURE, temp);
             calcSpecs.set(Parameter.COMPOSITION, composition);
@@ -285,7 +285,7 @@ public class Main {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
-            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.cvm());
+            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
             CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
             calcSpecs.set(Parameter.TEMPERATURE, temp);
             calcSpecs.set(Parameter.COMPOSITION, composition);

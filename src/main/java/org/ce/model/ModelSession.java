@@ -29,12 +29,6 @@ public final class ModelSession {
     public enum EngineConfig {
         CVM, MCS;
 
-        /** Convenience factory — kept for source compatibility. */
-        public static EngineConfig cvm() { return CVM; }
-
-        /** Convenience factory — kept for source compatibility. */
-        public static EngineConfig mcs() { return MCS; }
-
         public boolean isCvm() { return this == CVM; }
         public boolean isMcs() { return this == MCS; }
     }

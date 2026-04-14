@@ -18,14 +18,12 @@ import java.util.List;
  */
 public final class CalculationRegistry {
 
-    public static final CalculationRegistry INSTANCE = new CalculationRegistry();
-
     private CalculationRegistry() {}
 
     /**
      * Returns properties supported by the given engine.
      */
-    public List<Property> getAvailableProperties(EngineConfig engine) {
+    public static List<Property> getAvailableProperties(EngineConfig engine) {
         if (engine.isCvm()) {
             return Arrays.asList(Property.GIBBS_ENERGY, Property.ENTHALPY, Property.ENTROPY);
         } else {
@@ -37,19 +35,19 @@ public final class CalculationRegistry {
     /**
      * Returns modes supported by the property and engine.
      */
-    public List<Mode> getAvailableModes(Property property, EngineConfig engine) {
+    public static List<Mode> getAvailableModes(Property property, EngineConfig engine) {
         if (property == Property.HEAT_CAPACITY) {
             // Heat capacity currently only via FSS in MCS
             return Arrays.asList(Mode.FINITE_SIZE_SCALING);
         }
-        
+
         return Arrays.asList(Mode.ANALYSIS);
     }
 
     /**
      * Returns the list of parameters required for a specific combination.
      */
-    public List<Parameter> getRequirements(Property property, Mode mode, EngineConfig engine) {
+    public static List<Parameter> getRequirements(Property property, Mode mode, EngineConfig engine) {
         List<Parameter> requirements = new ArrayList<>();
 
         // Basic conditions

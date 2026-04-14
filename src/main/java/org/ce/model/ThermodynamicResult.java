@@ -22,16 +22,6 @@ public class ThermodynamicResult {
     public final double[] avgCFs;        // null if not from MCS
     public final double[] stdCFs;        // null if not from MCS
 
-    // Backward-compatible 4-arg constructor
-    public ThermodynamicResult(
-            double temperature,
-            double[] composition,
-            double gibbsEnergy,
-            double enthalpy) {
-        this(temperature, composition, gibbsEnergy, enthalpy, Double.NaN, Double.NaN, Double.NaN, null, null, null);
-    }
-
-    // Full 10-arg constructor
     public ThermodynamicResult(
             double temperature,
             double[] composition,
