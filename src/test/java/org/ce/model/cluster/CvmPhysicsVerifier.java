@@ -1,6 +1,6 @@
 package org.ce.model.cluster;
 
-import org.ce.model.cluster.cvcf.CvCfBasis;
+import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cluster.ClusterVariableEvaluator;
 import java.util.Arrays;

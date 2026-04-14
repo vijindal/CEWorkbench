@@ -250,7 +250,11 @@ public class Main {
             ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
             CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
             calcSpecs.set(Parameter.TEMPERATURE, temp);
-            calcSpecs.set(Parameter.COMPOSITION, composition);
+            // X_STARTS holds the independent fractions (x2, x3, ...) — x1 is derived as 1-sum
+            double[] xIndep = java.util.Arrays.copyOfRange(composition, 1, composition.length);
+            calcSpecs.set(Parameter.X_STARTS, xIndep);
+            calcSpecs.set(Parameter.X_ENDS,   xIndep);
+            calcSpecs.set(Parameter.X_STEPS,  new double[xIndep.length]);
 
             ThermodynamicResult result = (ThermodynamicResult) service.execute(modelSpecs, calcSpecs, sink, null);
 
