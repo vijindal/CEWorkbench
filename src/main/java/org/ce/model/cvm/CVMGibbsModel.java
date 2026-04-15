@@ -440,9 +440,19 @@ public class CVMGibbsModel {
     // Accessors
     // =========================================================================
 
-    public int    getNumComponents() { return numComponents; }
-    public String getElements()      { return elements; }
-    public CvCfBasis getBasis()      { return basis; }
-    public int    getNcf()           { return ncf; }
-    public int    getTcf()           { return tcf; }
+    public int      getNumComponents()      { return numComponents; }
+    public String   getElements()           { return elements; }
+    public CvCfBasis getBasis()             { return basis; }
+    public int      getNcf()               { return ncf; }
+    public int      getTcf()               { return tcf; }
+    public int      getTcdis()             { return tcdis; }
+    public int[]    getLc()                { return lc; }
+    public int[][]  getLcv()               { return lcv; }
+    public int[][]  getOrthCfBasisIndices() { return orthCfBasisIndices; }
+
+    /** Computes cluster variables cv[t][j][v] from the given non-point CFs and composition. */
+    public double[][][] evaluateClusterVariables(double[] u, double[] moleFractions) {
+        double[] uFull = CMatrixPipeline.buildFullCVCFVector(u, moleFractions, ncf);
+        return CMatrixPipeline.evaluateCVs(uFull, cmat, lcv, tcdis, lc);
+    }
 }

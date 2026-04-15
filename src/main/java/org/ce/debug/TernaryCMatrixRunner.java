@@ -75,8 +75,9 @@ public class TernaryCMatrixRunner {
                                         System.out::println);
 
                         // 5. Build and Verify Random State
-                        double[] x = new double[K];
-                        java.util.Arrays.fill(x, 1.0 / K);
+                        // double[] x = new double[K];
+                        // java.util.Arrays.fill(x, 1.0 / K);
+                        double[] x = {0.33, 0.33, 0.34};
 
                         System.out.println("\n[Stage 5] Testing CMatrixPipeline.verifyRandomCVs...");
                         CMatrixPipeline.verifyRandomCVs(x, pipelineResult, cMatData, System.out::println);

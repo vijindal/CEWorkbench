@@ -75,6 +75,76 @@ public final class CvCfBasis {
     public int indexOfCf(String name) { return cfNameIndex.getOrDefault(name, -1); }
     public int totalCfs() { return cfNames.size(); }
 
+    /** All intermediate vectors produced when computing the random disordered state. */
+    public static final class RandomStateVectors {
+        /** Point basis functions φₖ(x) evaluated at the composition (length = K-1). */
+        public final double[] pointCF;
+        /** Orthogonal non-point CFs at random state — product of pointCFs (length = orthNcf). */
+        public final double[] uOrthNonPoint;
+        /** Full orthogonal vector passed to T⁻¹: [uOrthNonPoint | pointCF | 1?] */
+        public final double[] uOrthFull;
+        /** CVCF-transformed non-point CFs (length = ncf) — what N-R minimizes over. */
+        public final double[] uCvcfNonPoint;
+        /** Full CVCF vector including point vars appended: [uCvcfNonPoint | moleFractions] */
+        public final double[] uCvcfFull;
+
+        RandomStateVectors(double[] pointCF, double[] uOrthNonPoint, double[] uOrthFull,
+                           double[] uCvcfNonPoint, double[] uCvcfFull) {
+            this.pointCF        = pointCF;
+            this.uOrthNonPoint  = uOrthNonPoint;
+            this.uOrthFull      = uOrthFull;
+            this.uCvcfNonPoint  = uCvcfNonPoint;
+            this.uCvcfFull      = uCvcfFull;
+        }
+    }
+
+    /**
+     * Computes the random disordered state and returns all intermediate vectors.
+     * Useful for debugging the CVCF transformation.
+     */
+    public RandomStateVectors computeRandomStateVectors(double[] moleFractions, int[][] orthCfBasisIndices) {
+        if (orthCfBasisIndices == null || orthCfBasisIndices.length == 0) {
+            throw new IllegalArgumentException("orthCfBasisIndices must not be null or empty.");
+        }
+        int K       = moleFractions.length;
+        int nxcf    = K - 1;
+        int orthTcf = orthCfBasisIndices.length;
+        int orthNcf = orthTcf - nxcf;
+
+        double[] basisVec = ClusterMath.buildBasis(K);
+        double[] pointCF  = new double[nxcf];
+        for (int k = 0; k < nxcf; k++)
+            for (int i = 0; i < K; i++)
+                pointCF[k] += moleFractions[i] * Math.pow(basisVec[i], k + 1);
+
+        double[] uOrthNonPoint = new double[orthNcf];
+        for (int col = 0; col < orthNcf; col++) {
+            double val = 1.0;
+            for (int b : orthCfBasisIndices[col]) val *= pointCF[b - 1];
+            uOrthNonPoint[col] = val;
+        }
+
+        double[][] tInv = resolvedTinv();
+        int tRows = tInv[0].length;
+        double[] uOrthFull = new double[tRows];
+        System.arraycopy(uOrthNonPoint, 0, uOrthFull, 0, orthNcf);
+        System.arraycopy(pointCF,       0, uOrthFull, orthNcf, nxcf);
+        if (tRows == orthTcf + 1) uOrthFull[tRows - 1] = 1.0;
+
+        int ncf = numNonPointCfs;
+        int tcf = totalCfs();
+        double[] vFull = new double[tcf];
+        for (int j = 0; j < tcf; j++) {
+            double sum = 0.0;
+            for (int i = 0; i < tInv[j].length; i++) sum += tInv[j][i] * uOrthFull[i];
+            vFull[j] = sum;
+        }
+        for (int i = 0; i < K; i++) vFull[ncf + i] = moleFractions[i];
+
+        double[] uCvcfNonPoint = Arrays.copyOf(vFull, ncf);
+        return new RandomStateVectors(pointCF, uOrthNonPoint, uOrthFull, uCvcfNonPoint, vFull);
+    }
+
     public double[] computeRandomState(double[] moleFractions, int[][] orthCfBasisIndices) {
         if (orthCfBasisIndices == null || orthCfBasisIndices.length == 0) {
             throw new IllegalArgumentException("orthCfBasisIndices must not be null or empty.");
