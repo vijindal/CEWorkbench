@@ -1,367 +1,419 @@
 {
-  "elements" : "Nb-Ti-V-Zr",
-  "structurePhase" : "BCC_A2",
-  "model" : "T_CVCF",
-  "cecTerms" : [ {
-    "name" : "CF_0",
-    "description" : "CF_0 (4 sites, multiplicity 6)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_1",
-    "description" : "CF_1 (3 sites, multiplicity 12)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_2",
-    "description" : "Reference pair (2 sites, II-neighbor, multiplicity 3)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_3",
-    "description" : "CF_3 (2 sites, multiplicity 4)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_4",
-    "description" : "CF_4 (1 site, multiplicity 1)",
-    "numSites" : 1,
-    "multiplicity" : 1.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_5",
-    "description" : "v4CD (V-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_6",
-    "description" : "v4ABC1 (Nb-Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : -48800.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_7",
-    "description" : "v4ABC2 (Nb-Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : -24400.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_8",
-    "description" : "v4ABC3 (Nb-Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : -24400.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_9",
-    "description" : "v4AB (Nb-Ti tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_10",
-    "description" : "v4AC (Nb-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_11",
-    "description" : "v4AD (Nb-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_12",
-    "description" : "v4BC (Ti-V tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_13",
-    "description" : "v4BD (Ti-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 6.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_14",
-    "description" : "v4ABD1 (Nb-Ti-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_15",
-    "description" : "v4ABD2 (Nb-Ti-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_16",
-    "description" : "v4ABD3 (Nb-Ti-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_17",
-    "description" : "v4ACD1 (Nb-V-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_18",
-    "description" : "v4ACD2 (Nb-V-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_19",
-    "description" : "v4ACD3 (Nb-V-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_20",
-    "description" : "v4ABCD1 (Nb-Ti-V-Zr tetrahedron)",
-    "numSites" : 4,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_21",
-    "description" : "v3AB (Nb-Ti triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_22",
-    "description" : "v3AC (Nb-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_23",
-    "description" : "v3AD (Nb-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -4224.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_24",
-    "description" : "v3BC (Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_25",
-    "description" : "v3BD (Ti-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_26",
-    "description" : "v3CD (V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -5760.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_27",
-    "description" : "v3ABC1 (Nb-Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -20000.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_28",
-    "description" : "v3ABC2 (Nb-Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -20000.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_29",
-    "description" : "v3ABC3 (Nb-Ti-V triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -20000.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_30",
-    "description" : "v3ABD1 (Nb-Ti-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -3333.33,
-    "b" : 0.0
-  }, {
-    "name" : "CF_31",
-    "description" : "v3ABD2 (Nb-Ti-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -3333.33,
-    "b" : 0.0
-  }, {
-    "name" : "CF_32",
-    "description" : "v3ABD3 (Nb-Ti-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : -3333.33,
-    "b" : 0.0
-  }, {
-    "name" : "CF_33",
-    "description" : "v3ACD1 (Nb-V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_34",
-    "description" : "v3ACD2 (Nb-V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_35",
-    "description" : "v3ACD3 (Nb-V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 0.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_36",
-    "description" : "v3BCD1 (Ti-V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 10000.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_37",
-    "description" : "v3BCD2 (Ti-V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 10000.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_38",
-    "description" : "v3BCD3 (Ti-V-Zr triangle)",
-    "numSites" : 3,
-    "multiplicity" : 12.0,
-    "a" : 10000.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_39",
-    "description" : "v22AB (Nb-Ti II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 3120.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_40",
-    "description" : "v22AC (Nb-V II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 7040.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_41",
-    "description" : "v22AD (Nb-Zr II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 3700.8,
-    "b" : 3.3216
-  }, {
-    "name" : "CF_42",
-    "description" : "v22BC (Ti-V II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 4080.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_43",
-    "description" : "v22BD (Ti-Zr II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : -4632.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_44",
-    "description" : "v22CD (V-Zr II-pair)",
-    "numSites" : 2,
-    "multiplicity" : 3.0,
-    "a" : 8960.0,
-    "b" : 1.272
-  }, {
-    "name" : "CF_45",
-    "description" : "v21AB (Nb-Ti I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 6240.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_46",
-    "description" : "v21AC (Nb-V I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 14080.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_47",
-    "description" : "v21AD (Nb-Zr I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 7401.6,
-    "b" : 6.6432
-  }, {
-    "name" : "CF_48",
-    "description" : "v21BC (Ti-V I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 8160.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_49",
-    "description" : "v21BD (Ti-Zr I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : -9264.0,
-    "b" : 0.0
-  }, {
-    "name" : "CF_50",
-    "description" : "v21CD (V-Zr I-pair)",
-    "numSites" : 2,
-    "multiplicity" : 4.0,
-    "a" : 17920.0,
-    "b" : 2.544
-  } ],
-  "cecUnits" : "J/mol",
-  "reference" : "Nb-Ti-V-Zr CVCF quaternary BCC_A2 T model",
-  "notes" : "CVCF CEC with temperature-dependent interactions for Nb-Ti-V-Zr system",
-  "ncf" : 51
+  "elements": "Nb-Ti-V-Zr",
+  "structurePhase": "BCC_A2",
+  "model": "T_CVCF",
+  "cecTerms": [
+    {
+      "name": "CF_0",
+      "description": "CF_0 (4 sites, multiplicity 6)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_1",
+      "description": "CF_1 (3 sites, multiplicity 12)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_2",
+      "description": "Reference pair (2 sites, II-neighbor, multiplicity 3)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_3",
+      "description": "CF_3 (2 sites, multiplicity 4)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_4",
+      "description": "CF_4 (1 site, multiplicity 1)",
+      "numSites": 1,
+      "multiplicity": 1.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_5",
+      "description": "v4CD (V-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_6",
+      "description": "v4ABC1 (Nb-Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 48800.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_7",
+      "description": "v4ABC2 (Nb-Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": -24400.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_8",
+      "description": "v4ABC3 (Nb-Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": -24400.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_9",
+      "description": "v4AB (Nb-Ti tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_10",
+      "description": "v4AC (Nb-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_11",
+      "description": "v4AD (Nb-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_12",
+      "description": "v4BC (Ti-V tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_13",
+      "description": "v4BD (Ti-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_14",
+      "description": "v4ABD1 (Nb-Ti-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_15",
+      "description": "v4ABD2 (Nb-Ti-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_16",
+      "description": "v4ABD3 (Nb-Ti-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_17",
+      "description": "v4ACD1 (Nb-V-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_18",
+      "description": "v4ACD2 (Nb-V-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_19",
+      "description": "v4ACD3 (Nb-V-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_20",
+      "description": "v4ABCD1 (Nb-Ti-V-Zr tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_21",
+      "description": "v3AB (Nb-Ti triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_22",
+      "description": "v3AC (Nb-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_23",
+      "description": "v3AD (Nb-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -4224.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_24",
+      "description": "v3BC (Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_25",
+      "description": "v3BD (Ti-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_26",
+      "description": "v3CD (V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -5760.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_27",
+      "description": "v3ABC1 (Nb-Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -20000.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_28",
+      "description": "v3ABC2 (Nb-Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -20000.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_29",
+      "description": "v3ABC3 (Nb-Ti-V triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -20000.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_30",
+      "description": "v3ABD1 (Nb-Ti-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -3333.33,
+      "b": 0.0
+    },
+    {
+      "name": "CF_31",
+      "description": "v3ABD2 (Nb-Ti-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -3333.33,
+      "b": 0.0
+    },
+    {
+      "name": "CF_32",
+      "description": "v3ABD3 (Nb-Ti-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -3333.33,
+      "b": 0.0
+    },
+    {
+      "name": "CF_33",
+      "description": "v3ACD1 (Nb-V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_34",
+      "description": "v3ACD2 (Nb-V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_35",
+      "description": "v3ACD3 (Nb-V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_36",
+      "description": "v3BCD1 (Ti-V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 10000.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_37",
+      "description": "v3BCD2 (Ti-V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 10000.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_38",
+      "description": "v3BCD3 (Ti-V-Zr triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 10000.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_39",
+      "description": "v22AB (Nb-Ti II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 3120.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_40",
+      "description": "v22AC (Nb-V II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 7040.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_41",
+      "description": "v22AD (Nb-Zr II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 3700.8,
+      "b": 3.3216
+    },
+    {
+      "name": "CF_42",
+      "description": "v22BC (Ti-V II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 4080.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_43",
+      "description": "v22BD (Ti-Zr II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": -4632.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_44",
+      "description": "v22CD (V-Zr II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": 8960.0,
+      "b": 1.272
+    },
+    {
+      "name": "CF_45",
+      "description": "v21AB (Nb-Ti I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 6240.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_46",
+      "description": "v21AC (Nb-V I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 14080.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_47",
+      "description": "v21AD (Nb-Zr I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 7401.6,
+      "b": 6.6432
+    },
+    {
+      "name": "CF_48",
+      "description": "v21BC (Ti-V I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 8160.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_49",
+      "description": "v21BD (Ti-Zr I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": -9264.0,
+      "b": 0.0
+    },
+    {
+      "name": "CF_50",
+      "description": "v21CD (V-Zr I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": 17920.0,
+      "b": 2.544
+    }
+  ],
+  "cecUnits": "J/mol",
+  "reference": "Nb-Ti-V-Zr CVCF quaternary BCC_A2 T model",
+  "notes": "CVCF CEC with temperature-dependent interactions for Nb-Ti-V-Zr system",
+  "ncf": 51
 }

@@ -103,11 +103,3 @@ task runPipelineTest(type: JavaExec) {
     mainClass = 'org.ce.debug.PipelineTestRunner'
 }
 
-task randomEval(type: JavaExec) {
-    group = 'verification'
-    description = 'Evaluate G/H/S at random (disordered) CFs without N-R minimization'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'org.ce.debug.RandomStateEvaluator'
-    jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
-    args = ['Nb-Ti-V', 'BCC_A2', 'T', '1000', '0.33', '0.33', '0.34']
-}
