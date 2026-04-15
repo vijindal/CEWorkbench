@@ -1804,7 +1804,7 @@ public final class ClusterCFIdentificationPipeline {
         // Final bundle
         double[] equiX = new double[numComponents];
         java.util.Arrays.fill(equiX, 1.0 / numComponents);
-        double[] vRandEqui = cvcfBasis.computeRandomCvcfCFs(equiX, matrixData.getCfBasisIndices());
+        double[] vRandEqui = cvcfBasis.computeRandomCvcfCFs(equiX, partialResult);
 
         PipelineResult finalResult = new PipelineResult(
                 partialResult.getDisClusData(),
