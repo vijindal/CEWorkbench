@@ -54,6 +54,7 @@ public class CalculationService {
                 yield fssWorkflow.run(session,
                     calcSpecs.getOrDefault(Parameter.TEMPERATURE),
                     calcSpecs.getOrDefault(Parameter.COMPOSITION),
+                    calcSpecs.getProperty(),
                     calcSpecs.getOrDefault(Parameter.MCS_NEQUIL),
                     calcSpecs.getOrDefault(Parameter.MCS_NAVG),
                     textSink, eventSink);
@@ -100,19 +101,19 @@ public class CalculationService {
             double[] xIndep = (xStarts != null) ? xStarts : new double[session.numComponents() - 1];
             double[] fullComp = ScanWorkflows.deriveComposition(xIndep, session);
             return thermoWorkflow.runCalculation(session, new ThermodynamicRequest(
-                    tStart, fullComp, textSink, eventSink,
+                    tStart, fullComp, calcSpecs.getProperty(), textSink, eventSink,
                     mcsL, mcsNEquil, mcsNAvg,
                     calcSpecs.getOrDefault(Parameter.FIXED_CORRELATIONS)
             ));
         } else if (vars.size() == 1) {
             // 1D: Generic Scan
-            return lineScan.scan1D(session, vars.get(0), xStarts, tStart, mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
+            return lineScan.scan1D(session, vars.get(0), xStarts, tStart, calcSpecs.getProperty(), mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
         } else {
             // 2D: Generic Grid Scan
             if (vars.size() > 2) {
                 textSink.accept("Warning: More than 2 variables vary. Truncating to first two.");
             }
-            return gridScan.scan2D(session, vars.get(0), vars.get(1), xStarts, tStart, mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
+            return gridScan.scan2D(session, vars.get(0), vars.get(1), xStarts, tStart, calcSpecs.getProperty(), mcsL, mcsNEquil, mcsNAvg, textSink, eventSink);
         }
     }
 

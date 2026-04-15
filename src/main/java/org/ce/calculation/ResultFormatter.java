@@ -32,26 +32,17 @@ public final class ResultFormatter {
         sb.append(String.format("T=%7.1f K", r.temperature));
         for (QuantityDescriptor q : QuantityDescriptor.values()) {
             if (q.available(r)) {
+                // Filter: If a specific property was requested (and it's not the default G), 
+                // only show that one.
+                if (r.requestedProp != null && r.requestedProp != org.ce.calculation.CalculationDescriptor.Property.GIBBS_ENERGY) {
+                    if (!q.name().equals(r.requestedProp.name())) continue;
+                }
                 sb.append(String.format("  %s=%12.4f", q.symbol, q.extract(r)));
             }
         }
         return sb.toString();
     }
 
-    /**
-     * Returns a verbose multi-line block for a single equilibrium result,
-     * suitable for CLI {@code calc_min} output and the GUI result log.
-     * Example:
-     * <pre>
-     * EQUILIBRIUM PROPERTIES
-     * ─────────────────────────────────────────────────────
-     *   T         :     1000.0 K
-     *   x         :  [0.5000, 0.5000]
-     *   G (J/mol) :   -12345.6789012345
-     *   H (J/mol) :   -10000.0000000000
-     *   S (J/mol·K):        2.3456789012
-     * </pre>
-     */
     public static String fullBlock(ThermodynamicResult r) {
         StringBuilder sb = new StringBuilder();
         sb.append("EQUILIBRIUM PROPERTIES\n");
@@ -70,6 +61,11 @@ public final class ResultFormatter {
         // Dynamic quantity rows
         for (QuantityDescriptor q : QuantityDescriptor.values()) {
             if (q.available(r)) {
+                // Filter: If a specific property was requested (and it's not the default G), 
+                // only show that one.
+                if (r.requestedProp != null && r.requestedProp != org.ce.calculation.CalculationDescriptor.Property.GIBBS_ENERGY) {
+                    if (!q.name().equals(r.requestedProp.name())) continue;
+                }
                 String label = q.symbol + " (" + q.unit + ")";
                 sb.append(String.format("  %-16s: %20.10f%n", label, q.extract(r)));
             }

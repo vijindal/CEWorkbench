@@ -109,21 +109,51 @@ public class ThermodynamicWorkflow {
             cachedSession = session;
         }
 
+        // 1. Resolve Equilibrium State (Minimization)
         EquilibriumResult solverResult = cachedGibbsModel.getEquilibriumState(
                 temperature, composition, 1.0e-5,
                 progressSink, request.eventSink);
 
         validateConvergence(solverResult, progressSink);
 
-        ModelResult mr = solverResult.modelResult;
+        // 2. Extract requested property via ThermodynamicMethods (Procedural Bridge)
+        ThermodynamicMethods methods = new ThermodynamicMethods(cachedGibbsModel);
+        double G = Double.NaN, H = Double.NaN, S = Double.NaN;
+        
+        // Prepare modDataIn array [output, T, x...]
+        double[] modData = new double[2 + composition.length];
+        modData[1] = temperature;
+        System.arraycopy(composition, 0, modData, 2, composition.length);
+
+        switch (request.property) {
+            case ENTHALPY -> {
+                methods.calHm(modData);
+                H = modData[0];
+            }
+            case ENTROPY -> {
+                methods.calSm(modData);
+                S = modData[0];
+            }
+            case GIBBS_ENERGY -> {
+                methods.calGm(modData);
+                G = modData[0];
+                H = cachedGibbsModel.calH();
+                S = cachedGibbsModel.calS();
+            }
+            default -> {
+                // For other properties, fall back to ModelResult if necessary
+                ModelResult mr = solverResult.modelResult;
+                G = mr.G; H = mr.H; S = mr.S;
+            }
+        }
+
         ThermodynamicResult result = new ThermodynamicResult(
                 temperature, composition.clone(),
-                mr.G,          // gibbsEnergy
-                mr.H,          // enthalpy
-                mr.S,          // entropy
-                Double.NaN, Double.NaN,       // stdEnthalpy, heatCapacity
-                solverResult.u,// optimizedCFs (equilibrium non-point CFs)
-                null, null     // avgCFs, stdCFs
+                G, H, S,
+                Double.NaN, Double.NaN,
+                solverResult.u,
+                null, null,
+                request.property
         );
 
         emit(progressSink, "================================================================================");

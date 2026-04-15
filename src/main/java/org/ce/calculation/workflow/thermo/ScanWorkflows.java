@@ -60,6 +60,7 @@ public class ScanWorkflows {
                 Varying var2,
                 double[] baseIndepComp,
                 double baseT,
+                org.ce.calculation.CalculationDescriptor.Property property,
                 int mcsL, int mcsNEquil, int mcsNAvg,
                 Consumer<String> strSink,
                 Consumer<ProgressEvent> eventSink) throws Exception {
@@ -78,7 +79,7 @@ public class ScanWorkflows {
                     if (var2.isTemp) T = v2; else xIndep[var2.compIndex] = v2;
 
                     row.add(thermoWorkflow.runCalculation(session,
-                            new ThermodynamicRequest(T, deriveComposition(xIndep, session), strSink, eventSink, mcsL, mcsNEquil, mcsNAvg)));
+                            new ThermodynamicRequest(T, deriveComposition(xIndep, session), property, strSink, eventSink, mcsL, mcsNEquil, mcsNAvg)));
                     if (Math.abs(var2.step) < 1e-10) break;
                 }
                 grid.add(row);
@@ -106,6 +107,7 @@ public class ScanWorkflows {
                 Varying var,
                 double[] baseIndepComp,
                 double baseT,
+                org.ce.calculation.CalculationDescriptor.Property property,
                 int mcsL, int mcsNEquil, int mcsNAvg,
                 Consumer<String> progressSink,
                 Consumer<ProgressEvent> eventSink) throws Exception {
@@ -118,7 +120,7 @@ public class ScanWorkflows {
                 if (var.isTemp) T = v; else xIndep[var.compIndex] = v;
 
                 results.add(thermoWorkflow.runCalculation(session,
-                        new ThermodynamicRequest(T, deriveComposition(xIndep, session), progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg)));
+                        new ThermodynamicRequest(T, deriveComposition(xIndep, session), property, progressSink, eventSink, mcsL, mcsNEquil, mcsNAvg)));
                 
                 if (Math.abs(var.step) < 1e-10) break;
             }
@@ -142,6 +144,7 @@ public class ScanWorkflows {
                 ModelSession session,
                 double temperature,
                 double[] composition,
+                org.ce.calculation.CalculationDescriptor.Property property,
                 int nEquil,
                 int nAvg,
                 Consumer<String> progressSink,
@@ -153,7 +156,7 @@ public class ScanWorkflows {
             for (int i = 0; i < Ls.length; i++) {
                 if (progressSink != null) progressSink.accept("FSS: Running L=" + Ls[i]);
                 results[i] = thermoWorkflow.runCalculation(session,
-                        new ThermodynamicRequest(temperature, composition, progressSink, eventSink, Ls[i], nEquil, nAvg));
+                        new ThermodynamicRequest(temperature, composition, property, progressSink, eventSink, Ls[i], nEquil, nAvg));
             }
 
             // Simple extrapolation logic (placeholder for actual FSS physics)

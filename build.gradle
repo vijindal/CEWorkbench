@@ -69,6 +69,14 @@ task runGuiDebug(type: JavaExec) {
     ]
 }
 
+task runCli(type: JavaExec) {
+    group = 'application'
+    description = 'Launch the CE Workbench CLI'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.ui.cli.Main'
+    jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
+}
+
 task runDebugCli(type: JavaExec) {
     group = 'application'
     description = 'Launch the CE Workbench CLI with CVM stage-by-stage debug dumps enabled'
@@ -81,25 +89,4 @@ task runDebugCli(type: JavaExec) {
     args = ['all', 'Nb-Ti', 'BCC_A2', 'T_CVCF']
 }
 
-task runDemo(type: JavaExec) {
-    group = 'application'
-    description = 'Run CEC basis transformation demo'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'org.ce.demo.BinaryToTernaryDemo'
-}
-
-task runTernaryDebug(type: JavaExec) {
-    group = 'verification'
-    description = 'Run diagnostic C-Matrix generation for Nb-Ti-V ternary system'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'org.ce.debug.TernaryCMatrixRunner'
-    jvmArgs = ['-Djava.util.logging.config.file=logging.properties']
-}
-
-task runPipelineTest(type: JavaExec) {
-    group = 'verification'
-    description = 'Run ClusterCFIdentificationPipeline test for Nb-Ti-V ternary'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'org.ce.debug.PipelineTestRunner'
-}
 

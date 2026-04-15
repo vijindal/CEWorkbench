@@ -55,7 +55,7 @@ public class Main {
         if (args.length > 0 && args[0].equals("calc_min")) {
             if (args.length < 6) {
                 System.err.println(
-                        "Usage: calc_min <elements> <structure> <model> <temp> <comp1> [<comp2> ...] [--verbose]");
+                        "Usage: calc_min <elements> <structure> <model> <temp> <comp1> [<comp2> ...] [prop (G|H|S)] [--verbose]");
                 System.exit(1);
             }
             String elements  = args[1];
@@ -63,15 +63,29 @@ public class Main {
             String model     = args[3];
             double temp      = Double.parseDouble(args[4]);
 
+            // Check if the last argument is a property or part of the composition
+            String lastArg = args[args.length - 1];
+            Property requestedProp = Property.GIBBS_ENERGY;
+            int compEndIndex = args.length;
+
+            if (lastArg.equalsIgnoreCase("G") || lastArg.equalsIgnoreCase("H") || lastArg.equalsIgnoreCase("S")) {
+                requestedProp = switch (lastArg.toUpperCase()) {
+                    case "H" -> Property.ENTHALPY;
+                    case "S" -> Property.ENTROPY;
+                    default  -> Property.GIBBS_ENERGY;
+                };
+                compEndIndex--; // The last arg is the property, so composition ends before it
+            }
+
             double[] composition;
-            if (args.length == 6) {
+            if (compEndIndex == 6) {
                 double comp = Double.parseDouble(args[5]);
                 composition = new double[]{1 - comp, comp};
             } else {
-                composition = new double[args.length - 5];
-                for (int i = 5; i < args.length; i++) composition[i - 5] = Double.parseDouble(args[i]);
+                composition = new double[compEndIndex - 5];
+                for (int i = 5; i < compEndIndex; i++) composition[i - 5] = Double.parseDouble(args[i]);
             }
-            runCalcMin(elements, structure, model, temp, composition);
+            runCalcMin(elements, structure, model, temp, composition, requestedProp);
             return;
         }
 
@@ -241,15 +255,18 @@ public class Main {
      * Uses {@link ResultFormatter#fullBlock} for output (shared with GUI log).
      */
     private static void runCalcMin(String elements, String structure, String model,
-                                   double temp, double[] composition) {
+                                   double temp, double[] composition, Property requestedProp) {
         try {
             org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
             ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
-            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
-            calcSpecs.set(Parameter.TEMPERATURE, temp);
+            CalculationSpecifications calcSpecs = new CalculationSpecifications(requestedProp, Mode.ANALYSIS);
+            calcSpecs.set(Parameter.T_START, temp);
+            calcSpecs.set(Parameter.T_END,   temp);
+            calcSpecs.set(Parameter.T_STEP,  0.0);
+            
             // X_STARTS holds the independent fractions (x2, x3, ...) — x1 is derived as 1-sum
             double[] xIndep = java.util.Arrays.copyOfRange(composition, 1, composition.length);
             calcSpecs.set(Parameter.X_STARTS, xIndep);
