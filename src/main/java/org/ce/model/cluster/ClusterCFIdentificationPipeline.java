@@ -1612,8 +1612,9 @@ public final class ClusterCFIdentificationPipeline {
 
         // 4. Stage 4: CVCF Transformation
         emit(progressSink, "\n[STAGE 4]: Basis Transformation...");
+        String parentStructure = resolveParentStructure(structurePhase);
         org.ce.model.cvm.CvCfBasis cvcfBasis = org.ce.model.cvm.CvCfBasis.generate(
-                structurePhase,
+                parentStructure,
                 partialResult,
                 matrixData,
                 model, 
@@ -1622,7 +1623,7 @@ public final class ClusterCFIdentificationPipeline {
         // Final bundle
         double[] equiX = new double[numComponents];
         java.util.Arrays.fill(equiX, 1.0 / numComponents);
-        double[] vRandEqui = cvcfBasis.computeRandomState(equiX, matrixData.getCfBasisIndices());
+        double[] vRandEqui = cvcfBasis.computeRandomCvcfCFs(equiX, partialResult);
 
         PipelineResult finalResult = new PipelineResult(
                 partialResult.getDisClusData(),
@@ -1645,5 +1646,12 @@ public final class ClusterCFIdentificationPipeline {
 
         LOG.info("ClusterCFIdentificationPipeline.runFullWorkflow — EXIT");
         return finalResult;
+    }
+    private static String resolveParentStructure(String structure) {
+        if (structure == null) return null;
+        String base = structure.replace("_CVCF", "");
+        if (base.equals("BCC_B2")) return "BCC_A2";
+        if (base.equals("FCC_L12")) return "FCC_A1";
+        return base;
     }
 }

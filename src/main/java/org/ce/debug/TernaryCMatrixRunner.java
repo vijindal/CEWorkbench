@@ -49,24 +49,25 @@ public class TernaryCMatrixRunner {
 
                         // 3. Run Identification Stages 1 and 2
                         System.out.println("\n[Stage 1 & 2] Running ClusterCFIdentificationPipeline...");
-                        ClusterCFIdentificationPipeline.PipelineResult pipelineResult = ClusterCFIdentificationPipeline.run(
-                                        disorderedClusters,
-                                        sg.getOperations(),
-                                        orderedClusters,
-                                        sg.getOperations(),
-                                        request.getTransformationMatrix(),
-                                        new double[] { request.getTranslationVector().getX(),
-                                                        request.getTranslationVector().getY(),
-                                                        request.getTranslationVector().getZ() },
-                                        K,
-                                        System.out::println);
+                        ClusterCFIdentificationPipeline.PipelineResult pipelineResult = ClusterCFIdentificationPipeline
+                                        .run(
+                                                        disorderedClusters,
+                                                        sg.getOperations(),
+                                                        orderedClusters,
+                                                        sg.getOperations(),
+                                                        request.getTransformationMatrix(),
+                                                        new double[] { request.getTranslationVector().getX(),
+                                                                        request.getTranslationVector().getY(),
+                                                                        request.getTranslationVector().getZ() },
+                                                        K,
+                                                        System.out::println);
 
                         ClusterIdentificationResult clusterResult = pipelineResult.toClusterIdentificationResult();
                         CFIdentificationResult cfResult = pipelineResult.toCFIdentificationResult();
 
                         // 4. Run the Instrumented C-Matrix Generation (Stage 3)
                         System.out.println("\n[Stage 3] Running CMatrixPipeline (Mathematica translation)...");
-                        List<Cluster> maxClusters = disorderedClusters;
+                        List<Cluster> maxClusters = orderedClusters;
                         CMatrixPipeline.CMatrixData cMatData = CMatrixPipeline.run(
                                         clusterResult,
                                         cfResult,
@@ -77,7 +78,7 @@ public class TernaryCMatrixRunner {
                         // 5. Build and Verify Random State
                         // double[] x = new double[K];
                         // java.util.Arrays.fill(x, 1.0 / K);
-                        double[] x = {0.33, 0.33, 0.34};
+                        double[] x = { 0.33, 0.33, 0.34 };
 
                         System.out.println("\n[Stage 5] Testing CMatrixPipeline.verifyRandomCVs...");
                         CMatrixPipeline.verifyRandomCVs(x, pipelineResult, cMatData, System.out::println);

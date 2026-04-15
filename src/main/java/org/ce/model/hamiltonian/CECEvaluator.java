@@ -2,7 +2,9 @@ package org.ce.model.hamiltonian;
 
 import org.ce.model.cvm.CvCfBasis;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 /**
@@ -26,7 +28,6 @@ public class CECEvaluator {
         int ncf = basis.numNonPointCfs;
         double[] eci = new double[ncf];
         boolean[] mapped = new boolean[ncf];
-        List<String> unmatchedCecs = new ArrayList<>();
 
         if (cec == null || cec.cecTerms == null || cec.cecTerms.length == 0) {
             LOG.warning(String.format("[%s] No CEC terms provided for %s—all interactions will be zero!", 
@@ -37,82 +38,91 @@ public class CECEvaluator {
         LOG.info(String.format("[%s-MAPPING] Loading CEC: elements=%s, notes=%s, ref=%s", 
                 label, cec.elements, cec.notes, cec.reference));
 
+        // 1. Build an optimized lookup map for this specific basis session
+        Map<String, Integer> lookup = buildLookupMap(basis);
+
+        // 2. Evaluate and map CEC terms into the ECI vector
         int loadCount = 0;
+        java.util.List<String> unmatchedCecs = new java.util.ArrayList<>();
+        
         for (CECEntry.CECTerm term : cec.cecTerms) {
             String termName = term.name;
             if (termName == null) continue;
 
-            int idx = findCfIndex(termName, basis);
+            Integer idx = resolveIndex(termName, lookup, basis.totalCfs());
 
-            if (idx >= 0 && idx < ncf) {
+            if (idx != null && idx >= 0 && idx < ncf) {
                 double val = term.a + term.b * temperature;
                 eci[idx] = val;
                 mapped[idx] = true;
                 loadCount++;
                 
-                // Detailed extraction log (matches former MCSEngine debug style)
                 LOG.info(String.format("[%s-EXTRACT] %-8s (idx %d): file_a = %.2f -> eci[%d] = %.6f", 
-                        label, basis.cfNames.get(idx), idx, term.a, idx, val));
+                        label, termName, idx, term.a, idx, val));
             } else {
                 unmatchedCecs.add(termName);
             }
         }
 
-        // --- Quality Report ---
-        List<String> unmappedCfs = new ArrayList<>();
+        // 3. Quality Report
+        reportMappingQuality(label, basis, mapped, unmatchedCecs, loadCount, ncf);
+
+        return eci;
+    }
+
+    /** Builds a case-insensitive map containing canonical names and e/v aliases. */
+    private static Map<String, Integer> buildLookupMap(CvCfBasis basis) {
+        Map<String, Integer> map = new HashMap<>(basis.numNonPointCfs * 3);
+        for (int i = 0; i < basis.numNonPointCfs; i++) {
+            String name = basis.cfNames.get(i).toLowerCase();
+            map.put(name, i);
+            
+            // Normalize "v" basis functions to also accept "e" Hamiltonian terms
+            if (name.startsWith("v")) {
+                map.put("e" + name.substring(1), i);
+            } else if (name.startsWith("e")) {
+                map.put("v" + name.substring(1), i);
+            }
+        }
+        return map;
+    }
+
+    /** Resolves a CEC term name to a basis index using the map or legacy fallbacks. */
+    private static Integer resolveIndex(String name, Map<String, Integer> lookup, int maxTcf) {
+        String key = name.toLowerCase();
+        
+        // 1. Map-based lookup (Handles Case-insensitive, Direct, and E/V aliases)
+        Integer idx = lookup.get(key);
+        if (idx != null) return idx;
+
+        // 2. CF_i fallback (Legacy orthogonal nomenclature)
+        if (key.startsWith("cf_")) {
+            try {
+                int col = Integer.parseInt(key.substring(3));
+                if (col < maxTcf) return col;
+            } catch (NumberFormatException ignored) {}
+        }
+
+        return null;
+    }
+
+    private static void reportMappingQuality(String label, CvCfBasis basis, boolean[] mapped, 
+                                           java.util.List<String> unmatched, int loadCount, int ncf) {
+        java.util.List<String> unmappedCfs = new java.util.ArrayList<>();
         for (int i = 0; i < ncf; i++) {
             if (!mapped[i]) unmappedCfs.add(basis.cfNames.get(i));
         }
 
         if (!unmappedCfs.isEmpty()) {
             LOG.warning(String.format("[%s-MAPPING] Unmapped CFs (missing from %s Hamiltonian): %s", 
-                    label, cec.elements, unmappedCfs));
+                    label, basis.structurePhase, unmappedCfs));
         }
-        if (!unmatchedCecs.isEmpty()) {
-            LOG.warning(String.format("[%s-MAPPING] Unmatched CEC terms (not found in %s basis): %s", 
-                    label, basis.structurePhase, unmatchedCecs));
+        if (!unmatched.isEmpty()) {
+            LOG.warning(String.format("[%s-MAPPING] Unmatched CEC terms (not found in basis): %s", 
+                    label, unmatched));
         }
         
         LOG.info(String.format("[%s-SUMMARY] ✓ Extracted %d ECIs (expected %d non-point CFs)", 
                 label, loadCount, ncf));
-
-        return eci;
-    }
-
-    /**
-     * Flexible CF name matcher based on CVMEngine and MCSEngine legacy logic.
-     */
-    private static int findCfIndex(String cecName, CvCfBasis basis) {
-        if (cecName == null) return -1;
-
-        // 1. Direct match (e.g., e4AB -> e4AB)
-        int idx = basis.indexOfCf(cecName);
-        if (idx >= 0) return idx;
-
-        // 2. e -> v translation (common in CVCF basis: v4AB vs e4AB)
-        if (cecName.startsWith("e")) {
-            String vName = "v" + cecName.substring(1);
-            idx = basis.indexOfCf(vName);
-            if (idx >= 0) return idx;
-        }
-
-        // 3. Fallback: Case-insensitive search 
-        // Handles legacy nomenclature and cross-platform naming differences
-        for (int i = 0; i < basis.numNonPointCfs; i++) {
-            String bName = basis.cfNames.get(i);
-            if (bName.equalsIgnoreCase(cecName)) return i;
-            if (cecName.startsWith("e") && bName.equalsIgnoreCase("v" + cecName.substring(1))) return i;
-            if (cecName.startsWith("v") && bName.equalsIgnoreCase("e" + cecName.substring(1))) return i;
-        }
-
-        // 4. CF_i fallback (Legacy orthogonal nomenclature)
-        if (cecName.startsWith("CF_")) {
-            try {
-                int col = Integer.parseInt(cecName.substring(3));
-                if (col < basis.totalCfs()) return col;
-            } catch (Exception ignored) {}
-        }
-
-        return -1;
     }
 }

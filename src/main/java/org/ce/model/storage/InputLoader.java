@@ -131,13 +131,13 @@ public class InputLoader {
         private ClusterParser() {}
 
         static List<Cluster> parseFromResources(String resourcePath) throws Exception {
-
+            String fullPath = resourcePath.startsWith("clus/") ? resourcePath : "clus/" + resourcePath;
             InputStream is = ClusterParser.class
                     .getClassLoader()
-                    .getResourceAsStream(resourcePath);
+                    .getResourceAsStream(fullPath);
 
             if (is == null)
-                throw new RuntimeException("File not found: " + resourcePath);
+                throw new RuntimeException("File not found: " + fullPath);
 
             BufferedReader br = new BufferedReader(new InputStreamReader(is));
             StringBuilder sb = new StringBuilder();
