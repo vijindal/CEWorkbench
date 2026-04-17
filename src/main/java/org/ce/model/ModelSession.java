@@ -227,19 +227,16 @@ public final class ModelSession {
                 EngineConfig engineConfig,
                 Consumer<String> progressSink) {
 
-            if (!engineConfig.isCvm()) {
-                return baseId;
-            }
             if (baseId == null || baseId.isBlank() || baseId.endsWith("_CVCF")) {
                 return baseId;
             }
 
-            // Preferred: exact _CVCF suffix
+            // Both CVM and MCS use CVCF-basis ECIs: prefer the _CVCF Hamiltonian when available.
             String preferredId = baseId + "_CVCF";
             if (hamiltonianStore.exists(preferredId)) {
-                emit(progressSink, "  [Session] CVM mode: using CVCF Hamiltonian '"
+                emit(progressSink, "  [Session] Using CVCF Hamiltonian '"
                         + preferredId + "'");
-                LOG.info("CVM mode: using CVCF Hamiltonian '" + preferredId + "'");
+                LOG.info("[" + engineConfig + "] Using CVCF Hamiltonian '" + preferredId + "'");
                 return preferredId;
             }
 
@@ -248,16 +245,16 @@ public final class ModelSession {
             if (lastUnderscore > 0) {
                 String legacyId = baseId.substring(0, lastUnderscore) + "_CVCF";
                 if (hamiltonianStore.exists(legacyId)) {
-                    emit(progressSink, "  [Session] CVM mode: using CVCF Hamiltonian (legacy) '"
+                    emit(progressSink, "  [Session] Using CVCF Hamiltonian (legacy) '"
                             + legacyId + "'");
-                    LOG.info("CVM mode: using CVCF Hamiltonian (legacy) '" + legacyId + "'");
+                    LOG.info("[" + engineConfig + "] Using CVCF Hamiltonian (legacy) '" + legacyId + "'");
                     return legacyId;
                 }
             }
 
-            emit(progressSink, "  [Session] CVM mode: CVCF Hamiltonian not found, "
+            emit(progressSink, "  [Session] CVCF Hamiltonian not found, "
                     + "falling back to '" + baseId + "'");
-            LOG.warning("CVM mode: CVCF Hamiltonian not found, falling back to '" + baseId + "'");
+            LOG.warning("[" + engineConfig + "] CVCF Hamiltonian not found, falling back to '" + baseId + "'");
             return baseId;
         }
 

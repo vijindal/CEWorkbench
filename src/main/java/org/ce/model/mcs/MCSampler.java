@@ -72,11 +72,16 @@ public class MCSampler {
             return;
         }
 
-        // 1. Numerically measure CVCF variables directly from configuration (Option B)
         int ncf = basis.numNonPointCfs;
-        double[] v = CvCfEvaluator.measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
 
-        // 2. Accumulate Hmix and CFs from the exact CVCF vector
+        // 1. Measure orthogonal CFs from configuration
+        double[] uOrth = CvCfEvaluator.measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
+
+        // 2. Build full orthogonal vector: [uOrth(non-point) | uPoint(point)]
+        //    Point CFs: uPoint[k] = Σ_sigma x[sigma] * seq[sigma]^(k+1)
+        double[] v = applyTinvTransform(uOrth, config);
+
+        // 3. Accumulate Hmix and CFs from the CVCF vector
         double hmix_per_site = 0.0;
         for (int l = 0; l < ncf; l++) {
             hmix_per_site += eci[l] * v[l];
@@ -94,19 +99,54 @@ public class MCSampler {
     }
 
     /**
-     * @deprecated Switched to direct CvCfEvaluator measurement.
+     * Transforms orthogonal CFs to CVCF basis: v_cvcf = Tinv * u_orth_full.
+     * Builds the full orthogonal vector [non-point CFs | point CFs] then multiplies by Tinv.
+     * Returns only the non-point CVCF CFs (length = basis.numNonPointCfs).
      */
-    @Deprecated
-    private double[] toOrthogonalVector(double[] cfScratch, LatticeConfig config) {
-        return new double[0];
-    }
+    private double[] applyTinvTransform(double[] uOrthNonPoint, LatticeConfig config) {
+        double[][] Tinv = basis.Tinv;
+        int ncf = basis.numNonPointCfs;
 
-    /**
-     * @deprecated Switched to direct CvCfEvaluator measurement.
-     */
-    @Deprecated
-    private double[] applyCvCfTransform(double[] u) {
-        return null;
+        if (Tinv == null) {
+            // No transform available: return orthogonal CFs as-is (fallback, logged once)
+            if (!hmixWarnedOnce) {
+                LOG.warning("CvCf Tinv unavailable — reporting orthogonal CFs as CVCF approximation.");
+                hmixWarnedOnce = true;
+            }
+            return uOrthNonPoint.clone();
+        }
+
+        // Point CFs: u_point[k] = Σ_sigma x[sigma] * basisSeq[sigma]^(k+1)
+        int K = basis.numComponents;
+        double[] x = config.composition();
+        double[] basisSeq = org.ce.model.cluster.ClusterMath.buildBasis(K);
+        int nPoint = K - 1;
+        double[] uPoint = new double[nPoint];
+        for (int k = 0; k < nPoint; k++) {
+            for (int s = 0; s < K; s++) {
+                uPoint[k] += x[s] * Math.pow(basisSeq[s], k + 1);
+            }
+        }
+
+        // Assemble full orthogonal vector: [uOrthNonPoint | uPoint]
+        int tRows = Tinv[0].length;
+        double[] uFull = new double[tRows];
+        int nonPt = Math.min(uOrthNonPoint.length, tRows);
+        System.arraycopy(uOrthNonPoint, 0, uFull, 0, nonPt);
+        for (int k = 0; k < nPoint && nonPt + k < tRows; k++) {
+            uFull[nonPt + k] = uPoint[k];
+        }
+
+        // v_cvcf[i] = Σ_j Tinv[i][j] * uFull[j]  (only non-point rows needed)
+        double[] vCvcf = new double[ncf];
+        for (int i = 0; i < ncf; i++) {
+            double sum = 0.0;
+            for (int j = 0; j < Tinv[i].length && j < tRows; j++) {
+                sum += Tinv[i][j] * uFull[j];
+            }
+            vCvcf[i] = sum;
+        }
+        return vCvcf;
     }
 
     public long getSampleCount() { return nSamples; }

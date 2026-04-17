@@ -200,6 +200,7 @@ public class ThermodynamicWorkflow {
                 .R(PhysicsConstants.R_GAS)
                 .basis(session.cvcfBasis)
                 .matrixData(matrixData)
+                .lcf(session.clusterData.getLcf())
                 .cancellationCheck(Thread.currentThread()::isInterrupted);
 
         Consumer<String> strSink = progressSink;

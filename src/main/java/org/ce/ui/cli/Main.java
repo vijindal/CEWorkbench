@@ -1,5 +1,6 @@
 package org.ce.ui.cli;
 
+import org.ce.CEWorkbenchContext;
 import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.storage.Workspace.SystemId;
@@ -7,6 +8,7 @@ import org.ce.model.storage.DataStore.HamiltonianStore;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.ThermodynamicResult;
 import org.ce.calculation.CalculationDescriptor.*;
+import org.ce.calculation.CalculationResult;
 import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
@@ -26,10 +28,6 @@ public class Main {
 
     private static boolean verbose = false;
 
-    // =========================================================================
-    // Logging setup
-    // =========================================================================
-
     private static void setupLogging() {
         if (!verbose) {
             java.util.logging.LogManager.getLogManager().reset();
@@ -38,18 +36,22 @@ public class Main {
         }
     }
 
-
-    // =========================================================================
-    // Entry point
-    // =========================================================================
-
     public static void main(String[] args) {
-        // Extract flags
         java.util.List<String> argList = new java.util.ArrayList<>(java.util.Arrays.asList(args));
         verbose = argList.remove("--verbose") || argList.remove("-v");
         args = argList.toArray(new String[0]);
 
         setupLogging();
+
+        // Single shared context for all sub-commands
+        CEWorkbenchContext appCtx;
+        try {
+            appCtx = new CEWorkbenchContext();
+        } catch (Exception e) {
+            System.err.println("Failed to initialise context: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
 
         // ── calc_min ─────────────────────────────────────────────────────────
         if (args.length > 0 && args[0].equals("calc_min")) {
@@ -63,7 +65,6 @@ public class Main {
             String model     = args[3];
             double temp      = Double.parseDouble(args[4]);
 
-            // Check if the last argument is a property or part of the composition
             String lastArg = args[args.length - 1];
             Property requestedProp = Property.GIBBS_ENERGY;
             int compEndIndex = args.length;
@@ -74,7 +75,7 @@ public class Main {
                     case "S" -> Property.ENTROPY;
                     default  -> Property.GIBBS_ENERGY;
                 };
-                compEndIndex--; // The last arg is the property, so composition ends before it
+                compEndIndex--;
             }
 
             double[] composition;
@@ -85,27 +86,7 @@ public class Main {
                 composition = new double[compEndIndex - 5];
                 for (int i = 5; i < compEndIndex; i++) composition[i - 5] = Double.parseDouble(args[i]);
             }
-            runCalcMin(elements, structure, model, temp, composition, requestedProp);
-            return;
-        }
-
-        // ── calc_fixed ───────────────────────────────────────────────────────
-        if (args.length > 0 && args[0].equals("calc_fixed")) {
-            String elements = args.length > 1 ? args[1] : "";
-            int K = elements.isBlank() ? 2 : elements.split("-").length;
-            if (args.length < 6 + K) {
-                System.err.println(
-                        "Usage: calc_fixed <elements> <structure> <model> <temp> <comp1..compK> <cf1> <cf2> ... [--verbose]");
-                System.exit(1);
-            }
-            String structure = args[2];
-            String model     = args[3];
-            double temp      = Double.parseDouble(args[4]);
-            double[] composition = new double[K];
-            for (int i = 0; i < K; i++) composition[i] = Double.parseDouble(args[5 + i]);
-            double[] cfs = new double[args.length - 5 - K];
-            for (int i = 0; i < cfs.length; i++) cfs[i] = Double.parseDouble(args[5 + K + i]);
-            runCalcFixed(elements, structure, model, temp, composition, cfs);
+            runCalcMin(appCtx, elements, structure, model, temp, composition, requestedProp);
             return;
         }
 
@@ -120,12 +101,12 @@ public class Main {
                 && !mode.equals("view")) {
             System.err.println("Unknown mode: " + mode);
             System.err.println("Usage: <mode> [elements] [structure] [model] [--verbose]");
-            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | calc_fixed | view");
+            System.err.println("  mode: type1a | type1b | type2 | all | calc_min | view");
             System.exit(1);
         }
 
         if (mode.equals("view")) {
-            viewHamiltonian(elements, structure, model);
+            viewHamiltonian(appCtx, elements, structure, model);
             return;
         }
 
@@ -141,7 +122,6 @@ public class Main {
         System.out.println("Hamiltonian ID: " + HAMILTONIAN_ID);
 
         try {
-            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             HamiltonianStore hamiltonianStore = appCtx.getHamiltonianStore();
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
@@ -203,10 +183,7 @@ public class Main {
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
-                @SuppressWarnings("unchecked")
-                List<ThermodynamicResult> results = (List<ThermodynamicResult>) service.execute(modelSpecs, calcSpecs, sink, null);
-
-                System.out.print(ResultFormatter.table(results));
+                printResult(service.execute(modelSpecs, calcSpecs, sink, null));
             }
 
         } catch (Exception e) {
@@ -222,12 +199,11 @@ public class Main {
     // Sub-commands
     // =========================================================================
 
-    private static void viewHamiltonian(String elements, String structure, String model) {
+    private static void viewHamiltonian(CEWorkbenchContext appCtx, String elements, String structure, String model) {
         SystemId system = new SystemId(elements, structure, model);
         String hamiltonianId = system.hamiltonianId();
 
         try {
-            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             CECEntry entry = appCtx.getCecWorkflow().loadAndValidateCEC(null, hamiltonianId);
 
             System.out.println("\n=== HAMILTONIAN: " + hamiltonianId + " ===");
@@ -251,13 +227,12 @@ public class Main {
     }
 
     /**
-     * Single-point CVM minimisation at given temperature and composition.
-     * Uses {@link ResultFormatter#fullBlock} for output (shared with GUI log).
+     * Single-point calculation at given temperature and composition.
      */
-    private static void runCalcMin(String elements, String structure, String model,
+    private static void runCalcMin(CEWorkbenchContext appCtx,
+                                   String elements, String structure, String model,
                                    double temp, double[] composition, Property requestedProp) {
         try {
-            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
@@ -266,18 +241,16 @@ public class Main {
             calcSpecs.set(Parameter.T_START, temp);
             calcSpecs.set(Parameter.T_END,   temp);
             calcSpecs.set(Parameter.T_STEP,  0.0);
-            
+
             // X_STARTS holds the independent fractions (x2, x3, ...) — x1 is derived as 1-sum
             double[] xIndep = java.util.Arrays.copyOfRange(composition, 1, composition.length);
             calcSpecs.set(Parameter.X_STARTS, xIndep);
             calcSpecs.set(Parameter.X_ENDS,   xIndep);
             calcSpecs.set(Parameter.X_STEPS,  new double[xIndep.length]);
 
-            ThermodynamicResult result = (ThermodynamicResult) service.execute(modelSpecs, calcSpecs, sink, null);
-
             System.out.println("System: " + modelSpecs);
             System.out.println();
-            System.out.print(ResultFormatter.fullBlock(result));
+            printResult(service.execute(modelSpecs, calcSpecs, sink, null));
 
         } catch (Exception e) {
             if (verbose) e.printStackTrace();
@@ -285,48 +258,21 @@ public class Main {
         }
     }
 
-    /**
-     * Evaluates thermodynamic properties at a fixed set of correlation functions
-     * (no Newton-Raphson minimisation). Routes through
-     * {@link CalculationService#runSinglePoint} for consistency with other modes.
-     *
-     * <p>The fixed CFs are passed as the initial guess in {@link ThermodynamicRequest};
-     * the CVM engine performs zero minimisation iterations because the gradient will
-     * not be checked — but to be safe this method calls the engine with the CFs
-     * pre-set and relies on the engine's tolerance check to return immediately.</p>
-     *
-     * <p>If you need exact fixed-CF evaluation (bypassing the solver), use
-     * {@code CVMGibbsModel.evaluate()} directly — but this is an advanced use case
-     * not exposed through the standard CLI.</p>
-     */
-    private static void runCalcFixed(String elements, String structure, String model,
-                                     double temp, double[] composition, double[] cfs) {
-        try {
-            org.ce.CEWorkbenchContext appCtx = new org.ce.CEWorkbenchContext();
-            CalculationService service = appCtx.getCalculationService();
-            Consumer<String> sink = verbose ? System.out::println : null;
+    // =========================================================================
+    // Output helpers
+    // =========================================================================
 
-            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
-            CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
-            calcSpecs.set(Parameter.TEMPERATURE, temp);
-            calcSpecs.set(Parameter.COMPOSITION, composition);
-            calcSpecs.set(Parameter.FIXED_CORRELATIONS, cfs);
-
-            ThermodynamicResult result = (ThermodynamicResult) service.execute(modelSpecs, calcSpecs, sink, null);
-
-            System.out.println("System: " + modelSpecs);
-            System.out.print("Requested CFs: [");
-            for (int i = 0; i < cfs.length; i++) {
-                if (i > 0) System.out.print(", ");
-                System.out.printf("%.6f", cfs[i]);
+    private static void printResult(CalculationResult calcResult) {
+        switch (calcResult) {
+            case CalculationResult.Single s ->
+                System.out.print(ResultFormatter.fullBlock(s.value()));
+            case CalculationResult.Grid g -> {
+                List<List<ThermodynamicResult>> grid = g.values();
+                List<ThermodynamicResult> flat = grid.stream().flatMap(List::stream).toList();
+                System.out.print(flat.size() == 1
+                        ? ResultFormatter.fullBlock(flat.get(0))
+                        : ResultFormatter.table(flat));
             }
-            System.out.println("]");
-            System.out.println();
-            System.out.print(ResultFormatter.fullBlock(result));
-
-        } catch (Exception e) {
-            if (verbose) e.printStackTrace();
-            else System.err.println("Error: " + e.getMessage());
         }
     }
 }

@@ -40,6 +40,7 @@ public class MCSRunner {
     private final BooleanSupplier     cancellationCheck;
     private final CvCfBasis           basis;
     private final CMatrixPipeline.CMatrixData matrixData;
+    private final int[][]              lcf;
 
     private MCSRunner(Builder b) {
         this.clusterData       = b.clusterData;
@@ -57,6 +58,7 @@ public class MCSRunner {
         this.cancellationCheck = b.cancellationCheck;
         this.basis             = b.basis;
         this.matrixData        = b.matrixData;
+        this.lcf               = b.lcf;
     }
 
     /**
@@ -96,7 +98,7 @@ public class MCSRunner {
         List<List<EmbeddingData.Embedding>> cfEmbeddings = null;
         double[][] basisMatrix = null;
         if (basis != null && matrixData != null) {
-            cfEmbeddings = EmbeddingGenerator.generateCfEmbeddings(emb.getAllEmbeddings(), clusterData, matrixData.getCfBasisIndices());
+            cfEmbeddings = EmbeddingGenerator.generateCfEmbeddings(emb.getAllEmbeddings(), clusterData, matrixData.getCfBasisIndices(), lcf);
             basisMatrix  = CvCfEvaluator.buildBasisValues(numComp);
         }
 
@@ -189,6 +191,7 @@ public class MCSRunner {
         private BooleanSupplier     cancellationCheck = null;
         private CvCfBasis                  basis             = null;
         private CMatrixPipeline.CMatrixData matrixData        = null;
+        private int[][]                    lcf               = null;
 
         private Builder() {}
 
@@ -208,6 +211,7 @@ public class MCSRunner {
         public Builder cancellationCheck(BooleanSupplier check) { this.cancellationCheck = check; return this; }
         public Builder basis(CvCfBasis b)                       { this.basis = b;              return this; }
         public Builder matrixData(CMatrixPipeline.CMatrixData d) { this.matrixData = d;         return this; }
+        public Builder lcf(int[][] l)                           { this.lcf = l;                return this; }
 
         public MCSRunner build() {
             if (clusterData == null) throw new IllegalStateException("clusterData required");

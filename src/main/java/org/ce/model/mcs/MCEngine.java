@@ -19,6 +19,8 @@ public class MCEngine {
 
     private static final Logger LOG = Logger.getLogger(MCEngine.class.getName());
 
+    private static final int DRIFT_CHECK_SWEEPS = 100;
+
     private final EmbeddingData       emb;
     private final double[]            eci;
     private final List<List<Cluster>> orbits;
@@ -95,6 +97,17 @@ public class MCEngine {
                 sweepDeltaE   += dE;
             }
             sampler.sample(config, emb, currentEnergy);
+            // Periodic drift check: resync running total against full recompute
+            if ((s + 1) % DRIFT_CHECK_SWEEPS == 0) {
+                double Hfull = LocalEnergyCalc.totalEnergy(config, emb, eci, orbits);
+                double drift = Math.abs(currentEnergy - Hfull);
+                if (drift > 1e-6 * Math.max(1.0, Math.abs(Hfull))) {
+                    LOG.warning(String.format(
+                            "Energy drift at avg sweep %d: running=%.10f, full=%.10f, diff=%.3e",
+                            nEquil + s + 1, currentEnergy, Hfull, drift));
+                }
+                currentEnergy = Hfull;
+            }
             // Emit update every 100 sweeps or on final averaging sweep
             if ((nEquil + s + 1) % 100 == 0 || s + 1 == nAvg) {
                 emitUpdate(nEquil + s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.AVERAGING,

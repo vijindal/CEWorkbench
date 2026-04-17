@@ -78,27 +78,32 @@ public class MainWindow extends JFrame {
         java.util.function.BiConsumer<CECEntry, CECEntry> cecResultSink = outputPanel::showCECResult;
         java.util.function.Function<CECEntry, Boolean> cecEditApplySink = outputPanel::applyCECEdits;
         java.util.function.Consumer<Object> resultSink = result -> {
-            if (result instanceof org.ce.model.ThermodynamicResult) {
-                outputPanel.showResult((org.ce.model.ThermodynamicResult) result);
-            } else if (result instanceof java.util.List) {
-                java.util.List<?> list = (java.util.List<?>) result;
-                if (!list.isEmpty()) {
-                    if (list.get(0) instanceof org.ce.model.ThermodynamicResult) {
-                        @SuppressWarnings("unchecked")
-                        java.util.List<org.ce.model.ThermodynamicResult> results =
-                                (java.util.List<org.ce.model.ThermodynamicResult>) list;
-                        // Detect scan type (T vs X)
-                        boolean tVaries = results.size() > 1 &&
-                                Math.abs(results.get(0).temperature - results.get(results.size() - 1).temperature) > 1e-3;
-                        outputPanel.showLineScanResult(results, tVaries ? "T" : "X");
-                        logSink.accept("\n" + org.ce.calculation.ResultFormatter.table(results));
-                    } else if (list.get(0) instanceof java.util.List) {
-                        @SuppressWarnings("unchecked")
-                        java.util.List<java.util.List<org.ce.model.ThermodynamicResult>> grid =
-                                (java.util.List<java.util.List<org.ce.model.ThermodynamicResult>>) list;
+            switch (result) {
+                case org.ce.calculation.CalculationResult.Single s -> {
+                    outputPanel.showResult(s.value());
+                }
+                case org.ce.calculation.CalculationResult.Grid g -> {
+                    java.util.List<java.util.List<org.ce.model.ThermodynamicResult>> grid = g.values();
+                    if (grid.size() == 1 && grid.get(0).size() == 1) {
+                        outputPanel.showResult(grid.get(0).get(0));
+                    } else if (grid.size() == 1) {
+                        java.util.List<org.ce.model.ThermodynamicResult> row = grid.get(0);
+                        boolean tVaries = row.size() > 1 &&
+                                Math.abs(row.get(0).temperature - row.get(row.size()-1).temperature) > 1e-3;
+                        outputPanel.showLineScanResult(row, tVaries ? "T" : "X");
+                        logSink.accept("\n" + org.ce.calculation.ResultFormatter.table(row));
+                    } else if (!grid.isEmpty() && grid.get(0).size() == 1) {
+                        java.util.List<org.ce.model.ThermodynamicResult> col = grid.stream()
+                                .map(r -> r.get(0)).toList();
+                        boolean tVaries = col.size() > 1 &&
+                                Math.abs(col.get(0).temperature - col.get(col.size()-1).temperature) > 1e-3;
+                        outputPanel.showLineScanResult(col, tVaries ? "T" : "X");
+                        logSink.accept("\n" + org.ce.calculation.ResultFormatter.table(col));
+                    } else {
                         outputPanel.showMapResult(grid);
                     }
                 }
+                default -> { /* unknown result type — ignore */ }
             }
         };
         java.util.function.Consumer<ProgressEvent> chartSink = outputPanel::onChartEvent;
