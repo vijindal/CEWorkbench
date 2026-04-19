@@ -9,12 +9,12 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Diagnostic tests for LocalEnergyCalc.
+ * Diagnostic tests for Embeddings energy methods.
  *
  * Tests 1 and 2 verify deltaEExchange correctness using synthetic embeddings
  * (no disk I/O required). Test 3 is the key energy-path consistency check:
  * it verifies that the orthogonal-basis total energy matches the CVCF-basis
- * energy computed via CvCfEvaluator, exposing any Tinv indexing bugs.
+ * energy computed via applyTinvTransform, exposing any Tinv indexing bugs.
  */
 class LocalEnergyCalcTest {
 
@@ -26,7 +26,7 @@ class LocalEnergyCalcTest {
     private static final double[] ECI_ORTH = { 0.0, -0.05, 0.02, 0.03 };
 
     private LatticeConfig config;
-    private EmbeddingData emb;
+    private Embeddings emb;
 
     @BeforeEach
     void setUp() {
@@ -44,13 +44,13 @@ class LocalEnergyCalcTest {
         int occI = config.getOccupation(i);
         int occJ = config.getOccupation(j);
 
-        double dE_fwd = LocalEnergyCalc.deltaEExchange(i, j, config, emb, ECI_ORTH, null);
+        double dE_fwd = Embeddings.deltaEExchange(i, j, config, emb, ECI_ORTH, null);
 
         // Apply the swap manually
         config.setOccupation(i, occJ);
         config.setOccupation(j, occI);
 
-        double dE_rev = LocalEnergyCalc.deltaEExchange(i, j, config, emb, ECI_ORTH, null);
+        double dE_rev = Embeddings.deltaEExchange(i, j, config, emb, ECI_ORTH, null);
 
         assertEquals(0.0, dE_fwd + dE_rev, 1e-12,
                 "Forward + reverse deltaE should cancel");
@@ -66,8 +66,8 @@ class LocalEnergyCalcTest {
                 if (config.getOccupation(a) != config.getOccupation(b)) { i = a; j = b; }
         assertTrue(i >= 0, "Need at least one A-B pair");
 
-        double E_before = LocalEnergyCalc.totalEnergy(config, emb, ECI_ORTH, null);
-        double dE       = LocalEnergyCalc.deltaEExchange(i, j, config, emb, ECI_ORTH, null);
+        double E_before = Embeddings.totalEnergy(config, emb, ECI_ORTH, null);
+        double dE       = Embeddings.deltaEExchange(i, j, config, emb, ECI_ORTH, null);
 
         // Apply swap
         int occI = config.getOccupation(i);
@@ -75,7 +75,7 @@ class LocalEnergyCalcTest {
         config.setOccupation(i, occJ);
         config.setOccupation(j, occI);
 
-        double E_after = LocalEnergyCalc.totalEnergy(config, emb, ECI_ORTH, null);
+        double E_after = Embeddings.totalEnergy(config, emb, ECI_ORTH, null);
 
         assertEquals(E_after - E_before, dE, 1e-10,
                 "deltaEExchange must equal totalEnergy difference after swap");
@@ -98,21 +98,21 @@ class LocalEnergyCalcTest {
     void samplerHmixWithIdentityTinvMatchesOrthogonalEnergyFormula() {
         // Use 3 non-point CFs (orbit types 1,2,3) and 1 point CF
         int ncf = ECI_ORTH.length - 1;
-        double[][] basisMatrix = CvCfEvaluator.buildBasisValues(numComp);
+        double[][] basisMatrix = Embeddings.buildBasisValues(numComp);
 
         // Build cfEmbeddings: for CF l, use embeddings of orbit type l+1
-        List<List<EmbeddingData.Embedding>> cfEmbeddings = new ArrayList<>();
+        List<List<Embeddings.Embedding>> cfEmbeddings = new ArrayList<>();
         for (int l = 0; l < ncf; l++) {
             final int orbitType = l + 1;
-            List<EmbeddingData.Embedding> embsForCf = new ArrayList<>();
-            for (EmbeddingData.Embedding e : emb.getAllEmbeddings()) {
+            List<Embeddings.Embedding> embsForCf = new ArrayList<>();
+            for (Embeddings.Embedding e : emb.getAllEmbeddings()) {
                 if (e.getClusterType() == orbitType) embsForCf.add(e);
             }
             cfEmbeddings.add(embsForCf);
         }
 
         // Measure orthogonal CFs directly
-        double[] uOrth = CvCfEvaluator.measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
+        double[] uOrth = Embeddings.measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
 
         // With Tinv = I (size = ncf + numComp), the non-point CVCF CFs == uOrth
         double[] eciCvcf = new double[ncf];
@@ -145,14 +145,14 @@ class LocalEnergyCalcTest {
     // -------------------------------------------------------------------------
 
     /**
-     * Builds a minimal synthetic EmbeddingData for an N-site ring.
+     * Builds a minimal synthetic Embeddings for an N-site ring.
      * orbit type 0: point (size=1), type 1: pair (size=2), type 2: triplet (size=3), type 3: quad (size=4).
      * All alpha indices = 1 (first basis function).
      */
-    private static EmbeddingData buildSyntheticEmbeddings(int N) {
-        List<EmbeddingData.Embedding> all = new ArrayList<>();
+    private static Embeddings buildSyntheticEmbeddings(int N) {
+        List<Embeddings.Embedding> all = new ArrayList<>();
         @SuppressWarnings("unchecked")
-        List<EmbeddingData.Embedding>[] siteMap = new ArrayList[N];
+        List<Embeddings.Embedding>[] siteMap = new ArrayList[N];
         for (int i = 0; i < N; i++) siteMap[i] = new ArrayList<>();
 
         for (int i = 0; i < N; i++) {
@@ -161,20 +161,20 @@ class LocalEnergyCalcTest {
             int m = (i + 3) % N;
 
             // Point cluster
-            EmbeddingData.Embedding point = new EmbeddingData.Embedding(
+            Embeddings.Embedding point = new Embeddings.Embedding(
                     0, i, new int[]{i}, new int[]{1});
             all.add(point);
             siteMap[i].add(point);
 
             // Pair
-            EmbeddingData.Embedding pair = new EmbeddingData.Embedding(
+            Embeddings.Embedding pair = new Embeddings.Embedding(
                     1, i, new int[]{i, j}, new int[]{1, 1});
             all.add(pair);
             siteMap[i].add(pair);
             siteMap[j].add(pair);
 
             // Triplet
-            EmbeddingData.Embedding trip = new EmbeddingData.Embedding(
+            Embeddings.Embedding trip = new Embeddings.Embedding(
                     2, i, new int[]{i, j, k}, new int[]{1, 1, 1});
             all.add(trip);
             siteMap[i].add(trip);
@@ -182,7 +182,7 @@ class LocalEnergyCalcTest {
             siteMap[k].add(trip);
 
             // Quad
-            EmbeddingData.Embedding quad = new EmbeddingData.Embedding(
+            Embeddings.Embedding quad = new Embeddings.Embedding(
                     3, i, new int[]{i, j, k, m}, new int[]{1, 1, 1, 1});
             all.add(quad);
             siteMap[i].add(quad);
@@ -191,6 +191,6 @@ class LocalEnergyCalcTest {
             siteMap[m].add(quad);
         }
 
-        return new EmbeddingData(all, siteMap);
+        return new Embeddings(all, siteMap);
     }
 }

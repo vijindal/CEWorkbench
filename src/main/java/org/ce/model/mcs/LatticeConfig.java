@@ -11,21 +11,21 @@ public class LatticeConfig {
 
     private final int   numComp;
     private final int[] occ;
-    private final SiteOperatorBasis basis;
+    private final Basis basis;
 
     public LatticeConfig(int N, int numComp) {
         if (N < 1)       throw new IllegalArgumentException("N must be >= 1");
         if (numComp < 2) throw new IllegalArgumentException("numComp must be >= 2");
         this.numComp = numComp;
         this.occ     = new int[N];
-        this.basis   = new SiteOperatorBasis(numComp);
+        this.basis   = new Basis(numComp);
     }
 
     public LatticeConfig(int[] occ, int numComp) {
         if (numComp < 2) throw new IllegalArgumentException("numComp must be >= 2");
         this.numComp = numComp;
         this.occ     = occ.clone();
-        this.basis   = new SiteOperatorBasis(numComp);
+        this.basis   = new Basis(numComp);
         for (int i = 0; i < this.occ.length; i++) {
             if (this.occ[i] < 0 || this.occ[i] >= numComp)
                 throw new IllegalArgumentException("occ[" + i + "]=" + occ[i] + " out of range");
@@ -40,9 +40,13 @@ public class LatticeConfig {
         this.occ[i] = occ;
     }
 
-    public int getN()               { return occ.length; }
-    public int getNumComp()         { return numComp; }
-    public SiteOperatorBasis getBasis() { return basis; }
+    public int getN()       { return occ.length; }
+    public int getNumComp() { return numComp; }
+
+    /** Evaluates the orthogonal basis function phi_alpha at site occupation sigma. */
+    double evaluateBasis(int alpha, int sigma) {
+        return basis.evaluate(alpha, sigma);
+    }
 
     public void randomise(double[] xFrac, Random rng) {
         if (xFrac.length != numComp)
@@ -76,5 +80,30 @@ public class LatticeConfig {
         for (int o : occ) x[o]++;
         for (int c = 0; c < numComp; c++) x[c] /= occ.length;
         return x;
+    }
+
+    // ── Orthogonal point-function basis (private implementation detail) ────────
+
+    private static final class Basis {
+
+        private final double[][] basisMatrix; // basisMatrix[alpha-1][sigma]
+
+        Basis(int numComp) {
+            if (numComp < 2) throw new IllegalArgumentException("numComp must be >= 2");
+            this.basisMatrix = buildBasis(numComp);
+        }
+
+        double evaluate(int alpha, int sigma) {
+            return basisMatrix[alpha - 1][sigma];
+        }
+
+        private static double[][] buildBasis(int n) {
+            double[] sequence = org.ce.model.cluster.ClusterMath.buildBasis(n);
+            double[][] basis = new double[n - 1][n];
+            for (int alpha = 1; alpha <= n - 1; alpha++)
+                for (int s = 0; s < n; s++)
+                    basis[alpha - 1][s] = Math.pow(sequence[s], alpha);
+            return basis;
+        }
     }
 }

@@ -8,7 +8,8 @@ import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CVMGibbsModel.ModelResult;
 import org.ce.model.cvm.CVMGibbsModel.EquilibriumResult;
 import org.ce.model.mcs.MCSRunner;
-import org.ce.model.mcs.MCResult;
+import org.ce.model.mcs.MetropolisMC.MCResult;
+import org.ce.model.mcs.MetropolisMC.MCSUpdate;
 import org.ce.model.hamiltonian.CECEvaluator;
 import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 
@@ -230,7 +231,7 @@ public class ThermodynamicWorkflow {
                             mcUpdate.getStep(), sweepCount,
                             mcUpdate.getE_total() / sitesCount,
                             mcUpdate.getAcceptanceRate(),
-                            mcUpdate.getPhase() == org.ce.model.mcs.MCSUpdate.Phase.EQUILIBRATION,
+                            mcUpdate.getPhase() == MCSUpdate.Phase.EQUILIBRATION,
                             null));  // CFs no longer charted
                 }
             });
@@ -240,7 +241,7 @@ public class ThermodynamicWorkflow {
         MCResult mcResult = runResult.result;
 
         // [DEBUG] Raw simulation output
-        MCResult.Debug.printMcsSummary(mcResult);
+        MCSRunner.Debug.printMcsSummary(mcResult);
 
         // Compute statistics from raw time series in the calculation layer
         MCSStatisticsProcessor statsProcessor = new MCSStatisticsProcessor(
