@@ -15,6 +15,10 @@ public class CECEvaluator {
 
     private static final Logger LOG = Logger.getLogger(CECEvaluator.class.getName());
 
+    public static double[] evaluate(CECEntry cec, double temperature, CvCfBasis basis, String label) {
+        return evaluate(cec, temperature, basis, label, null);
+    }
+
     /**
      * Evaluates ECI at a given temperature and maps them to the basis.
      * 
@@ -22,9 +26,10 @@ public class CECEvaluator {
      * @param temperature system temperature in Kelvin
      * @param basis       target basis (defining name mapping and ordering)
      * @param label       label for logging (e.g., "CVM", "MCS")
+     * @param sink        optional sink for user-visible output
      * @return array of evaluated ECIs indexed by basis.cfNames (0..numNonPointCfs-1)
      */
-    public static double[] evaluate(CECEntry cec, double temperature, CvCfBasis basis, String label) {
+    public static double[] evaluate(CECEntry cec, double temperature, CvCfBasis basis, String label, java.util.function.Consumer<String> sink) {
         int ncf = basis.numNonPointCfs;
         double[] eci = new double[ncf];
         boolean[] mapped = new boolean[ncf];
@@ -66,6 +71,18 @@ public class CECEvaluator {
 
         // 3. Quality Report
         reportMappingQuality(label, basis, mapped, unmatchedCecs, loadCount, ncf);
+
+        // 4. User-visible ECI report
+        if (sink != null) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("  [%s Model] Evaluated ECIs at T=%.1f K:\n", label, temperature));
+            for (int i = 0; i < ncf; i++) {
+                if (mapped[i]) {
+                    sb.append(String.format("    - %-12s: %10.6f J/mol\n", basis.cfNames.get(i), eci[i]));
+                }
+            }
+            sink.accept(sb.toString().trim());
+        }
 
         return eci;
     }

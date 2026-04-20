@@ -60,7 +60,7 @@ public class ResultsPanel extends JPanel {
     private void refreshSystemBanner() {
         if (context.hasSystem()) {
             var sys = context.getSystem();
-            systemLabel.setText(sys.elements + "  /  " + sys.structure + "  /  " + sys.model);
+            systemLabel.setText(sys.elements() + "  /  " + sys.structure() + "  /  " + sys.model());
             systemLabel.setForeground(new Color(0x1A6020));
         } else {
             systemLabel.setText("— no system selected —");

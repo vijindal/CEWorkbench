@@ -96,17 +96,17 @@ public class CECManagementPanel extends JPanel {
 
         if (context.hasSystem()) {
             var sys = context.getSystem();
-            elementsField.setText(sys.elements);
-            structureField.setText(sys.structure);
-            modelField.setText(sys.model);
+            elementsField.setText(sys.elements());
+            structureField.setText(sys.structure());
+            modelField.setText(sys.model());
         }
 
         context.addChangeListener(() -> {
             if (context.hasSystem()) {
                 var sys = context.getSystem();
-                if (!elementsField.getText().equals(sys.elements))  elementsField.setText(sys.elements);
-                if (!structureField.getText().equals(sys.structure)) structureField.setText(sys.structure);
-                if (!modelField.getText().equals(sys.model))        modelField.setText(sys.model);
+                if (!elementsField.getText().equals(sys.elements()))  elementsField.setText(sys.elements());
+                if (!structureField.getText().equals(sys.structure())) structureField.setText(sys.structure());
+                if (!modelField.getText().equals(sys.model()))        modelField.setText(sys.model());
             }
         });
 
@@ -337,7 +337,7 @@ public class CECManagementPanel extends JPanel {
             protected org.ce.model.ModelSession doInBackground() throws Exception {
                 return appCtx.getCalculationService().getOrBuildSession(
                         new org.ce.calculation.CalculationDescriptor.ModelSpecifications(
-                                sysId.elements, sysId.structure, sysId.model,
+                                sysId.elements(), sysId.structure(), sysId.model(),
                                 org.ce.model.ModelSession.EngineConfig.CVM),
                         this::publish);
             }

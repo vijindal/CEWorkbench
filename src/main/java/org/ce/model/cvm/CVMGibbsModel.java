@@ -150,7 +150,7 @@ public class CVMGibbsModel {
         String orderedSGName = resolveSymmetryGroup(structure);
 
         if (progressSink != null) {
-            progressSink.accept("\n[STAGE 0]: Loading Inputs...");
+            progressSink.accept("\n  [CVM-Setup] Stage 0: Loading Inputs...");
             progressSink.accept(String.format("  > Elements:          %s", elements));
             progressSink.accept(String.format("  > Structure (Child): %s", structure));
             progressSink.accept(String.format("  > Structure (Parent):%s", parentStructure));
@@ -187,7 +187,7 @@ public class CVMGibbsModel {
 
         // --- STAGE 1 & 2: IDENTIFICATION ---
         if (progressSink != null)
-            progressSink.accept("\n[STAGE 1/2]: Running Identification Pipeline...");
+            progressSink.accept("  [CVM-Setup] Stage 1: Identification...");
         org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult pr = org.ce.model.cluster.ClusterCFIdentificationPipeline
                 .run(
                         disorderedClusters,
@@ -201,7 +201,7 @@ public class CVMGibbsModel {
 
         // --- STAGE 3: C-MATRIX (ORTHOGONAL) ---
         if (progressSink != null)
-            progressSink.accept("\n[STAGE 3]: Running C-Matrix Pipeline...");
+            progressSink.accept("  [CVM-Setup] Stage 2: C-Matrix Generation...");
         org.ce.model.cluster.CMatrixPipeline.CMatrixData cmatOrth = org.ce.model.cluster.CMatrixPipeline.run(
                 pr.toClusterIdentificationResult(),
                 pr.toCFIdentificationResult(),
@@ -218,7 +218,7 @@ public class CVMGibbsModel {
 
         // --- STAGE 4: CVCF BASIS & FINAL DATA ---
         if (progressSink != null)
-            progressSink.accept("\n[STAGE 4]: Basis Transformation...");
+            progressSink.accept("  [CVM-Setup] Stage 3: Basis Transformation...");
         org.ce.model.cvm.CvCfBasis basisRef = org.ce.model.cvm.CvCfBasis.generate(structure, pr, cmatOrth, model,
                 progressSink);
 
@@ -241,18 +241,9 @@ public class CVMGibbsModel {
         this.mhdis = pr.getMhdis();
         this.kb = pr.getKbdis();
 
-        // --- Fetch and Initialize Interactions (ECIs) ---
-        this.eci = CECEvaluator.evaluate(cecEntry, 300.0, basisRef, "CVM-INIT");
-
-        if (progressSink != null && this.eci != null) {
-            progressSink.accept("  > Final Mapped ECIs (Evaluated at 300K):");
-            for (int i = 0; i < ncf; i++) {
-                progressSink.accept(String.format("    - %-10s: %12.6f", basisRef.cfNames.get(i), eci[i]));
-            }
-        }
 
         if (progressSink != null)
-            progressSink.accept("\n Intialization stage completed. ");
+            progressSink.accept("  [CVM-Setup] ✓ Initialization complete.");
     }
 
     private String resolveParentStructure(String structure) {
@@ -286,28 +277,31 @@ public class CVMGibbsModel {
      */
     public EquilibriumResult getEquilibriumState(
             double temperature, double[] composition, double tolerance,
-            Consumer<String> progressSink, Consumer<ProgressEvent> eventSink) {
+            Consumer<String> progressSink, Consumer<ProgressEvent> eventSink,
+            org.ce.calculation.CalculationDescriptor.Property required) {
 
         boolean compositionChanged = currentComposition == null
                 || !Arrays.equals(currentComposition, composition);
         boolean temperatureChanged = Math.abs(currentTemperature - temperature) > 1.0e-5;
 
         if (temperatureChanged || compositionChanged) {
-            if (progressSink != null)
-                progressSink.accept(
-                        "  [Model] Parameters updated (T=" + temperature + " K) — resetting equilibrium state.");
+            if (progressSink != null) {
+                progressSink.accept(String.format(
+                        "\n  [Model] Parameters updated: T = %.1f K, x = %s",
+                        temperature, Arrays.toString(composition)));
+            }
             isMinimized = false;
             currentTemperature = temperature;
             currentComposition = Arrays.copyOf(composition, composition.length);
-        } else {
+        } else if (isMinimized) {
             if (progressSink != null)
-                progressSink.accept("  [Model] Using currently cached equilibrium state.");
+                progressSink.accept("  [Model] Reusing cached equilibrium state for these parameters.");
         }
 
         if (!isMinimized || lastResult == null) {
             if (progressSink != null)
                 progressSink.accept("  [Model] Initiating internal minimization (Newton-Raphson loop)...");
-            lastResult = minimize(composition, temperature, tolerance, progressSink, eventSink);
+            lastResult = minimize(composition, temperature, tolerance, progressSink, eventSink, required);
             if (progressSink != null) {
                 progressSink.accept(lastResult.converged
                         ? "  [Model] ✓ Minimization converged in " + lastResult.iterations + " iterations."
@@ -325,12 +319,13 @@ public class CVMGibbsModel {
      */
     private EquilibriumResult minimize(
             double[] moleFractions, double temperature, double tolerance,
-            Consumer<String> progressSink, Consumer<ProgressEvent> eventSink) {
+            Consumer<String> progressSink, Consumer<ProgressEvent> eventSink,
+            org.ce.calculation.CalculationDescriptor.Property required) {
 
         if (eventSink != null)
             eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
 
-        setT(temperature);
+        setT(temperature, progressSink);
         setX(moleFractions);
 
         double[] u = computeRandomCFs(moleFractions);
@@ -351,23 +346,6 @@ public class CVMGibbsModel {
             for (double g : Gu)
                 errf += Math.abs(g);
 
-            if (progressSink != null) {
-                StringBuilder sb = new StringBuilder();
-                sb.append(String.format("    iter %3d  |del_G| = %.3e  G = %11.4f  H = %11.4f  S = %9.6f",
-                        its, errf, G, H, S));
-
-                double[] cfs = calculateCfs();
-                if (cfs != null && cfs.length > 0) {
-                    sb.append("  CFs: [");
-                    for (int i = 0; i < cfs.length; i++) {
-                        if (i > 0)
-                            sb.append(", ");
-                        sb.append(String.format("%.4f", cfs[i]));
-                    }
-                    sb.append("]");
-                }
-                progressSink.accept(sb.toString());
-            }
             if (eventSink != null)
                 eventSink.accept(new ProgressEvent.CvmIteration(its, G, errf, H, S, u));
 
@@ -448,9 +426,13 @@ public class CVMGibbsModel {
      * Triggers a re-calculation of internal interactions (ECIs).
      */
     public void setT(double temperature) {
+        setT(temperature, null);
+    }
+
+    public void setT(double temperature, java.util.function.Consumer<String> sink) {
         this.temp = temperature;
         this.currentTemperature = temperature;
-        this.eci = CECEvaluator.evaluate(cecEntry, temperature, basis, "CVM");
+        this.eci = CECEvaluator.evaluate(cecEntry, temperature, basis, "CVM", sink);
         this.isMinimized = false;
     }
 

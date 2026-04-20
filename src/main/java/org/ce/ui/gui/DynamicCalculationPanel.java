@@ -4,9 +4,7 @@ import org.ce.calculation.CalculationDescriptor.ModelSpecifications;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ModelSession;
 import org.ce.model.storage.Workspace.SystemId;
-import org.ce.calculation.CalculationRegistry;
 import org.ce.calculation.CalculationDescriptor.*;
-import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.workflow.CalculationService;
 
@@ -225,9 +223,9 @@ public class DynamicCalculationPanel extends JPanel {
     private void syncCombosFromContext() {
         SystemId sys = context.getSystem();
         if (sys == null) return;
-        setEditorText(elementsCombo,  sys.elements);
-        setEditorText(structureCombo, sys.structure);
-        setEditorText(modelCombo,     sys.model);
+        setEditorText(elementsCombo,  sys.elements());
+        setEditorText(structureCombo, sys.structure());
+        setEditorText(modelCombo,     sys.model());
     }
 
     // =========================================================================
@@ -261,7 +259,7 @@ public class DynamicCalculationPanel extends JPanel {
 
     private void rebuildPropertyOptions(ModelSession.EngineConfig engine) {
         propertyCombo.removeAllItems();
-        List<Property> props = CalculationRegistry.getAvailableProperties(engine);
+        List<Property> props = Registry.getAvailableProperties(engine);
         for (Property p : props) propertyCombo.addItem(p);
         rebuildParameterForm();
     }
@@ -297,7 +295,7 @@ public class DynamicCalculationPanel extends JPanel {
         ModelSession.EngineConfig engine = (session != null)
                 ? session.engineConfig
                 : ModelSession.EngineConfig.valueOf((String) engineCombo.getSelectedItem());
-        List<Parameter> requirements = CalculationRegistry.getRequirements(prop, mode, engine);
+        List<Parameter> requirements = Registry.getRequirements(prop, mode, engine);
 
         int i = 0;
         while (i < requirements.size()) {
@@ -313,7 +311,7 @@ public class DynamicCalculationPanel extends JPanel {
                        requirements.get(i+1) == Parameter.X_ENDS && requirements.get(i+2) == Parameter.X_STEPS) {
 
                 String elemStr = (session != null)
-                        ? session.systemId.elements
+                        ? session.systemId.elements()
                         : editorText(elementsCombo);
                 String[] elements = elemStr.split("-");
                 for (int n = 1; n < elements.length; n++) {
@@ -364,7 +362,7 @@ public class DynamicCalculationPanel extends JPanel {
         ModelSpecifications modelSpecs = new ModelSpecifications(
                 el, str, mod, ModelSession.EngineConfig.valueOf(eng));
 
-        CalculationSpecifications specs = new CalculationSpecifications(prop, mode);
+        JobSpecifications specs = new JobSpecifications(prop, mode);
 
         parameterFields.forEach((p, editor) -> {
             if (editor instanceof JSpinner) {

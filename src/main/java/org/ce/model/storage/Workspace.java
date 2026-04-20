@@ -88,17 +88,7 @@ public class Workspace {
      * Encapsulates the three-part system identity (elements, structure, model)
      * and derives the storage IDs used by this Workspace.
      */
-    public static class SystemId {
-
-        public final String elements;
-        public final String structure;
-        public final String model;
-
-        public SystemId(String elements, String structure, String model) {
-            this.elements = elements;
-            this.structure = structure;
-            this.model = model;
-        }
+    public record SystemId(String elements, String structure, String model) {
 
         /**
          * Cluster data ID (element-agnostic): {@code {structure}_{model}_{ncomp}}
@@ -122,7 +112,9 @@ public class Workspace {
 
         /** Returns true only if all three fields are non-blank. */
         public boolean isComplete() {
-            return !elements.isBlank() && !structure.isBlank() && !model.isBlank();
+            return elements != null && !elements.isBlank() &&
+                   structure != null && !structure.isBlank() &&
+                   model != null && !model.isBlank();
         }
 
         private String ncompSuffix() {

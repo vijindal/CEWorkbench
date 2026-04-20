@@ -1,24 +1,16 @@
 package org.ce.calculation;
 
 import org.ce.model.ModelSession.EngineConfig;
-
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * Defines the core vocabulary and schemas for the calculation discovery system.
- *
- * <p>This class contains the enums and types that the UI uses to describe what
- * it wants to calculate (Property, Mode) and what parameters it must provide.</p>
  */
 public final class CalculationDescriptor {
 
     private CalculationDescriptor() {}
 
-    /**
-     * The thermodynamic quantity to be calculated.
-     */
+    /** The thermodynamic quantity to be calculated. */
     public enum Property {
         GIBBS_ENERGY("G", "Gibbs Energy", "J/mol"),
         ENTHALPY("H", "Enthalpy", "J/mol"),
@@ -37,23 +29,16 @@ public final class CalculationDescriptor {
         }
     }
 
-    /**
-     * The dimensionality or "shape" of the calculation.
-     */
+    /** The dimensionality or "shape" of the calculation. */
     public enum Mode {
         ANALYSIS("Analysis"),
         FINITE_SIZE_SCALING("Finite-Size Scaling (FSS)");
 
         public final String displayName;
-
-        Mode(String displayName) {
-            this.displayName = displayName;
-        }
+        Mode(String displayName) { this.displayName = displayName; }
     }
 
-    /**
-     * Defines a single input requirement for a calculation.
-     */
+    /** Defines a single input requirement for a calculation. */
     public static final class Parameter {
         public static final Parameter TEMPERATURE = new Parameter("Temperature", Double.class, 1000.0);
         public static final Parameter COMPOSITION = new Parameter("Composition", double[].class, null);
@@ -82,31 +67,71 @@ public final class CalculationDescriptor {
             this.type = type;
             this.defaultValue = defaultValue;
         }
-
-        @Override
-        public String toString() { return name; }
+        @Override public String toString() { return name; }
     }
 
-    /**
-     * Carries global system identity from the UI to the calculation layer.
-     * Use this to construct or retrieve a ModelSession.
-     */
-    public static final class ModelSpecifications {
-        public final String elements;
-        public final String structure;
-        public final String modelName;
-        public final EngineConfig engineConfig;
+    /** Carries global system identity (elements, structure, model). */
+    public record ModelSpecifications(String elements, String structure, String modelName, EngineConfig engineConfig) {
+        @Override public String toString() {
+            return String.format("%s / %s / %s [%s]", elements, structure, modelName, engineConfig);
+        }
+    }
 
-        public ModelSpecifications(String elements, String structure, String modelName, EngineConfig engineConfig) {
-            this.elements = Objects.requireNonNull(elements);
-            this.structure = Objects.requireNonNull(structure);
-            this.modelName = Objects.requireNonNull(modelName);
-            this.engineConfig = Objects.requireNonNull(engineConfig);
+    /** Value object representing the specifications for a single calculation job. */
+    public static final class JobSpecifications {
+        private final Property property;
+        private final Mode mode;
+        private final Map<Parameter, Object> parameters = new HashMap<>();
+
+        public JobSpecifications(Property property, Mode mode) {
+            this.property = Objects.requireNonNull(property);
+            this.mode = Objects.requireNonNull(mode);
         }
 
-        @Override
-        public String toString() {
-            return String.format("%s / %s / %s [%s]", elements, structure, modelName, engineConfig);
+        public void set(Parameter param, Object value) { parameters.put(param, value); }
+
+        @SuppressWarnings("unchecked")
+        public <T> Optional<T> get(Parameter param) { return Optional.ofNullable((T) parameters.get(param)); }
+
+        @SuppressWarnings("unchecked")
+        public <T> T getOrDefault(Parameter param) { return (T) parameters.getOrDefault(param, param.defaultValue); }
+
+        public Property getProperty() { return property; }
+        public Mode getMode() { return mode; }
+
+        @Override public String toString() {
+            return String.format("Request[%s in %s mode | %d params]", property, mode, parameters.size());
+        }
+    }
+
+    /** Metadata provider for discoverable properties and requirements. */
+    public static final class Registry {
+        public static List<Property> getAvailableProperties(EngineConfig engine) {
+            if (engine.isCvm()) return Arrays.asList(Property.GIBBS_ENERGY, Property.ENTHALPY, Property.ENTROPY);
+            return Arrays.asList(Property.ENTHALPY, Property.HEAT_CAPACITY, Property.CORRELATION_FUNCTIONS);
+        }
+
+        public static List<Mode> getAvailableModes(Property property, EngineConfig engine) {
+            if (property == Property.HEAT_CAPACITY) return Arrays.asList(Mode.FINITE_SIZE_SCALING);
+            return Arrays.asList(Mode.ANALYSIS);
+        }
+
+        public static List<Parameter> getRequirements(Property property, Mode mode, EngineConfig engine) {
+            List<Parameter> requirements = new ArrayList<>();
+            switch (mode) {
+                case ANALYSIS:
+                    requirements.addAll(Arrays.asList(Parameter.T_START, Parameter.T_END, Parameter.T_STEP,
+                                       Parameter.X_STARTS, Parameter.X_ENDS, Parameter.X_STEPS));
+                    break;
+                case FINITE_SIZE_SCALING:
+                    requirements.addAll(Arrays.asList(Parameter.TEMPERATURE, Parameter.COMPOSITION));
+                    break;
+            }
+            if (engine.isMcs()) {
+                if (mode != Mode.FINITE_SIZE_SCALING) requirements.add(Parameter.MCS_L);
+                requirements.addAll(Arrays.asList(Parameter.MCS_NEQUIL, Parameter.MCS_NAVG));
+            }
+            return requirements;
         }
     }
 }

@@ -686,18 +686,16 @@ public final class CvCfBasis {
                     "Dynamic generation only supported for T-model; got: " + model);
         }
 
-        emit(sink, "========================================================");
-        emit(sink, "  CVCF BASIS GENERATION");
-        emit(sink, "========================================================");
+        emit(sink, "\n  [Basis-Gen] Building CVCF transformation...");
 
         int numComponents = pr.getNumComponents();
         ClusterIdentificationResult clusterResult = pr.toClusterIdentificationResult();
         CFIdentificationResult cfResult = pr.toCFIdentificationResult();
 
         // ---------------------------------------------------------
-        // Stage 1: Load Specification
+        // Phase 1: Load Specification
         // ---------------------------------------------------------
-        emit(sink, "\n[STAGE 1] Loading CVCF Specification");
+        emit(sink, "    - Phase 1: Load Specification");
         Definition def = REGISTRY.get(structurePhase + "_" + model.toUpperCase() + "_" + numComponents);
         if (def == null)
             throw new IllegalArgumentException("Unregistered CVCF combination.");
@@ -708,9 +706,9 @@ public final class CvCfBasis {
         }
 
         // ---------------------------------------------------------
-        // Stage 2: Resolve Coordinates
+        // Phase 2: Resolve Coordinates
         // ---------------------------------------------------------
-        emit(sink, "\n[STAGE 2] Resolving Fractional Coordinates to Physical Indices");
+        emit(sink, "    - Phase 2: Resolve Coordinates");
         List<Position> siteList = matrixData.getSiteList();
         Cluster maxCluster = clusterResult.getOrdClusterData().getCoordList().get(0).get(0);
         Map<Integer, Integer> siteMap = resolveSiteMap(def.logicalSiteCoords, maxCluster, siteList, sink);
@@ -720,9 +718,9 @@ public final class CvCfBasis {
         }
 
         // ---------------------------------------------------------
-        // Stage 3: Orthogonal CF Data prep
+        // Phase 3: Orthogonal CF Data prep
         // ---------------------------------------------------------
-        emit(sink, "\n[STAGE 3] Extracting Orthogonal Basis Metadata");
+        emit(sink, "    - Phase 3: Orthogonal CF Metadata");
         int totalCfs = cfResult.getTcf();
         int basisSize = def.vSpecs.size();
 
@@ -736,15 +734,15 @@ public final class CvCfBasis {
                 "  Built CF column map for " + cfColMap.size() + " unique orthogonal physical correlation functions.");
 
         // ---------------------------------------------------------
-        // Stage 4: Matrix M construction via Pipeline
+        // Phase 4: Matrix M construction via Pipeline
         // ---------------------------------------------------------
-        emit(sink, "\n[STAGE 4] Assembling Transformation M-Matrix by querying Pipeline");
+        emit(sink, "    - Phase 4: Build M-Matrix");
         double[][] M = buildMMatrix(def.vSpecs, siteMap, matrixData, cfColMap, totalCfs, basisSize, sink);
 
         // ---------------------------------------------------------
-        // Stage 5: Inverting to T-matrix
+        // Phase 5: Inverting to T-matrix
         // ---------------------------------------------------------
-        emit(sink, "\n[STAGE 5] Inverting M-Matrix to T-Matrix Basis");
+        emit(sink, "    - Phase 5: Inverting to T-Matrix");
         double[][] T = LinearAlgebra.invert(M);
         double[][] Tinv = M;
 
@@ -767,7 +765,10 @@ public final class CvCfBasis {
         }
         emit(sink, "  Geometric Inversion complete, T-matrix bound (" + T.length + "x" + T[0].length + ")");
 
-        emit(sink, "\n[STAGE 6] Transforming Orthogonal C-Matrix to CVCF Basis");
+        // ---------------------------------------------------------
+        // Phase 6: Transforming Orthogonal C-Matrix to CVCF Basis
+        // ---------------------------------------------------------
+        emit(sink, "    - Phase 6: Coordinate Transformation");
         CMatrixPipeline.CMatrixData cvcfData = matrixData.transform(T);
         emit(sink, "  C-Matrix natively bound inside Basis mapping.");
 
@@ -797,9 +798,7 @@ public final class CvCfBasis {
             }
         }
 
-        emit(sink, "\n========================================================");
-        emit(sink, "  CVCF PIPELINE COMPLETE");
-        emit(sink, "========================================================");
+        emit(sink, "  [Basis-Gen] ✓ Basis generation complete.");
 
         return new CvCfBasis(structurePhase, model, numComponents,
                 def.cfNames, eciNames, numNonPointCfs, T, Tinv, cvcfData);

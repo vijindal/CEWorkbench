@@ -58,7 +58,7 @@ public class HeaderBar extends JPanel {
     private void refreshSystem() {
         if (context.hasSystem()) {
             SystemId s = context.getSystem();
-            systemLabel.setText(s.elements + "  ·  " + s.structure + "  ·  " + s.model);
+            systemLabel.setText(s.elements() + "  ·  " + s.structure() + "  ·  " + s.model());
             systemLabel.setForeground(TEXT_SYSTEM);
         } else {
             systemLabel.setText("no system selected");

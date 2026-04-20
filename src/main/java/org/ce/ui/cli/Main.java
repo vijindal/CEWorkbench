@@ -9,7 +9,6 @@ import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.ThermodynamicResult;
 import org.ce.calculation.CalculationDescriptor.*;
 import org.ce.calculation.CalculationResult;
-import org.ce.calculation.CalculationSpecifications;
 import org.ce.calculation.QuantityDescriptor;
 import org.ce.calculation.ResultFormatter;
 import org.ce.calculation.workflow.CalculationService;
@@ -171,11 +170,11 @@ public class Main {
                 double tStart = 1000.0, tEnd = 1000.0, tStep = 100.0;
 
                 ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
-                CalculationSpecifications calcSpecs = new CalculationSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
-                calcSpecs.set(Parameter.COMPOSITION, composition);
-                calcSpecs.set(Parameter.T_START, tStart);
-                calcSpecs.set(Parameter.T_END, tEnd);
-                calcSpecs.set(Parameter.T_STEP, tStep);
+                JobSpecifications jobSpecs = new JobSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
+                jobSpecs.set(Parameter.COMPOSITION, composition);
+                jobSpecs.set(Parameter.T_START, tStart);
+                jobSpecs.set(Parameter.T_END, tEnd);
+                jobSpecs.set(Parameter.T_STEP, tStep);
 
                 if (verbose) {
                     System.out.println("System      : " + modelSpecs);
@@ -183,7 +182,7 @@ public class Main {
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
-                printResult(service.execute(modelSpecs, calcSpecs, sink, null));
+                printResult(service.execute(modelSpecs, jobSpecs, sink, null));
             }
 
         } catch (Exception e) {
@@ -237,20 +236,20 @@ public class Main {
             Consumer<String> sink = verbose ? System.out::println : null;
 
             ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
-            CalculationSpecifications calcSpecs = new CalculationSpecifications(requestedProp, Mode.ANALYSIS);
-            calcSpecs.set(Parameter.T_START, temp);
-            calcSpecs.set(Parameter.T_END,   temp);
-            calcSpecs.set(Parameter.T_STEP,  0.0);
+            JobSpecifications jobSpecs = new JobSpecifications(requestedProp, Mode.ANALYSIS);
+            jobSpecs.set(Parameter.T_START, temp);
+            jobSpecs.set(Parameter.T_END,   temp);
+            jobSpecs.set(Parameter.T_STEP,  0.0);
 
             // X_STARTS holds the independent fractions (x2, x3, ...) — x1 is derived as 1-sum
             double[] xIndep = java.util.Arrays.copyOfRange(composition, 1, composition.length);
-            calcSpecs.set(Parameter.X_STARTS, xIndep);
-            calcSpecs.set(Parameter.X_ENDS,   xIndep);
-            calcSpecs.set(Parameter.X_STEPS,  new double[xIndep.length]);
+            jobSpecs.set(Parameter.X_STARTS, xIndep);
+            jobSpecs.set(Parameter.X_ENDS,   xIndep);
+            jobSpecs.set(Parameter.X_STEPS,  new double[xIndep.length]);
 
             System.out.println("System: " + modelSpecs);
             System.out.println();
-            printResult(service.execute(modelSpecs, calcSpecs, sink, null));
+            printResult(service.execute(modelSpecs, jobSpecs, sink, null));
 
         } catch (Exception e) {
             if (verbose) e.printStackTrace();

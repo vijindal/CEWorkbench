@@ -1,377 +1,204 @@
 package org.ce.calculation.workflow.thermo;
 
-import org.ce.model.PhysicsConstants;
-import org.ce.model.ThermodynamicResult;
+import org.ce.calculation.CalculationDescriptor.Property;
 import org.ce.model.ModelSession;
+import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
+import org.ce.model.ThermodynamicResult;
 import org.ce.model.cvm.CVMGibbsModel;
-import org.ce.model.cvm.CVMGibbsModel.ModelResult;
-import org.ce.model.cvm.CVMGibbsModel.EquilibriumResult;
 import org.ce.model.mcs.MCSRunner;
+import org.ce.model.mcs.MCSGeometry;
 import org.ce.model.mcs.MetropolisMC.MCResult;
-import org.ce.model.mcs.MetropolisMC.MCSUpdate;
 
 import java.util.Arrays;
-import java.util.logging.Logger;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 /**
- * Calculation-layer workflow for thermodynamic calculations.
- *
- * <p>Accepts a pre-built {@link ModelSession} (which already holds cluster data,
- * Hamiltonian, and resolved basis) and a {@link ThermodynamicRequest} (which
- * carries only calculation parameters: T, composition, MCS params, progress sinks).
- * No cluster identification or Hamiltonian loading occurs here.</p>
- *
- * <p>Dispatches directly to model-layer optimizers (CVMSolver for CVM, MCSRunner for MCS).</p>
+ * Unified engine for thermodynamic calculations (CVM and MCS).
+ * Handles caching of expensive model state (minimization loops, geometry).
  */
 public class ThermodynamicWorkflow {
 
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
 
-    private CVMGibbsModel cachedGibbsModel;
-    private ModelSession  cachedCvmSession;
-
-    // MCS model cache — persists across composition points at the same (session, T)
-    private MCSRunner     cachedMcsRunner;
-    private ModelSession  cachedMcsSession;
-    private double        cachedMcsT = Double.NaN;
-
-    public ThermodynamicWorkflow() {
-        // No injected engines; dispatch directly to model layer
+    // Caching records for value-based identity
+    private record CvmCache(ModelSession session, CVMGibbsModel model) {
+        boolean validFor(ModelSession s) {
+            return session == s;
+        }
     }
 
+    private record McsCache(ModelSession session, int L, MCSGeometry geo,
+            double T, MCSRunner runner) {
+        boolean geoValidFor(ModelSession s, int l) {
+            return session == s && L == l;
+        }
+
+        boolean runnerValidFor(ModelSession s, int l, double t) {
+            return geoValidFor(s, l) && Double.compare(T, t) == 0;
+        }
+    }
+
+    private CvmCache cvmCache;
+    private McsCache mcsCache;
+
     /**
-     * Runs a thermodynamic calculation using pre-built session state.
-     *
-     * <p>No cluster identification or Hamiltonian loading occurs here — both are
-     * already available on {@code session}.</p>
-     *
-     * @param session pre-built model session holding cluster data, ECI, and basis
-     * @param request calculation parameters (T, composition, MCS params, sinks)
+     * Request describing a single calculation point.
      */
-    public ThermodynamicResult runCalculation(
-            ModelSession session,
-            ThermodynamicRequest request) throws Exception {
+    public static record Request(
+            double temperature,
+            double[] composition,
+            Property property,
+            Consumer<String> progressSink,
+            Consumer<ProgressEvent> eventSink,
+            int mcsL,
+            int mcsNEquil,
+            int mcsNAvg,
+            double[] fixedCorrelations) {
+        public Request(double T, double[] x) {
+            this(T, x, Property.GIBBS_ENERGY, null, null, 4, 1000, 2000, null);
+        }
+    }
 
-        LOG.info("ThermodynamicWorkflow.runCalculation — ENTER");
-        LOG.info("  session: " + session.label());
-        LOG.info("  temperature: " + request.temperature + " K");
-        LOG.info("  composition: " + Arrays.toString(request.composition));
-        LOG.info("  engineType: " + session.engineConfig);
+    public ThermodynamicResult runCalculation(ModelSession session, Request request) throws Exception {
+        validateInputs(request.temperature, request.composition);
 
-        emit(request.progressSink, "STAGE 3: Using pre-loaded Hamiltonian '"
-                + session.resolvedHamiltonianId + "'");
+        emit(request.progressSink, String.format(
+                "\nCALCULATION START [%s] — T=%.1f K, x=%s (%s)",
+                session.engineConfig, request.temperature, Arrays.toString(request.composition), request.property));
 
         ThermodynamicResult result = switch (session.engineConfig) {
             case CVM -> runCvm(session, request);
             case MCS -> runMcs(session, request);
         };
-
-        if (request.progressSink != null) {
-            emit(request.progressSink, "");
-            emit(request.progressSink, "  RESULTS AT " + request.temperature
-                    + " K (composition: " + Arrays.toString(request.composition) + ")");
-            emit(request.progressSink, "  " + "-".repeat(60));
-            emit(request.progressSink, String.format("  Gibbs Energy (G): %15.6f J/mol", result.gibbsEnergy));
-            emit(request.progressSink, String.format("  Enthalpy (H):     %15.6f J/mol", result.enthalpy));
-            if (!Double.isNaN(result.entropy)) {
-                emit(request.progressSink, String.format("  Entropy (S):      %15.6f J/(mol·K)", result.entropy));
-            }
-            if (result.optimizedCFs != null) {
-                emit(request.progressSink, "  Equilibrium CFs (non-point):");
-                for (int i = 0; i < result.optimizedCFs.length; i++) {
-                    emit(request.progressSink, String.format("    CF[%d] = %15.10f", i, result.optimizedCFs[i]));
-                }
-            }
-            emit(request.progressSink, "  " + "-".repeat(60));
-            emit(request.progressSink, "  ✓ Calculation successful");
-            emit(request.progressSink, "");
-        }
-
-        LOG.info("ThermodynamicWorkflow.runCalculation — EXIT: G="
-                + String.format("%.4e", result.gibbsEnergy) + " J/mol");
+        printResultSummary(request.progressSink, request.temperature, request.composition, result);
         return result;
     }
 
-    private ThermodynamicResult runCvm(ModelSession session, ThermodynamicRequest request)
-            throws Exception {
-        Consumer<String> progressSink = request.progressSink;
-        printCvmHeader(progressSink);
+    private void validateInputs(double T, double[] x) {
+        if (T < 0)
+            throw new IllegalArgumentException("Temperature cannot be negative: " + T);
+        if (x == null || x.length == 0)
+            throw new IllegalArgumentException("Composition array missing");
+        double sum = 0;
+        for (double val : x)
+            sum += val;
+        if (Math.abs(sum - 1.0) > 1e-4) {
+            throw new IllegalArgumentException("Composition does not sum to 1.0: " + Arrays.toString(x));
+        }
+    }
 
-        double temperature = request.temperature;
-        double[] composition = request.composition;
+    // ── CVM Engine ────────────────────────────────────────────────────────────
 
-        printInputParameters(progressSink, session.resolvedHamiltonianId, session.label(),
-                            session.cecEntry.structurePhase, temperature, composition);
-
-        validateInputs(temperature, composition);
-
-        if (cachedGibbsModel == null || cachedCvmSession != session) {
-            cachedGibbsModel = new CVMGibbsModel();
-            cachedGibbsModel.initialize(session.systemId.elements, session.systemId.structure, session.systemId.model, session.cecEntry, progressSink);
-            cachedCvmSession = session;
+    private ThermodynamicResult runCvm(ModelSession session, Request request) throws Exception {
+        if (cvmCache == null || !cvmCache.validFor(session)) {
+            CVMGibbsModel model = new CVMGibbsModel();
+            model.initialize(session.systemId.elements(), session.systemId.structure(), session.systemId.model(),
+                    session.cecEntry, request.progressSink);
+            cvmCache = new CvmCache(session, model);
         }
 
-        // 1. Resolve Equilibrium State (Minimization)
-        EquilibriumResult solverResult = cachedGibbsModel.getEquilibriumState(
-                temperature, composition, 1.0e-5,
-                progressSink, request.eventSink);
+        CVMGibbsModel model = cvmCache.model();
+        double T = request.temperature;
+        double[] x = request.composition;
 
-        validateConvergence(solverResult, progressSink);
+        // Extract result via procedural bridge logic (formerly ThermodynamicMethods)
+        model.getEquilibriumState(T, x, 1e-5, request.progressSink(), request.eventSink(), request.property());
 
-        // 2. Extract requested property via ThermodynamicMethods (Procedural Bridge)
-        ThermodynamicMethods methods = new ThermodynamicMethods(cachedGibbsModel);
-        double G = Double.NaN, H = Double.NaN, S = Double.NaN;
-        
-        // Prepare modDataIn array [output, T, x...]
-        double[] modData = new double[2 + composition.length];
-        modData[1] = temperature;
-        System.arraycopy(composition, 0, modData, 2, composition.length);
-
+        double g = Double.NaN, h = Double.NaN, s = Double.NaN;
         switch (request.property) {
-            case ENTHALPY -> {
-                methods.calHm(modData);
-                H = modData[0];
-            }
-            case ENTROPY -> {
-                methods.calSm(modData);
-                S = modData[0];
-            }
-            case GIBBS_ENERGY -> {
-                methods.calGm(modData);
-                G = modData[0];
-                H = cachedGibbsModel.calH();
-                S = cachedGibbsModel.calS();
-            }
-            default -> {
-                // For other properties, fall back to ModelResult if necessary
-                ModelResult mr = solverResult.modelResult;
-                G = mr.G; H = mr.H; S = mr.S;
-            }
-        }
-
-        ThermodynamicResult result = new ThermodynamicResult(
-                temperature, composition.clone(),
-                G, H, S,
-                Double.NaN, Double.NaN,
-                solverResult.u,
-                null, null,
-                request.property
-        );
-
-        emit(progressSink, "================================================================================");
-        return result;
-    }
-
-    private ThermodynamicResult runMcs(ModelSession session, ThermodynamicRequest request)
-            throws Exception {
-
-        Consumer<String> progressSink = request.progressSink;
-
-        int L           = request.mcsL;
-        int nEquil      = request.mcsNEquil;
-        int nAvg        = request.mcsNAvg;
-        int totalSweeps = nEquil + nAvg;
-
-        // Build (or reuse) the MCS model for this (session, T) pair.
-        // ECIs depend on T, so a new model is required when T changes.
-        // Embeddings and orbit structure are invariant within the same session,
-        // so the same model serves all composition points at a fixed T.
-        if (cachedMcsRunner == null
-                || cachedMcsSession != session
-                || Double.compare(cachedMcsT, request.temperature) != 0) {
-            emit(progressSink, String.format(
-                    "  [MCS Model]  building for T=%.1f K — ECI evaluation + lattice geometry + embeddings",
-                    request.temperature));
-            cachedMcsRunner  = MCSRunner.builder()
-                    .session(session, request.temperature)
-                    .L(L)
-                    .build();
-            cachedMcsSession = session;
-            cachedMcsT       = request.temperature;
-            emit(progressSink, String.format(
-                    "  [MCS Model]  ready: L=%d (%d sites), %d orbits, ECIs evaluated at T=%.1f K",
-                    L, cachedMcsRunner.nSites(), session.clusterData.getDisorderedClusterResult()
-                            .getDisClusterData().getTc(), request.temperature));
-        } else {
-            emit(progressSink, String.format(
-                    "  [MCS Model]  reusing cached model (T=%.1f K, L=%d)",
-                    request.temperature, L));
-        }
-
-        int N = cachedMcsRunner.nSites();
-
-        Consumer<String> strSink = progressSink;
-        Consumer<ProgressEvent> evtSink = request.eventSink;
-
-        if (strSink != null) {
-            strSink.accept(String.format("  MCS started: L=%d (%d sites), %d equil + %d avg sweeps",
-                    L, N, nEquil, nAvg));
-        }
-        if (evtSink != null) {
-            evtSink.accept(new ProgressEvent.EngineStart("MCS", totalSweeps));
-        }
-
-        Consumer<MCSUpdate> updateListener = null;
-        if (strSink != null || evtSink != null) {
-            final int sweepCount = totalSweeps;
-            updateListener = mcUpdate -> {
-                if (strSink != null && (mcUpdate.getStep() % 100 == 0 || mcUpdate.getStep() == sweepCount)) {
-                    strSink.accept(String.format("  [%-5s] sweep %4d/%-4d  <E>/site=%9.5f  accept=%5.1f%%",
-                            mcUpdate.getPhase(),
-                            mcUpdate.getStep(), sweepCount,
-                            mcUpdate.getE_total() / N,
-                            mcUpdate.getAcceptanceRate() * 100));
-                }
-                if (evtSink != null) {
-                    evtSink.accept(new ProgressEvent.McSweep(
-                            mcUpdate.getStep(), sweepCount,
-                            mcUpdate.getE_total() / N,
-                            mcUpdate.getAcceptanceRate(),
-                            mcUpdate.getPhase() == MCSUpdate.Phase.EQUILIBRATION,
-                            null));
-                }
-            };
-        }
-
-        MCSRunner.MCSRunResult runResult = cachedMcsRunner.run(
-                request.composition,
-                nEquil,
-                nAvg,
-                System.currentTimeMillis(),
-                strSink,
-                updateListener,
-                Thread.currentThread()::isInterrupted);
-        MCResult mcResult = runResult.result;
-
-        // [DEBUG] Raw simulation output
-        MCSRunner.Debug.printMcsSummary(mcResult);
-
-        // Compute statistics from raw time series in the calculation layer
-        MCSStatisticsProcessor statsProcessor = new MCSStatisticsProcessor(
-                mcResult.getNSites(),
-                PhysicsConstants.R_GAS,
-                request.temperature,
-                mcResult.getSeriesHmix(),
-                mcResult.getSeriesE(),
-                mcResult.getSeriesCF());
-        statsProcessor.computeStatistics();
-
-        // Post-run statistics summary with computed error bars
-        if (strSink != null) {
-            strSink.accept(
-                "  ── MCS Statistics (Post-Processed) ────────────────────────");
-            strSink.accept(String.format(
-                "  τ_int = %.1f sweeps  s = %.3f  n_eff = %d  (block size = %d, %d blocks)",
-                statsProcessor.getTauInt(), statsProcessor.getStatInefficiency(),
-                statsProcessor.getNEff(), statsProcessor.getBlockSizeUsed(), statsProcessor.getNBlocks()));
-            strSink.accept(String.format(
-                "  ⟨H⟩/site = %.6f ± %.6f  J/mol",
-                mcResult.getHmixPerSite(), nanZero(statsProcessor.getStdHmixPerSite())));
-            strSink.accept(String.format(
-                "  ⟨E⟩/site = %.6f ± %.6f  J/mol",
-                mcResult.getEnergyPerSite(), nanZero(statsProcessor.getStdEnergyPerSite())));
-            strSink.accept(String.format(
-                "  Cv       = %.6f ± %.6f  J/(mol·K)  [jackknife]",
-                statsProcessor.getCvJackknife(), nanZero(statsProcessor.getCvStdErr())));
-
-            // Correlation functions with error bars
-            double[] cfs    = mcResult.getAvgCFs();
-            double[] stdCFs = statsProcessor.getStdCFs();
-            if (cfs != null && cfs.length > 0) {
-                strSink.accept(
-                    "  ── Correlation Functions ────────────────────────────────");
-                for (int i = 0; i < cfs.length; i++) {
-                    double sigma = (stdCFs != null && i < stdCFs.length) ? stdCFs[i] : Double.NaN;
-                    strSink.accept(String.format(
-                        "  CF[%2d] = %+.6f ± %.6f",
-                        i, cfs[i], nanZero(sigma)));
-                }
-            }
+            case GIBBS_ENERGY -> g = model.calG();
+            case ENTHALPY -> h = model.calH();
+            case ENTROPY -> s = model.calS();
         }
 
         return new ThermodynamicResult(
-                mcResult.getTemperature(),
-                mcResult.getComposition(),
-                Double.NaN,                           // gibbsEnergy — not available from canonical MCS
-                mcResult.getHmixPerSite(),            // enthalpy
-                Double.NaN,                           // entropy — not available from canonical MCS
-                statsProcessor.getStdHmixPerSite(),   // stdEnthalpy (from post-processing)
-                statsProcessor.getCvJackknife(),      // heat capacity from jackknife
-                null,                                 // optimizedCFs (CVM only)
-                mcResult.getAvgCFs(),                 // mean correlation functions
-                statsProcessor.getStdCFs()            // CF standard errors from post-processing
-        );
+                T, x, g, h, s,
+                Double.NaN, // stdEnthalpy
+                Double.NaN, // heatCapacity
+                model.calCfs(),
+                null, // avgCFs
+                null, // stdCFs
+                request.property());
     }
 
-    // ---- CVM helpers ----
+    // ── MCS Engine ────────────────────────────────────────────────────────────
 
-    private void validateConvergence(EquilibriumResult result, Consumer<String> sink) {
-        if (!result.converged) {
-            emit(sink, "  [!] CVM minimization FAILED to converge!");
-            throw new RuntimeException(
-                    "CVM minimization failed to converge within " + result.iterations + " iterations.");
+    private ThermodynamicResult runMcs(ModelSession session, Request request) throws Exception {
+        int L = request.mcsL;
+
+        if (mcsCache == null || !mcsCache.geoValidFor(session, L)) {
+            emit(request.progressSink, String.format("  [MCS Geometry] rebuilding for L=%d...", L));
+            MCSGeometry geo = MCSGeometry.build(session, L, request.progressSink());
+            mcsCache = new McsCache(session, L, geo, Double.NaN, null);
         }
-        emit(sink, String.format("  - CONVERGED in %d iterations (||Gu||=%.4e)",
-                result.iterations, result.finalGradientNorm));
-    }
 
-    private void printCvmHeader(Consumer<String> sink) {
-        String border = "================================================================================";
-        emit(sink, border);
-        emit(sink, "                       CVM THERMODYNAMIC CALCULATION");
-        emit(sink, border);
-    }
-
-    private void printInputParameters(Consumer<String> sink, String systemId, String systemName,
-                                     String structurePhase, double temperature, double[] composition) {
-        emit(sink, "\nINPUT PARAMETERS");
-        emit(sink, "-----------------");
-        emit(sink, "  - System ID:      " + systemId);
-        emit(sink, "  - System Name:    " + systemName);
-        emit(sink, "  - Structure:      " + structurePhase);
-        emit(sink, "  - Temperature:    " + temperature + " K");
-        emit(sink, "  - Composition:    [" + formatArray(composition) + "]");
-    }
-
-    private void validateInputs(double temperature, double[] composition) {
-        if (temperature <= 0) {
-            throw new IllegalArgumentException("Temperature must be positive: " + temperature);
+        if (mcsCache.runner() == null || !mcsCache.runnerValidFor(session, L, request.temperature)) {
+            emit(request.progressSink,
+                    String.format("  [MCS Model] evaluating ECIs at T=%.1f K...", request.temperature));
+            MCSRunner runner = MCSRunner.forTemperature(mcsCache.geo(), session, request.temperature, request.progressSink());
+            mcsCache = new McsCache(session, L, mcsCache.geo(), request.temperature, runner);
+        } else {
+            emit(request.progressSink, String.format("  [MCS Model] reusing cached model (T=%.1f K, L=%d)",
+                    request.temperature, L));
         }
-        if (composition == null || composition.length < 2) {
-            throw new IllegalArgumentException("Invalid composition array");
+
+        if (request.eventSink() != null) {
+            request.eventSink()
+                    .accept(new org.ce.model.ProgressEvent.EngineStart("MCS", request.mcsNEquil() + request.mcsNAvg()));
         }
-        double sum = 0.0;
-        for (double x : composition) {
-            if (x < 0 || x > 1) {
-                throw new IllegalArgumentException("Composition values must be in [0,1]");
-            }
-            sum += x;
-        }
-        if (Math.abs(sum - 1.0) > 1e-9) {
-            throw new IllegalArgumentException("Composition must sum to 1.0, got: " + sum);
-        }
+
+        MCResult r = mcsCache.runner().run(
+                request.composition(),
+                request.mcsNEquil(),
+                request.mcsNAvg(),
+                System.currentTimeMillis(),
+                request.progressSink(),
+                mcUpdate -> {
+                    if (request.eventSink() != null) {
+                        request.eventSink().accept(new org.ce.model.ProgressEvent.McSweep(
+                                mcUpdate.getStep(),
+                                request.mcsNEquil() + request.mcsNAvg(),
+                                mcUpdate.getE_total() / mcsCache.geo().nSites(),
+                                mcUpdate.getAcceptanceRate(),
+                                mcUpdate.getPhase() == org.ce.model.mcs.MetropolisMC.MCSUpdate.Phase.EQUILIBRATION,
+                                mcUpdate.getCfs()));
+                    }
+                },
+                () -> false // cancellationCheck
+        ).result;
+
+        return new ThermodynamicResult(
+                request.temperature(),
+                request.composition(),
+                Double.NaN, // G not directly available in single-point MCS
+                r.getEnergyPerSite(),
+                Double.NaN, // S not directly available
+                Double.NaN, // stdEnthalpy (σ) - not in MCResult
+                Double.NaN, // heatCapacity - requires FSS
+                null, // optimizedCFs
+                r.getAvgCFs(),
+                null, // stdCFs
+                request.property());
     }
 
-    private static String formatArray(double[] arr) {
-        if (arr == null || arr.length == 0)
-            return "";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < arr.length; i++) {
-            if (i > 0)
-                sb.append(", ");
-            sb.append(String.format("%.6f", arr[i]));
-        }
-        return sb.toString();
+    private void printResultSummary(Consumer<String> sink, double T, double[] x, ThermodynamicResult r) {
+        if (sink == null)
+            return;
+        emit(sink, "  RESULTS AT " + T + " K (" + Arrays.toString(x) + ")");
+        emit(sink, "  " + "-".repeat(60));
+        if (!Double.isNaN(r.gibbsEnergy))
+            emit(sink, String.format("  Gibbs Energy (G): %15.6f J/mol", r.gibbsEnergy));
+        if (!Double.isNaN(r.enthalpy))
+            emit(sink, String.format("  Enthalpy (H):     %15.6f J/mol", r.enthalpy));
+        if (!Double.isNaN(r.entropy))
+            emit(sink, String.format("  Entropy (S):      %15.6f J/mol\u00B7K", r.entropy));
+        emit(sink, "  " + "-".repeat(60));
     }
 
-    private static double nanZero(double value) {
-        return Double.isNaN(value) ? 0.0 : value;
+    private void emit(Consumer<String> sink, String msg) {
+        if (sink != null)
+            sink.accept(msg);
     }
-
-    private static void emit(Consumer<String> sink, String line) {
-        if (sink != null) sink.accept(line);
-    }
-
 }

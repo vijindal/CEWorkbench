@@ -42,7 +42,7 @@ public final class ModelSession {
 
     /**
      * Full cluster identification result (clusters, symmetry matrices, C-matrix,
-     * CF list). Pre-computed by {@link Builder#build}.
+     * CF list). Pre-computed by the engine during initialization.
      */
     public final PipelineResult clusterData;
 
@@ -57,7 +57,7 @@ public final class ModelSession {
 
     /**
      * CVCF basis for this (structure, model, numComponents) combination.
-     * Pre-resolved from {@link CvCfBasis.Registry} at session-creation time.
+     * Pre-resolved by the engine during initialization.
      */
     public final CvCfBasis cvcfBasis;
 
@@ -90,12 +90,12 @@ public final class ModelSession {
 
     /** Number of chemical components derived from {@code systemId.elements}. */
     public int numComponents() {
-        return systemId.elements.split("-").length;
+        return systemId.elements().split("-").length;
     }
 
     /** Short human-readable label, e.g. {@code "Nb-Ti / BCC_A2 / T [CVM]"}. */
     public String label() {
-        return systemId.elements + " / " + systemId.structure + " / " + systemId.model
+        return systemId.elements() + " / " + systemId.structure() + " / " + systemId.model()
                 + " [" + engineConfig + "]";
     }
 
@@ -141,34 +141,12 @@ public final class ModelSession {
                 EngineConfig engineConfig,
                 Consumer<String> progressSink) throws Exception {
 
-            emit(progressSink, "Building session for " + systemId.elements
-                    + " / " + systemId.structure + " / " + systemId.model
+            emit(progressSink, "Building session for " + systemId.elements()
+                    + " / " + systemId.structure() + " / " + systemId.model()
                     + " [" + engineConfig + "] ...");
 
             // ── Stage 1: Cluster identification ──────────────────────────────
             emit(progressSink, "  [Session] Stage 1: Cluster identification...");
-            int numComponents = systemId.elements.split("-").length;
-
-            // Derive file names from structure/model (same convention as
-            // ClusterIdentificationRequest(ThermodynamicInput)):
-            //   clus/<structure>-<model>.txt  and  <structure>-SG
-            String clusterFile = "clus/" + systemId.structure + "-" + systemId.model + ".txt";
-            String symGroup    = systemId.structure + "-SG";
-
-            ClusterIdentificationRequest clusterReq = ClusterIdentificationRequest.builder()
-                    .structurePhase(systemId.structure)
-                    .model(systemId.model)
-                    .numComponents(numComponents)
-                    .disorderedClusterFile(clusterFile)
-                    .orderedClusterFile(clusterFile)
-                    .disorderedSymmetryGroup(symGroup)
-                    .orderedSymmetryGroup(symGroup)
-                    .build();
-
-            PipelineResult clusterData = ClusterCFIdentificationPipeline.runFullWorkflow(clusterReq, progressSink);
-            clusterData.printSummary(System.out::println);
-            emit(progressSink, "  [Session] ✓ Cluster identification complete");
-
             // ── Stage 2: Resolve Hamiltonian ID ──────────────────────────────
             String baseHamiltonianId = systemId.hamiltonianId();
             String resolvedHamiltonianId = resolveHamiltonianId(
@@ -178,12 +156,11 @@ public final class ModelSession {
             emit(progressSink, "  [Session] Stage 3: Loading Hamiltonian '" + resolvedHamiltonianId + "'...");
             CECEntry cecEntry = hamiltonianStore.load(resolvedHamiltonianId);
 
-            // Validate CEC: term count must be > 0 and <= basis.numNonPointCfs
-            int ncf = CvCfBasis.getNumNonPointCfs(systemId.structure, systemId.model, numComponents);
+            // Validate CEC: term count must be > 0
             int termCount = cecEntry.cecTerms == null ? 0 : cecEntry.cecTerms.length;
-            if (termCount <= 0 || termCount > ncf) {
+            if (termCount <= 0) {
                 throw new IllegalStateException("CEC term count (" + termCount
-                        + ") is invalid (must be > 0 and <= " + ncf + ")");
+                        + ") is invalid (must be > 0)");
             }
             for (CECEntry.CECTerm term : cecEntry.cecTerms) {
                 term.validate();
@@ -191,20 +168,14 @@ public final class ModelSession {
 
             emit(progressSink, "  [Session] ✓ Hamiltonian loaded (" + cecEntry.ncf + " terms)");
 
-            // ── Stage 4: CVCF basis explicit generation ─────────────
-            emit(progressSink, "  [Session] Stage 4: Generating CVCF basis...");
-            CvCfBasis cvcfBasis = CvCfBasis.generate(
-                    systemId.structure,
-                    clusterData,
-                    clusterData.getMatrixData(),
-                    systemId.model,
-                    progressSink
-            );
-            emit(progressSink, "  [Session] ✓ Basis resolved: "
-                    + cvcfBasis.numNonPointCfs + " non-point CFs, "
-                    + cvcfBasis.numComponents + " point variables");
-            emit(progressSink, "  [Session] ✓ Session ready — " + systemId.elements
-                    + " / " + systemId.structure + " / " + systemId.model);
+            // ── Stage 4: Basis Transformation (Deferred) ────────────────────
+            // Engines now perform their own cluster identification and basis 
+            // resolution during initialization to avoid redundant pipeline calls.
+            PipelineResult clusterData = null;
+            CvCfBasis cvcfBasis = null;
+
+            emit(progressSink, "  [Session] ✓ Session ready — " + systemId.elements()
+                    + " / " + systemId.structure() + " / " + systemId.model());
 
             return new ModelSession(
                     systemId,
