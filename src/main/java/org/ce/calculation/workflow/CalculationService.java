@@ -151,4 +151,7 @@ public class CalculationService {
         cachedSession = sessionBuilder.build(systemId, specs.engineConfig, sink);
         return cachedSession;
     }
+
+    /** Returns the most recently built or reused session, or null. */
+    public ModelSession getLastCachedSession() { return cachedSession; }
 }

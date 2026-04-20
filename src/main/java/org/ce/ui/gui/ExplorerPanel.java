@@ -6,7 +6,7 @@ import java.awt.*;
 /**
  * VS Code-style explorer/sidebar panel (second column).
  *
- * <p>Fixed width (~290 px), dark background. A title bar at the top shows the
+ * <p>Proportional width (~27% of window), dark background. A title bar at the top shows the
  * name of the currently active section in small-caps style. The body uses
  * {@link CardLayout} to show exactly one parameter panel at a time.</p>
  *
@@ -38,7 +38,7 @@ public class ExplorerPanel extends JPanel {
     public ExplorerPanel() {
         setLayout(new BorderLayout());
         setBackground(BG);
-        setPreferredSize(new Dimension(290, 0));
+        setMinimumSize(new Dimension(180, 0));
         setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, BORDER_CLR));
 
         // ── title bar ─────────────────────────────────────────────────────────

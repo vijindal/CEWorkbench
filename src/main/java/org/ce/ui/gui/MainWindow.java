@@ -135,7 +135,18 @@ public class MainWindow extends JFrame {
         // ── centre zone: ActivityBar | splittable (Explorer + Output) ─────────
         JSplitPane contentSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 explorerPanel, outputPanel);
-        contentSplit.setDividerLocation(290);
+        contentSplit.setDividerLocation(290);  // pixel fallback until first resize
+        contentSplit.addComponentListener(new java.awt.event.ComponentAdapter() {
+            private boolean initialized = false;
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                if (!initialized && contentSplit.getWidth() > 0) {
+                    initialized = true;
+                    contentSplit.setDividerLocation(0.27);
+                    contentSplit.removeComponentListener(this);
+                }
+            }
+        });
         contentSplit.setDividerSize(1);
         contentSplit.setContinuousLayout(true);
         contentSplit.setBorder(null);
@@ -146,17 +157,9 @@ public class MainWindow extends JFrame {
         centre.add(activityBar,   BorderLayout.WEST);
         centre.add(contentSplit,  BorderLayout.CENTER);
 
-        // ── session bar (between header and main content) ─────────────────────
-        SessionBar sessionBar = new SessionBar(appCtx, context, statusSink, logSink);
-
-        JPanel northZone = new JPanel(new BorderLayout());
-        northZone.setBackground(new Color(0x1A1A1A));
-        northZone.add(header,     BorderLayout.NORTH);
-        northZone.add(sessionBar, BorderLayout.SOUTH);
-
         // ── assemble ──────────────────────────────────────────────────────────
         setLayout(new BorderLayout());
-        add(northZone, BorderLayout.NORTH);
+        add(header, BorderLayout.NORTH);
         add(centre,    BorderLayout.CENTER);
         add(statusBar, BorderLayout.SOUTH);
 
