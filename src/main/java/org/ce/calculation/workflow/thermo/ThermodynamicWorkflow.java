@@ -10,8 +10,6 @@ import org.ce.model.cvm.CVMGibbsModel.EquilibriumResult;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MetropolisMC.MCResult;
 import org.ce.model.mcs.MetropolisMC.MCSUpdate;
-import org.ce.model.hamiltonian.CECEvaluator;
-import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 
 import java.util.Arrays;
 import java.util.logging.Logger;
@@ -32,7 +30,12 @@ public class ThermodynamicWorkflow {
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
 
     private CVMGibbsModel cachedGibbsModel;
-    private ModelSession cachedSession;
+    private ModelSession  cachedCvmSession;
+
+    // MCS model cache — persists across composition points at the same (session, T)
+    private MCSRunner     cachedMcsRunner;
+    private ModelSession  cachedMcsSession;
+    private double        cachedMcsT = Double.NaN;
 
     public ThermodynamicWorkflow() {
         // No injected engines; dispatch directly to model layer
@@ -104,10 +107,10 @@ public class ThermodynamicWorkflow {
 
         validateInputs(temperature, composition);
 
-        if (cachedGibbsModel == null || cachedSession != session) {
+        if (cachedGibbsModel == null || cachedCvmSession != session) {
             cachedGibbsModel = new CVMGibbsModel();
             cachedGibbsModel.initialize(session.systemId.elements, session.systemId.structure, session.systemId.model, session.cecEntry, progressSink);
-            cachedSession = session;
+            cachedCvmSession = session;
         }
 
         // 1. Resolve Equilibrium State (Minimization)
@@ -165,79 +168,81 @@ public class ThermodynamicWorkflow {
             throws Exception {
 
         Consumer<String> progressSink = request.progressSink;
-        ClusCoordListData clusterData =
-                session.clusterData.getDisorderedClusterResult().getDisClusterData();
-
-        // Validate C-matrix dimensions match basis
-        org.ce.model.cluster.CMatrixPipeline.CMatrixData matrixData = session.clusterData.getMatrixData();
-        int cmatCols = (matrixData.getCmat().isEmpty() || matrixData.getCmat().get(0).isEmpty() 
-                        || matrixData.getCmat().get(0).get(0).length == 0) 
-                        ? 0 : matrixData.getCmat().get(0).get(0)[0].length;
-        
-        if (cmatCols != session.cvcfBasis.totalCfs()) {
-            throw new IllegalStateException("C-matrix dimension mismatch (cmatCols=" + cmatCols 
-                + ", basis.totalCfs=" + session.cvcfBasis.totalCfs() + ")");
-        }
-        LOG.fine("✓ C-matrix dimensions valid: " + cmatCols + " columns");
-
-        double[] eci = CECEvaluator.evaluate(session.cecEntry, request.temperature, session.cvcfBasis, "MCS");
 
         int L           = request.mcsL;
         int nEquil      = request.mcsNEquil;
         int nAvg        = request.mcsNAvg;
         int totalSweeps = nEquil + nAvg;
-        int N           = 2 * L * L * L;  // BCC sites
 
-        MCSRunner.Builder builder = MCSRunner.builder()
-                .clusterData(clusterData)
-                .eci(eci)
-                .numComp(request.composition.length)
-                .T(request.temperature)
-                .composition(request.composition)
-                .nEquil(nEquil)
-                .nAvg(nAvg)
-                .L(L)
-                .seed(System.currentTimeMillis())
-                .R(PhysicsConstants.R_GAS)
-                .basis(session.cvcfBasis)
-                .matrixData(matrixData)
-                .lcf(session.clusterData.getLcf())
-                .cancellationCheck(Thread.currentThread()::isInterrupted);
+        // Build (or reuse) the MCS model for this (session, T) pair.
+        // ECIs depend on T, so a new model is required when T changes.
+        // Embeddings and orbit structure are invariant within the same session,
+        // so the same model serves all composition points at a fixed T.
+        if (cachedMcsRunner == null
+                || cachedMcsSession != session
+                || Double.compare(cachedMcsT, request.temperature) != 0) {
+            emit(progressSink, String.format(
+                    "  [MCS Model]  building for T=%.1f K — ECI evaluation + lattice geometry + embeddings",
+                    request.temperature));
+            cachedMcsRunner  = MCSRunner.builder()
+                    .session(session, request.temperature)
+                    .L(L)
+                    .build();
+            cachedMcsSession = session;
+            cachedMcsT       = request.temperature;
+            emit(progressSink, String.format(
+                    "  [MCS Model]  ready: L=%d (%d sites), %d orbits, ECIs evaluated at T=%.1f K",
+                    L, cachedMcsRunner.nSites(), session.clusterData.getDisorderedClusterResult()
+                            .getDisClusterData().getTc(), request.temperature));
+        } else {
+            emit(progressSink, String.format(
+                    "  [MCS Model]  reusing cached model (T=%.1f K, L=%d)",
+                    request.temperature, L));
+        }
+
+        int N = cachedMcsRunner.nSites();
 
         Consumer<String> strSink = progressSink;
         Consumer<ProgressEvent> evtSink = request.eventSink;
 
+        if (strSink != null) {
+            strSink.accept(String.format("  MCS started: L=%d (%d sites), %d equil + %d avg sweeps",
+                    L, N, nEquil, nAvg));
+        }
+        if (evtSink != null) {
+            evtSink.accept(new ProgressEvent.EngineStart("MCS", totalSweeps));
+        }
+
+        Consumer<MCSUpdate> updateListener = null;
         if (strSink != null || evtSink != null) {
-            if (strSink != null) {
-                strSink.accept(String.format("  MCS started: L=%d (%d sites), %d equil + %d avg sweeps",
-                        L, N, nEquil, nAvg));
-            }
-            // EngineStart emitted here — before build().run() — so the chart clears before sweeps arrive
-            if (evtSink != null) {
-                evtSink.accept(new ProgressEvent.EngineStart("MCS", totalSweeps));
-            }
-            final int sitesCount = N;
             final int sweepCount = totalSweeps;
-            builder.updateListener(mcUpdate -> {
+            updateListener = mcUpdate -> {
                 if (strSink != null && (mcUpdate.getStep() % 100 == 0 || mcUpdate.getStep() == sweepCount)) {
                     strSink.accept(String.format("  [%-5s] sweep %4d/%-4d  <E>/site=%9.5f  accept=%5.1f%%",
                             mcUpdate.getPhase(),
                             mcUpdate.getStep(), sweepCount,
-                            mcUpdate.getE_total() / sitesCount,
+                            mcUpdate.getE_total() / N,
                             mcUpdate.getAcceptanceRate() * 100));
                 }
                 if (evtSink != null) {
                     evtSink.accept(new ProgressEvent.McSweep(
                             mcUpdate.getStep(), sweepCount,
-                            mcUpdate.getE_total() / sitesCount,
+                            mcUpdate.getE_total() / N,
                             mcUpdate.getAcceptanceRate(),
                             mcUpdate.getPhase() == MCSUpdate.Phase.EQUILIBRATION,
-                            null));  // CFs no longer charted
+                            null));
                 }
-            });
+            };
         }
 
-        MCSRunner.MCSRunResult runResult = builder.build().run();
+        MCSRunner.MCSRunResult runResult = cachedMcsRunner.run(
+                request.composition,
+                nEquil,
+                nAvg,
+                System.currentTimeMillis(),
+                strSink,
+                updateListener,
+                Thread.currentThread()::isInterrupted);
         MCResult mcResult = runResult.result;
 
         // [DEBUG] Raw simulation output
