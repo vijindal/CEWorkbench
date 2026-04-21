@@ -6,6 +6,7 @@ import org.ce.model.ModelSession;
 import org.ce.model.cluster.Cluster;
 import org.ce.model.cluster.CMatrixPipeline;
 import org.ce.model.cluster.ClusterCFIdentificationPipeline;
+import org.ce.model.cluster.ClusterIdentificationRequest;
 import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
 import org.ce.model.storage.InputLoader;
@@ -43,14 +44,55 @@ public final class MCSGeometry {
         this.L = L;
         this.numComp = session.numComponents();
 
-        PipelineResult pr = session.clusterData;
-        CvCfBasis basisRef = session.cvcfBasis;
+        // ── Stage 1a: Cluster & CF Identification ─────────────────────────────
+        emit(progressSink, "  [Session] Stage 1a: Cluster identification...");
 
-        if (pr == null || basisRef == null) {
-            emit(progressSink, "  [MCS Geometry] Session data incomplete, running local identification...");
-            pr = runLocalIdentification(session, progressSink);
-            basisRef = runLocalBasisResolution(session, pr, progressSink);
-        }
+        String structure = session.systemId.structure();
+        String model = session.systemId.model();
+
+        // 0. Resolve Configuration
+        ClusterIdentificationRequest config = ClusterIdentificationRequest.fromSystem(
+                session.systemId.elements(), structure, model);
+
+        // 1. Load resources
+        emit(progressSink, "\n[STAGE 0]: Loading Inputs...");
+        List<Cluster> disorderedClusters = InputLoader.parseClusterFile(config.getDisorderedClusterFile());
+        disorderedClusters.replaceAll(Cluster::sorted);
+        SpaceGroup disorderedSpaceGroup = InputLoader.parseSpaceGroup(config.getDisorderedSymmetryGroup());
+
+        List<Cluster> orderedClusters = InputLoader.parseClusterFile(config.getOrderedClusterFile());
+        orderedClusters.replaceAll(Cluster::sorted);
+        SpaceGroup orderedSpaceGroup = InputLoader.parseSpaceGroup(config.getOrderedSymmetryGroup());
+
+        // 2. Stage 1 & 2: Identification Pipeline
+        emit(progressSink, "\n[STAGE 1/2]: Running Identification Pipeline...");
+        PipelineResult pr = ClusterCFIdentificationPipeline.run(
+                disorderedClusters,
+                disorderedSpaceGroup.getOperations(),
+                orderedClusters,
+                orderedSpaceGroup.getOperations(),
+                config.getTransformationMatrix(),
+                new double[] { 
+                    config.getTranslationVector().getX(),
+                    config.getTranslationVector().getY(),
+                    config.getTranslationVector().getZ() 
+                },
+                numComp,
+                progressSink);
+
+        // 3. Stage 3: C-Matrix foundation
+        emit(progressSink, "\n[STAGE 3]: Running C-Matrix Pipeline...");
+        CMatrixPipeline.CMatrixData matrixData = CMatrixPipeline.run(
+                pr.toClusterIdentificationResult(),
+                pr.toCFIdentificationResult(),
+                disorderedClusters,
+                numComp,
+                progressSink);
+
+        // ── Stage 1d: Basis Transformation ────────────────────────────────────
+        emit(progressSink, "\n  [Session] Stage 1d: Basis transformation...");
+        String parentStructure = ClusterCFIdentificationPipeline.resolveParentStructure(structure);
+        CvCfBasis basisRef = CvCfBasis.generate(parentStructure, pr, matrixData, model, progressSink);
 
         this.clusterData = pr.getDisorderedClusterResult().getDisClusterData();
         this.basis = basisRef;
@@ -74,16 +116,6 @@ public final class MCSGeometry {
             matData = basis.cvcfCMatrixData;
         }
 
-        if (matData == null && basis != null) {
-            // Supplemental calculation of matrix data if it was missing 
-            matData = CMatrixPipeline.run(
-                    pr.toClusterIdentificationResult(),
-                    pr.toCFIdentificationResult(),
-                    pr.getDisClusData().getClusCoordList(),
-                    numComp,
-                    progressSink);
-        }
-
         if (basis != null && matData != null) {
             this.cfEmbeddings = Embeddings.generateCfEmbeddings(
                     emb.getAllEmbeddings(), clusterData, matData.getCfBasisIndices(), pr.getLcf());
@@ -101,48 +133,6 @@ public final class MCSGeometry {
      */
     public static MCSGeometry build(ModelSession session, int L, Consumer<String> progressSink) {
         return new MCSGeometry(session, L, progressSink);
-    }
-
-    private PipelineResult runLocalIdentification(ModelSession session, Consumer<String> progressSink) {
-        String structure = session.systemId.structure();
-        String model = session.systemId.model();
-        int numComp = session.numComponents();
-
-        String parentStructure = resolveParentStructure(structure);
-        String disorderedFile = "clus/" + parentStructure + "-" + model + ".txt";
-        String orderedFile = "clus/" + structure + "-" + model + ".txt";
-        String disorderedSGName = parentStructure + "-SG";
-        String orderedSGName = structure + "-SG";
-
-        List<Cluster> disorderedClusters = InputLoader.parseClusterFile(disorderedFile);
-        SpaceGroup disorderedSG = InputLoader.parseSpaceGroup(disorderedSGName);
-        List<Cluster> orderedClusters = InputLoader.parseClusterFile(orderedFile);
-        SpaceGroup orderedSG = InputLoader.parseSpaceGroup(orderedSGName);
-
-        return ClusterCFIdentificationPipeline.run(
-                disorderedClusters, disorderedSG.getOperations(),
-                orderedClusters, orderedSG.getOperations(),
-                orderedSG.getRotateMat(), orderedSG.getTranslateMat(),
-                numComp, progressSink);
-    }
-
-    private CvCfBasis runLocalBasisResolution(ModelSession session, PipelineResult pr, Consumer<String> progressSink) {
-        CMatrixPipeline.CMatrixData cmatOrth = CMatrixPipeline.run(
-                pr.toClusterIdentificationResult(),
-                pr.toCFIdentificationResult(),
-                pr.getDisClusData().getClusCoordList(),
-                session.numComponents(),
-                progressSink);
-
-        return CvCfBasis.generate(session.systemId.structure(), pr, cmatOrth, session.systemId.model(), progressSink);
-    }
-
-    private String resolveParentStructure(String structure) {
-        if (structure == null) return null;
-        String base = structure.replace("_CVCF", "");
-        if (base.equals("BCC_B2")) return "BCC_A2";
-        if (base.equals("FCC_L12")) return "FCC_A1";
-        return base;
     }
 
     private static void emit(Consumer<String> sink, String msg) {

@@ -1829,7 +1829,11 @@ public final class ClusterCFIdentificationPipeline {
         return finalResult;
     }
 
-    private static String resolveParentStructure(String structure) {
+    /**
+     * Resolves the parent disordered structure for a given phase structure.
+     * (e.g. BCC_B2 -> BCC_A2).
+     */
+    public static String resolveParentStructure(String structure) {
         if (structure == null)
             return null;
         String base = structure.replace("_CVCF", "");

@@ -40,26 +40,13 @@ public final class ModelSession {
     /** The three-part system identity that produced this session. */
     public final SystemId systemId;
 
-    /**
-     * Full cluster identification result (clusters, symmetry matrices, C-matrix,
-     * CF list). Pre-computed by the engine during initialization.
-     */
-    public final PipelineResult clusterData;
-
     /** Loaded and validated Hamiltonian (ECI parameters). */
     public final CECEntry cecEntry;
 
     /**
-     * The Hamiltonian ID actually used (may have a {@code _CVCF} suffix for CVM mode,
-     * or equal {@link SystemId#hamiltonianId()} for MCS).
+     * The Hamiltonian ID actually used (strictly forced to end in {@code _CVCF}).
      */
     public final String resolvedHamiltonianId;
-
-    /**
-     * CVCF basis for this (structure, model, numComponents) combination.
-     * Pre-resolved by the engine during initialization.
-     */
-    public final CvCfBasis cvcfBasis;
 
     /** Engine type decided at session-creation time. */
     public final EngineConfig engineConfig;
@@ -70,17 +57,13 @@ public final class ModelSession {
 
     ModelSession(
             SystemId systemId,
-            PipelineResult clusterData,
             CECEntry cecEntry,
             String resolvedHamiltonianId,
-            CvCfBasis cvcfBasis,
             EngineConfig engineConfig) {
 
         this.systemId              = systemId;
-        this.clusterData           = clusterData;
         this.cecEntry              = cecEntry;
         this.resolvedHamiltonianId = resolvedHamiltonianId;
-        this.cvcfBasis             = cvcfBasis;
         this.engineConfig          = engineConfig;
     }
 
@@ -108,10 +91,8 @@ public final class ModelSession {
      *
      * <p>Consolidates everything that previously happened on every calculation call:</p>
      * <ol>
-     *   <li>Cluster identification ({@link ClusterIdentificationWorkflow})</li>
-     *   <li>Hamiltonian ID resolution (CVCF preference for CVM mode)</li>
-     *   <li>Hamiltonian loading ({@link CECManagementWorkflow#loadAndValidateCEC})</li>
-     *   <li>CVCF basis lookup ({@link CvCfBasis.Registry})</li>
+     *   <li>Hamiltonian ID resolution (strictly enforced _CVCF suffix)</li>
+     *   <li>Hamiltonian loading ({@link CECEntry} from HamiltonianStore)</li>
      * </ol>
      */
     public static class Builder {
@@ -126,35 +107,28 @@ public final class ModelSession {
 
         /**
          * Builds a {@link ModelSession} synchronously.
-         *
-         * <p>Callers running on the EDT <em>must</em> wrap this in a
-         * {@link javax.swing.SwingWorker} to avoid blocking the UI thread.</p>
-         *
-         * @param systemId     three-part system identity (elements, structure, model)
-         * @param engineConfig engine type for this session
-         * @param progressSink optional sink for progress text; may be {@code null}
-         * @return fully constructed, immutable {@link ModelSession}
-         * @throws Exception if cluster identification or Hamiltonian loading fails
          */
         public ModelSession build(
                 SystemId systemId,
                 EngineConfig engineConfig,
                 Consumer<String> progressSink) throws Exception {
 
-            emit(progressSink, "Building session for " + systemId.elements()
-                    + " / " + systemId.structure() + " / " + systemId.model()
-                    + " [" + engineConfig + "] ...");
+            emit(progressSink, "\n[Workflow] Stage 1: Loading Specifications...");
 
-            // ── Stage 1: Cluster identification ──────────────────────────────
-            emit(progressSink, "  [Session] Stage 1: Cluster identification...");
-            // ── Stage 2: Resolve Hamiltonian ID ──────────────────────────────
-            String baseHamiltonianId = systemId.hamiltonianId();
-            String resolvedHamiltonianId = resolveHamiltonianId(
-                    baseHamiltonianId, engineConfig, progressSink);
+            // ── Stage 1b: Resolve Hamiltonian ID ──────────────────────────────
+            String baseId = systemId.hamiltonianId();
+            String resolvedId = baseId.endsWith("_CVCF") ? baseId : baseId + "_CVCF";
+            
+            emit(progressSink, "  [Session] Stage 1b: Resolving Hamiltonian ID...");
+            if (!hamiltonianStore.exists(resolvedId)) {
+                throw new IllegalStateException("Required CVCF Hamiltonian file not found: '" + resolvedId + 
+                    "'. Please ensure the Hamiltonian is stored with the _CVCF suffix.");
+            }
+            emit(progressSink, "  [Session] ✓ Resolved to '" + resolvedId + "'");
 
-            // ── Stage 3: Load and validate Hamiltonian ────────────────────────
-            emit(progressSink, "  [Session] Stage 3: Loading Hamiltonian '" + resolvedHamiltonianId + "'...");
-            CECEntry cecEntry = hamiltonianStore.load(resolvedHamiltonianId);
+            // ── Stage 1c: Load and validate Hamiltonian ────────────────────────
+            emit(progressSink, "  [Session] Stage 1c: Loading Hamiltonian...");
+            CECEntry cecEntry = hamiltonianStore.load(resolvedId);
 
             // Validate CEC: term count must be > 0
             int termCount = cecEntry.cecTerms == null ? 0 : cecEntry.cecTerms.length;
@@ -168,65 +142,14 @@ public final class ModelSession {
 
             emit(progressSink, "  [Session] ✓ Hamiltonian loaded (" + cecEntry.ncf + " terms)");
 
-            // ── Stage 4: Basis Transformation (Deferred) ────────────────────
-            // Engines now perform their own cluster identification and basis 
-            // resolution during initialization to avoid redundant pipeline calls.
-            PipelineResult clusterData = null;
-            CvCfBasis cvcfBasis = null;
-
             emit(progressSink, "  [Session] ✓ Session ready — " + systemId.elements()
                     + " / " + systemId.structure() + " / " + systemId.model());
 
             return new ModelSession(
                     systemId,
-                    clusterData,
                     cecEntry,
-                    resolvedHamiltonianId,
-                    cvcfBasis,
+                    resolvedId,
                     engineConfig);
-        }
-
-        /**
-         * Resolves the Hamiltonian ID to use.
-         *
-         * <p>For CVM: prefers the {@code _CVCF} suffixed Hamiltonian when available.
-         * For MCS: uses the base ID directly (logic moved from
-         * {@code ThermodynamicWorkflow.resolveHamiltonianIdForEngine}).</p>
-         */
-        private String resolveHamiltonianId(
-                String baseId,
-                EngineConfig engineConfig,
-                Consumer<String> progressSink) {
-
-            if (baseId == null || baseId.isBlank() || baseId.endsWith("_CVCF")) {
-                return baseId;
-            }
-
-            // Both CVM and MCS use CVCF-basis ECIs: prefer the _CVCF Hamiltonian when available.
-            String preferredId = baseId + "_CVCF";
-            if (hamiltonianStore.exists(preferredId)) {
-                emit(progressSink, "  [Session] Using CVCF Hamiltonian '"
-                        + preferredId + "'");
-                LOG.info("[" + engineConfig + "] Using CVCF Hamiltonian '" + preferredId + "'");
-                return preferredId;
-            }
-
-            // Legacy fallback: strip last segment, append _CVCF
-            int lastUnderscore = baseId.lastIndexOf('_');
-            if (lastUnderscore > 0) {
-                String legacyId = baseId.substring(0, lastUnderscore) + "_CVCF";
-                if (hamiltonianStore.exists(legacyId)) {
-                    emit(progressSink, "  [Session] Using CVCF Hamiltonian (legacy) '"
-                            + legacyId + "'");
-                    LOG.info("[" + engineConfig + "] Using CVCF Hamiltonian (legacy) '" + legacyId + "'");
-                    return legacyId;
-                }
-            }
-
-            emit(progressSink, "  [Session] CVCF Hamiltonian not found, "
-                    + "falling back to '" + baseId + "'");
-            LOG.warning("[" + engineConfig + "] CVCF Hamiltonian not found, falling back to '" + baseId + "'");
-            return baseId;
         }
 
         private static void emit(Consumer<String> sink, String msg) {

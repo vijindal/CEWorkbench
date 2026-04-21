@@ -4,11 +4,13 @@ import org.ce.calculation.CalculationDescriptor.*;
 import org.ce.calculation.CalculationResult;
 import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
 import org.ce.model.ModelSession;
+import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.storage.Workspace.SystemId;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -29,6 +31,34 @@ public class CalculationService {
 
     public CalculationResult execute(ModelSpecifications modelSpecs, JobSpecifications jobSpecs,
                                     Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
+
+        if (textSink != null) {
+            textSink.accept("\n  [Workflow] Stage 1: Loading Specifications...");
+            textSink.accept(String.format("    > Model: %s / %s / %s [%s]",
+                    modelSpecs.elements(), modelSpecs.structure(), modelSpecs.modelName(), modelSpecs.engineConfig()));
+            textSink.accept(String.format("    > Job:   %s in %s mode",
+                    jobSpecs.getProperty().displayName, jobSpecs.getMode().displayName));
+
+            if (jobSpecs.getMode() == Mode.ANALYSIS) {
+                textSink.accept(String.format("      - T: %s to %s (step %s)",
+                        (Double) jobSpecs.getOrDefault(Parameter.T_START),
+                        (Double) jobSpecs.getOrDefault(Parameter.T_END),
+                        (Double) jobSpecs.getOrDefault(Parameter.T_STEP)));
+                textSink.accept(String.format("      - x: %s to %s",
+                        Arrays.toString((double[]) jobSpecs.getOrDefault(Parameter.X_STARTS)),
+                        Arrays.toString((double[]) jobSpecs.getOrDefault(Parameter.X_ENDS))));
+            } else {
+                textSink.accept(String.format("      - T: %s", (Double) jobSpecs.getOrDefault(Parameter.TEMPERATURE)));
+                textSink.accept(String.format("      - x: %s", Arrays.toString((double[]) jobSpecs.getOrDefault(Parameter.COMPOSITION))));
+            }
+
+            if (modelSpecs.engineConfig().isMcs()) {
+                textSink.accept(String.format("      - L: %s", (Integer) jobSpecs.getOrDefault(Parameter.MCS_L)));
+                textSink.accept(String.format("      - Equil: %s sweeps", (Integer) jobSpecs.getOrDefault(Parameter.MCS_NEQUIL)));
+                textSink.accept(String.format("      - Avg: %s sweeps", (Integer) jobSpecs.getOrDefault(Parameter.MCS_NAVG)));
+            }
+        }
+
         ModelSession session = getOrBuildSession(modelSpecs, textSink);
 
         return switch (jobSpecs.getMode()) {
@@ -111,13 +141,21 @@ public class CalculationService {
 
     private record Varying(String label, boolean isTemp, int compIndex, double start, double end, double step) {}
 
-    public ModelSession getOrBuildSession(ModelSpecifications specs, Consumer<String> sink) throws Exception {
-        SystemId sid = new SystemId(specs.elements(), specs.structure(), specs.modelName());
-        if (cachedSession != null && cachedSession.systemId.equals(sid) && cachedSession.engineConfig.equals(specs.engineConfig())) {
-            if (sink != null) sink.accept("[Session] Reusing cached session: " + sid);
+    public ModelSession getOrBuildSession(ModelSpecifications modelSpecs, Consumer<String> textSink) throws Exception {
+        SystemId systemId = new SystemId(modelSpecs.elements(), modelSpecs.structure(), modelSpecs.modelName());
+        EngineConfig engineConfig = modelSpecs.engineConfig();
+
+        if (cachedSession != null && cachedSession.systemId.equals(systemId) && cachedSession.engineConfig == engineConfig) {
+            if (textSink != null) {
+                textSink.accept("  [Session] Reusing cached session: " + cachedSession.label());
+            }
             return cachedSession;
         }
-        cachedSession = sessionBuilder.build(sid, specs.engineConfig(), sink);
+
+        if (textSink != null) {
+            textSink.accept("  [Session] Building new session for " + modelSpecs.elements() + " / " + modelSpecs.structure() + " / " + modelSpecs.modelName());
+        }
+        cachedSession = sessionBuilder.build(systemId, engineConfig, textSink);
         return cachedSession;
     }
 
