@@ -139,10 +139,15 @@ public class MCSRunner {
                 N, geo.orbitSizes, geo.orbits, R, eciCvcf,
                 geo.multiSiteEmbedCounts, geo.basis, geo.cfEmbeddings, geo.basisMatrix);
 
+        // Compute spatial decomposition for parallel execution
+        double rMax = LatticeDecomposer.computeRMax(geo.cfEmbeddings, geo.positions);
+        int blocksPerDim = (geo.L >= 12) ? 4 : 2;
+        LatticeDecomposer.DecomposedLattice dl = LatticeDecomposer.decompose(geo.positions, geo.L, rMax, blocksPerDim);
+
         MetropolisMC engine = new MetropolisMC(
                 geo.cfEmbeddings, geo.basisMatrix, siteToCfIndex,
                 ncf, eciCvcf, eciOrth, geo.basis,
-                geo.numComp, T, nEquil, nAvg, R, rng);
+                geo.numComp, T, nEquil, nAvg, R, rng, dl);
         if (cancellationCheck != null) engine.setCancellationCheck(cancellationCheck);
 
         emit(progressSink, String.format(
