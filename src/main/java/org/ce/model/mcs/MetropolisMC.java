@@ -213,7 +213,9 @@ public class MetropolisMC {
         private final Embeddings.DeltaScratch scratch;
         private final int maxEmbPerCol;
 
-        private ArrayList<Integer>[] speciesSites;  // per-species site index cache
+        private int[][] speciesSites;   // speciesSites[c][idx] = siteIndex
+        private int[]   speciesSizes;   // speciesSizes[c] = current count
+        private int[]   siteToCacheIdx; // siteToCacheIdx[site] = idx in speciesSites[c]
         private boolean cacheInitialized = false;
 
         private long attempts = 0;
@@ -268,10 +270,8 @@ public class MetropolisMC {
             int c2 = randomNonEmptySpecies(c1);
             if (c1 < 0 || c2 < 0) return 0.0;
 
-            ArrayList<Integer> list1 = speciesSites[c1];
-            ArrayList<Integer> list2 = speciesSites[c2];
-            int i = list1.get(rng.nextInt(list1.size()));
-            int j = list2.get(rng.nextInt(list2.size()));
+            int i = speciesSites[c1][rng.nextInt(speciesSizes[c1])];
+            int j = speciesSites[c2][rng.nextInt(speciesSizes[c2])];
 
             // Step 5: COMPUTE ΔE — zero-allocation CVCF path with Tinv bypass
             double dE = Embeddings.deltaEExchangeCvcf(
@@ -301,12 +301,12 @@ public class MetropolisMC {
         private int randomNonEmptySpecies(int exclude) {
             int count = 0;
             for (int c = 0; c < numComp; c++)
-                if (c != exclude && speciesSites[c].size() > 0) count++;
+                if (c != exclude && speciesSizes[c] > 0) count++;
             if (count == 0) return -1;
             int pick = rng.nextInt(count);
             int idx  = 0;
             for (int c = 0; c < numComp; c++) {
-                if (c != exclude && speciesSites[c].size() > 0) {
+                if (c != exclude && speciesSizes[c] > 0) {
                     if (idx == pick) return c;
                     idx++;
                 }
@@ -314,21 +314,46 @@ public class MetropolisMC {
             return -1;
         }
 
-        @SuppressWarnings("unchecked")
         private void rebuildCacheIfNeeded(LatticeConfig config) {
             if (cacheInitialized) return;
-            ArrayList<Integer>[] temp = new ArrayList[numComp];
-            for (int c = 0; c < numComp; c++) temp[c] = new ArrayList<>(64);
-            for (int k = 0; k < config.getN(); k++) temp[config.getOccupation(k)].add(k);
-            speciesSites = temp;
+            int N = config.getN();
+            int[] occ = config.getRawOcc();
+            speciesSites = new int[numComp][N];
+            speciesSizes = new int[numComp];
+            siteToCacheIdx = new int[N];
+            for (int k = 0; k < N; k++) {
+                int c = occ[k];
+                int pos = speciesSizes[c]++;
+                speciesSites[c][pos] = k;
+                siteToCacheIdx[k] = pos;
+            }
             cacheInitialized = true;
         }
 
         private void updateCacheForFlip(int i, int j, int c1, int c2) {
-            speciesSites[c1].remove((Integer) i);
-            speciesSites[c2].add(i);
-            speciesSites[c2].remove((Integer) j);
-            speciesSites[c1].add(j);
+            // Remove site i from species c1 list (O(1) swap-with-last)
+            int lastIdx1 = --speciesSizes[c1];
+            int lastSite1 = speciesSites[c1][lastIdx1];
+            int posI = siteToCacheIdx[i];
+            speciesSites[c1][posI] = lastSite1;
+            siteToCacheIdx[lastSite1] = posI;
+
+            // Add site i to species c2 list (O(1))
+            int posI2 = speciesSizes[c2]++;
+            speciesSites[c2][posI2] = i;
+            siteToCacheIdx[i] = posI2;
+
+            // Remove site j from species c2 list (O(1) swap-with-last)
+            int lastIdx2 = --speciesSizes[c2];
+            int lastSite2 = speciesSites[c2][lastIdx2];
+            int posJ = siteToCacheIdx[j];
+            speciesSites[c2][posJ] = lastSite2;
+            siteToCacheIdx[lastSite2] = posJ;
+
+            // Add site j to species c1 list (O(1))
+            int posJ1 = speciesSizes[c1]++;
+            speciesSites[c1][posJ1] = j;
+            siteToCacheIdx[j] = posJ1;
         }
     }
 
