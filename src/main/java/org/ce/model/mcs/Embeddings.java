@@ -450,38 +450,71 @@ public class Embeddings {
 
     // ── CVCF-basis energy computation (replaces orthogonal engine) ────────────
 
+    public static final class CsrSiteToCfIndex {
+        public final int[] offsets;  // length N+1
+        public final int[] dataL;    // length totalEntries
+        public final int[] dataEI;   // length totalEntries
+        
+        public CsrSiteToCfIndex(int[] offsets, int[] dataL, int[] dataEI) {
+            this.offsets = offsets;
+            this.dataL   = dataL;
+            this.dataEI  = dataEI;
+        }
+    }
+
     /**
      * Builds a per-site index into cfEmbeddings for efficient local ΔE.
-     * For each site i, stores a list of {cfColumn, embeddingIndex} pairs.
+     * Uses CSR (Compressed Sparse Row) format for zero-allocation, contiguous iteration.
      */
-    @SuppressWarnings("unchecked")
-    public static List<int[]>[] buildSiteToCfIndex(List<List<Embedding>> cfEmbeddings, int N) {
-        List<int[]>[] index = new ArrayList[N];
-        for (int i = 0; i < N; i++) index[i] = new ArrayList<>();
-
+    public static CsrSiteToCfIndex buildSiteToCfIndex(List<List<Embedding>> cfEmbeddings, int N) {
+        // Pass 1: Count entries per site to allocate arrays
+        int[] counts = new int[N];
         for (int l = 0; l < cfEmbeddings.size(); l++) {
             List<Embedding> embs = cfEmbeddings.get(l);
             if (embs == null) continue;
             for (int ei = 0; ei < embs.size(); ei++) {
                 for (int site : embs.get(ei).getSiteIndices()) {
-                    index[site].add(new int[]{l, ei});
+                    counts[site]++;
+                }
+            }
+        }
+
+        int totalEntries = 0;
+        int[] offsets = new int[N + 1];
+        for (int i = 0; i < N; i++) {
+            offsets[i] = totalEntries;
+            totalEntries += counts[i];
+        }
+        offsets[N] = totalEntries;
+
+        int[] dataL  = new int[totalEntries];
+        int[] dataEI = new int[totalEntries];
+
+        // Pass 2: Populate flat arrays
+        int[] currentOffsets = offsets.clone();
+        for (int l = 0; l < cfEmbeddings.size(); l++) {
+            List<Embedding> embs = cfEmbeddings.get(l);
+            if (embs == null) continue;
+            for (int ei = 0; ei < embs.size(); ei++) {
+                for (int site : embs.get(ei).getSiteIndices()) {
+                    int pos = currentOffsets[site]++;
+                    dataL[pos]  = l;
+                    dataEI[pos] = ei;
                 }
             }
         }
 
         // ── MCS-DBG: site-to-CF index statistics ──
         if (MCSDebug.ENABLED) {
-            int totalEntries = 0;
             int maxPerSite = 0;
             for (int i = 0; i < N; i++) {
-                totalEntries += index[i].size();
-                maxPerSite = Math.max(maxPerSite, index[i].size());
+                maxPerSite = Math.max(maxPerSite, counts[i]);
             }
-            MCSDebug.log("CF-IDX", "Built siteToCfIndex: N=%d, totalEntries=%d, maxPerSite=%d, avgPerSite=%.1f",
+            MCSDebug.log("CF-IDX", "Built CSR siteToCfIndex: N=%d, totalEntries=%d, maxPerSite=%d, avgPerSite=%.1f",
                     N, totalEntries, maxPerSite, (double) totalEntries / N);
         }
 
-        return index;
+        return new CsrSiteToCfIndex(offsets, dataL, dataEI);
     }
 
     /**
@@ -609,7 +642,7 @@ public class Embeddings {
             int i, int j,
             LatticeConfig config,
             List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
-            List<int[]>[] siteToCfIndex,
+            CsrSiteToCfIndex siteToCfIndex,
             int ncf, double[] eciCvcf, CvCfBasis basis,
             DeltaScratch scratch, int maxEmbPerCol, double[] eciOrth) {
 
@@ -621,21 +654,31 @@ public class Embeddings {
 
         // Collect affected pairs using flat arrays + boolean[] seen flag (no boxing)
         int ac = 0;
-        for (int[] pair : siteToCfIndex[i]) {
-            int key = pair[0] * maxEmbPerCol + pair[1];
+        
+        int startI = siteToCfIndex.offsets[i];
+        int endI   = siteToCfIndex.offsets[i+1];
+        for (int idx = startI; idx < endI; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
             if (!scratch.seen[key]) {
                 scratch.seen[key] = true;
-                scratch.affectedL[ac]  = pair[0];
-                scratch.affectedEI[ac] = pair[1];
+                scratch.affectedL[ac]  = l;
+                scratch.affectedEI[ac] = ei;
                 ac++;
             }
         }
-        for (int[] pair : siteToCfIndex[j]) {
-            int key = pair[0] * maxEmbPerCol + pair[1];
+        
+        int startJ = siteToCfIndex.offsets[j];
+        int endJ   = siteToCfIndex.offsets[j+1];
+        for (int idx = startJ; idx < endJ; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
             if (!scratch.seen[key]) {
                 scratch.seen[key] = true;
-                scratch.affectedL[ac]  = pair[0];
-                scratch.affectedEI[ac] = pair[1];
+                scratch.affectedL[ac]  = l;
+                scratch.affectedEI[ac] = ei;
                 ac++;
             }
         }

@@ -39,7 +39,7 @@ public class MetropolisMC {
 
     private final List<List<Embeddings.Embedding>> cfEmbeddings;  // per-CF-column embeddings
     private final double[][]            basisMatrix;  // basis values [occ][alpha-1]
-    private final List<int[]>[]         siteToCfIndex; // per-site CF embedding index
+    private final Embeddings.CsrSiteToCfIndex siteToCfIndex; // per-site CF embedding index
     private final int                   ncf;          // number of non-point CFs
     private final double[]              eciCvcf;      // effective cluster interactions (CVCF basis)
     private final double[]              eciOrth;      // pre-computed: eciOrth[m] = Σ_l eci[l] × Tinv[l][m]
@@ -57,7 +57,7 @@ public class MetropolisMC {
 
     public MetropolisMC(List<List<Embeddings.Embedding>> cfEmbeddings,
                         double[][] basisMatrix,
-                        List<int[]>[] siteToCfIndex,
+                        Embeddings.CsrSiteToCfIndex siteToCfIndex,
                         int ncf,
                         double[] eciCvcf,
                         double[] eciOrth,
@@ -190,7 +190,7 @@ public class MetropolisMC {
 
         private final List<List<Embeddings.Embedding>> cfEmbeddings;
         private final double[][]     basisMatrix;
-        private final List<int[]>[]  siteToCfIndex;
+        private final Embeddings.CsrSiteToCfIndex siteToCfIndex;
         private final int            ncf;
         private final double[]       eciCvcf;
         private final double[]       eciOrth;      // pre-computed for Tinv bypass
@@ -210,7 +210,7 @@ public class MetropolisMC {
         private long accepted = 0;
 
         ExchangeStep(List<List<Embeddings.Embedding>> cfEmbeddings,
-                     double[][] basisMatrix, List<int[]>[] siteToCfIndex,
+                     double[][] basisMatrix, Embeddings.CsrSiteToCfIndex siteToCfIndex,
                      int ncf, double[] eciCvcf, double[] eciOrth, CvCfBasis basis,
                      int numComp, double T, double R, Random rng) {
             if (T <= 0) throw new IllegalArgumentException("T must be > 0");

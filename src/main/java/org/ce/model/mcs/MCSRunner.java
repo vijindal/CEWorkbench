@@ -30,10 +30,10 @@ public class MCSRunner {
     private final double[]    eciOrth;      // Pre-computed: eciOrth[m] = Σ_l eci[l] × Tinv[l][m]
     private final double      T;
     private final double      R;
-    private final List<int[]>[] siteToCfIndex;  // per-site CF embedding index
+    private final Embeddings.CsrSiteToCfIndex siteToCfIndex;  // per-site CF embedding index (CSR format)
 
     private MCSRunner(MCSGeometry geo, double[] eciCvcf, double[] eciOrth,
-                      List<int[]>[] siteToCfIndex, double T, double R) {
+                      Embeddings.CsrSiteToCfIndex siteToCfIndex, double T, double R) {
         this.geo = geo;
         this.eciCvcf = eciCvcf.clone();
         this.eciOrth = eciOrth;
@@ -52,7 +52,7 @@ public class MCSRunner {
         double[] eciCvcf = CECEvaluator.evaluate(session.cecEntry, T, geo.basis, "MCS", progressSink);
 
         // Build site-to-cfEmbedding index for efficient ΔE computation
-        List<int[]>[] siteToCfIndex = Embeddings.buildSiteToCfIndex(geo.cfEmbeddings, geo.nSites());
+        Embeddings.CsrSiteToCfIndex siteToCfIndex = Embeddings.buildSiteToCfIndex(geo.cfEmbeddings, geo.nSites());
 
         // Pre-compute eciOrth: eciOrth[m] = Σ_l eci[l] × Tinv[l][m]
         // This collapses the Tinv matrix-vector multiply + ECI dot product
