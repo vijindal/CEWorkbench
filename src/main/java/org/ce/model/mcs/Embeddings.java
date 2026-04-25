@@ -353,15 +353,16 @@ public class Embeddings {
         return values;
     }
 
-    /** Measures CVCF cluster variables from configuration by averaging embedding products per CF column. */
     public static double[] measureCVsFromConfig(
             LatticeConfig config,
             List<List<Embedding>> cfEmbeddings,
-            double[][] basisMatrix,
-            int ncf) {
+            double[] flatBasisMatrix,
+            int ncf,
+            int numComp) {
         boolean trace = MCSDebug.ENABLED && dbgMeasureCVCalls == 0;
         if (trace) dbgMeasureCVCalls++;
 
+        int[] occ = config.getRawOcc();
         double[] v = new double[ncf];
         for (int l = 0; l < ncf; l++) {
             List<Embedding> embs = cfEmbeddings.get(l);
@@ -373,7 +374,7 @@ public class Embeddings {
                 int[] alphas = e.getAlphaIndices();
                 double prod  = 1.0;
                 for (int k = 0; k < sites.length; k++)
-                    prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+                    prod *= flatBasisMatrix[occ[sites[k]] * numComp + alphas[k]];
                 sum += prod;
 
                 // ── MCS-DBG: first 3 embedding products for CF column 0 ──
@@ -524,13 +525,13 @@ public class Embeddings {
      */
     public static double totalEnergyCvcf(
             LatticeConfig config,
-            List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
-            int ncf, double[] eciCvcf, CvCfBasis basis) {
+            List<List<Embedding>> cfEmbeddings, double[] flatBasisMatrix,
+            int ncf, double[] eciCvcf, CvCfBasis basis, int numComp) {
 
         int N = config.getN();
 
         // Step 1: Measure orthogonal CFs from cfEmbeddings
-        double[] uOrth = measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
+        double[] uOrth = measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
 
         // Step 2: Transform to CVCF basis
         double[] vCvcf = applyTinvTransform(uOrth, config.composition(), basis);
@@ -641,13 +642,14 @@ public class Embeddings {
     public static double deltaEExchangeCvcf(
             int i, int j,
             LatticeConfig config,
-            List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
+            List<List<Embedding>> cfEmbeddings, double[] flatBasisMatrix,
             CsrSiteToCfIndex siteToCfIndex,
             int ncf, double[] eciCvcf, CvCfBasis basis,
-            DeltaScratch scratch, int maxEmbPerCol, double[] eciOrth) {
+            DeltaScratch scratch, int maxEmbPerCol, double[] eciOrth, int numComp) {
 
-        int occI = config.getOccupation(i);
-        int occJ = config.getOccupation(j);
+        int[] occ = config.getRawOcc();
+        int occI = occ[i];
+        int occJ = occ[j];
         if (occI == occJ) return 0.0;
 
         int N = config.getN();
@@ -693,13 +695,13 @@ public class Embeddings {
             int[] alphas = e.getAlphaIndices();
             double prod  = 1.0;
             for (int k = 0; k < sites.length; k++)
-                prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+                prod *= flatBasisMatrix[occ[sites[k]] * numComp + alphas[k]];
             scratch.oldSumDelta[l] += prod;
         }
 
         // Temporarily swap
-        config.setOccupation(i, occJ);
-        config.setOccupation(j, occI);
+        occ[i] = occJ;
+        occ[j] = occI;
 
         // Compute new products
         for (int a = 0; a < ac; a++) {
@@ -710,13 +712,13 @@ public class Embeddings {
             int[] alphas = e.getAlphaIndices();
             double prod  = 1.0;
             for (int k = 0; k < sites.length; k++)
-                prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+                prod *= flatBasisMatrix[occ[sites[k]] * numComp + alphas[k]];
             scratch.newSumDelta[l] += prod;
         }
 
         // Undo swap
-        config.setOccupation(i, occI);
-        config.setOccupation(j, occJ);
+        occ[i] = occI;
+        occ[j] = occJ;
 
         // ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
         for (int a = 0; a < ac; a++) {

@@ -42,6 +42,8 @@ public class LatticeConfig {
         this.occ[i] = occ;
     }
 
+    public int[] getRawOcc() { return occ; }
+
     public int getN()       { return occ.length; }
     public int getNumComp() { return numComp; }
 

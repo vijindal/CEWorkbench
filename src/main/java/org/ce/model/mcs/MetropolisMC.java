@@ -38,7 +38,7 @@ public class MetropolisMC {
     // ── Step 1: INITIALIZATION (fields set by MCSRunner before calling run()) ─
 
     private final List<List<Embeddings.Embedding>> cfEmbeddings;  // per-CF-column embeddings
-    private final double[][]            basisMatrix;  // basis values [occ][alpha-1]
+    private final double[]              flatBasisMatrix;  // flat basis values [occ * numComp + alpha]
     private final Embeddings.CsrSiteToCfIndex siteToCfIndex; // per-site CF embedding index
     private final int                   ncf;          // number of non-point CFs
     private final double[]              eciCvcf;      // effective cluster interactions (CVCF basis)
@@ -68,7 +68,17 @@ public class MetropolisMC {
         if (nEquil <  0) throw new IllegalArgumentException("nEquil must be >= 0");
         if (nAvg   <  1) throw new IllegalArgumentException("nAvg must be >= 1");
         this.cfEmbeddings  = cfEmbeddings;
-        this.basisMatrix   = basisMatrix;
+        
+        // Flatten basisMatrix: padded so index is (occ * numComp + alpha) directly
+        this.flatBasisMatrix = new double[numComp * numComp];
+        if (basisMatrix != null) {
+            for (int occ = 0; occ < numComp; occ++) {
+                for (int a = 0; a < numComp - 1; a++) {
+                    this.flatBasisMatrix[occ * numComp + (a + 1)] = basisMatrix[occ][a];
+                }
+            }
+        }
+
         this.siteToCfIndex = siteToCfIndex;
         this.ncf           = ncf;
         this.eciCvcf       = eciCvcf;
@@ -96,7 +106,7 @@ public class MetropolisMC {
         // ── Step 1: INITIALIZATION ────────────────────────────────────────────
         // config (lattice + occupations) and sampler were prepared by MCSRunner.
         // Here we wire up the move engine and compute the starting energy.
-        ExchangeStep move = new ExchangeStep(cfEmbeddings, basisMatrix, siteToCfIndex,
+        ExchangeStep move = new ExchangeStep(cfEmbeddings, flatBasisMatrix, siteToCfIndex,
                 ncf, eciCvcf, eciOrth, basis, numComp, T, R, rng);
         int N = config.getN();
         deltaEWindow.clear();
@@ -107,7 +117,7 @@ public class MetropolisMC {
         // incrementally using ΔE (Step 5), resyncing every DRIFT_CHECK_SWEEPS.
         Embeddings.resetDebugCounters();  // reset sampled counters for this run
         double currentEnergy = Embeddings.totalEnergyCvcf(
-                config, cfEmbeddings, basisMatrix, ncf, eciCvcf, basis);
+                config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
 
         // ── MCS-DBG: initial energy + composition ──
         if (MCSDebug.ENABLED) {
@@ -153,12 +163,12 @@ public class MetropolisMC {
                 currentEnergy += dE;
                 sweepDeltaE   += dE;
             }
-            sampler.sample(config, null /* emb not used */, currentEnergy);
+            sampler.sample(config, null /* emb not used */, currentEnergy, flatBasisMatrix, numComp);
 
             // Periodic full-energy resync to suppress floating-point drift.
             if ((s + 1) % DRIFT_CHECK_SWEEPS == 0) {
                 double Hfull = Embeddings.totalEnergyCvcf(
-                        config, cfEmbeddings, basisMatrix, ncf, eciCvcf, basis);
+                        config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
                 double drift = Math.abs(currentEnergy - Hfull);
                 if (drift > 1e-6 * Math.max(1.0, Math.abs(Hfull)))
                     LOG.warning(String.format(
@@ -189,7 +199,7 @@ public class MetropolisMC {
     static class ExchangeStep {
 
         private final List<List<Embeddings.Embedding>> cfEmbeddings;
-        private final double[][]     basisMatrix;
+        private final double[]       flatBasisMatrix;
         private final Embeddings.CsrSiteToCfIndex siteToCfIndex;
         private final int            ncf;
         private final double[]       eciCvcf;
@@ -210,13 +220,13 @@ public class MetropolisMC {
         private long accepted = 0;
 
         ExchangeStep(List<List<Embeddings.Embedding>> cfEmbeddings,
-                     double[][] basisMatrix, Embeddings.CsrSiteToCfIndex siteToCfIndex,
+                     double[] flatBasisMatrix, Embeddings.CsrSiteToCfIndex siteToCfIndex,
                      int ncf, double[] eciCvcf, double[] eciOrth, CvCfBasis basis,
                      int numComp, double T, double R, Random rng) {
             if (T <= 0) throw new IllegalArgumentException("T must be > 0");
             if (R <= 0) throw new IllegalArgumentException("R must be > 0");
             this.cfEmbeddings  = cfEmbeddings;
-            this.basisMatrix   = basisMatrix;
+            this.flatBasisMatrix = flatBasisMatrix;
             this.siteToCfIndex = siteToCfIndex;
             this.ncf           = ncf;
             this.eciCvcf       = eciCvcf;
@@ -265,8 +275,8 @@ public class MetropolisMC {
 
             // Step 5: COMPUTE ΔE — zero-allocation CVCF path with Tinv bypass
             double dE = Embeddings.deltaEExchangeCvcf(
-                    i, j, config, cfEmbeddings, basisMatrix, siteToCfIndex,
-                    ncf, eciCvcf, basis, scratch, maxEmbPerCol, eciOrth);
+                    i, j, config, cfEmbeddings, flatBasisMatrix, siteToCfIndex,
+                    ncf, eciCvcf, basis, scratch, maxEmbPerCol, eciOrth, numComp);
 
             // Step 6: METROPOLIS ACCEPT/REJECT — P = min(1, exp(−ΔE / kT))
             if (accept(dE)) {
@@ -389,7 +399,7 @@ public class MetropolisMC {
          * Records one sweep's worth of observables from the current configuration.
          * Called once per averaging sweep by MetropolisMC after N trial moves.
          */
-        void sample(LatticeConfig config, Embeddings emb, double currentEnergy) {
+        void sample(LatticeConfig config, Embeddings emb, double currentEnergy, double[] flatBasisMatrix, int numComp) {
             if (cfEmbeddings == null || basis == null) {
                 if (!hmixWarnedOnce) {
                     SLOG.warning("CVCF measurement unavailable: cfEmbeddings or basis is null.");
@@ -403,7 +413,7 @@ public class MetropolisMC {
             int ncf = basis.numNonPointCfs;
 
             // Measure orthogonal correlation functions from current config
-            double[] uOrth = Embeddings.measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
+            double[] uOrth = Embeddings.measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
 
             // Transform to CVCF basis: v = Tinv · u_orth
             if (basis.Tinv == null && !hmixWarnedOnce) {
@@ -681,7 +691,7 @@ public class MetropolisMC {
         // ── MCS-DBG: CROSS-VALIDATION — recompute energy from scratch ──
         if (MCSDebug.ENABLED) {
             double freshE = Embeddings.totalEnergyCvcf(
-                    config, cfEmbeddings, basisMatrix, ncf, eciCvcf, basis);
+                    config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
             double freshPerSite = freshE / N;
             double drift = Math.abs(energy - freshPerSite);
             MCSDebug.separator("CROSS-VALIDATION (buildResult)");
