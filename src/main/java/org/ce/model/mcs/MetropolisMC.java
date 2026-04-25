@@ -1,5 +1,6 @@
 package org.ce.model.mcs;
 
+import org.ce.debug.MCSDebug;
 import org.ce.model.cluster.Cluster;
 import org.ce.model.cvm.CvCfBasis;
 
@@ -36,34 +37,46 @@ public class MetropolisMC {
 
     // ── Step 1: INITIALIZATION (fields set by MCSRunner before calling run()) ─
 
-    private final Embeddings           emb;      // pre-built cluster embeddings
-    private final double[]             eci;      // effective cluster interactions (orthogonal basis)
-    private final List<List<Cluster>>  orbits;   // cluster orbits (for energy eval)
-    private final int                  numComp;  // number of species (K)
-    private final double               T;        // temperature [K]
-    private final double               R;        // gas constant (units of ECI)
-    private final int                  nEquil;   // equilibration sweeps
-    private final int                  nAvg;     // averaging sweeps
-    private final Random               rng;
+    private final List<List<Embeddings.Embedding>> cfEmbeddings;  // per-CF-column embeddings
+    private final double[][]            basisMatrix;  // basis values [occ][alpha-1]
+    private final List<int[]>[]         siteToCfIndex; // per-site CF embedding index
+    private final int                   ncf;          // number of non-point CFs
+    private final double[]              eciCvcf;      // effective cluster interactions (CVCF basis)
+    private final CvCfBasis             basis;        // CVCF basis transform (Tinv)
+    private final int                   numComp;      // number of species (K)
+    private final double                T;            // temperature [K]
+    private final double                R;            // gas constant (units of ECI)
+    private final int                   nEquil;       // equilibration sweeps
+    private final int                   nAvg;         // averaging sweeps
+    private final Random                rng;
 
     private Consumer<MCSUpdate> updateListener    = null;
     private RollingWindow       deltaEWindow      = new RollingWindow(500);
     private BooleanSupplier     cancellationCheck = () -> false;
 
-    public MetropolisMC(Embeddings emb, double[] eci, List<List<Cluster>> orbits, int numComp,
+    public MetropolisMC(List<List<Embeddings.Embedding>> cfEmbeddings,
+                        double[][] basisMatrix,
+                        List<int[]>[] siteToCfIndex,
+                        int ncf,
+                        double[] eciCvcf,
+                        CvCfBasis basis,
+                        int numComp,
                         double T, int nEquil, int nAvg, double R, Random rng) {
         if (T      <= 0) throw new IllegalArgumentException("T must be > 0");
         if (nEquil <  0) throw new IllegalArgumentException("nEquil must be >= 0");
         if (nAvg   <  1) throw new IllegalArgumentException("nAvg must be >= 1");
-        this.emb     = emb;
-        this.eci     = eci;
-        this.orbits  = orbits;
-        this.numComp = numComp;
-        this.T       = T;
-        this.R       = R;
-        this.nEquil  = nEquil;
-        this.nAvg    = nAvg;
-        this.rng     = rng;
+        this.cfEmbeddings  = cfEmbeddings;
+        this.basisMatrix   = basisMatrix;
+        this.siteToCfIndex = siteToCfIndex;
+        this.ncf           = ncf;
+        this.eciCvcf       = eciCvcf;
+        this.basis         = basis;
+        this.numComp       = numComp;
+        this.T             = T;
+        this.R             = R;
+        this.nEquil        = nEquil;
+        this.nAvg          = nAvg;
+        this.rng           = rng;
     }
 
     public void setUpdateListener(Consumer<MCSUpdate> listener) { this.updateListener = listener; }
@@ -80,15 +93,27 @@ public class MetropolisMC {
         // ── Step 1: INITIALIZATION ────────────────────────────────────────────
         // config (lattice + occupations) and sampler were prepared by MCSRunner.
         // Here we wire up the move engine and compute the starting energy.
-        ExchangeStep move = new ExchangeStep(emb, eci, orbits, numComp, T, R, rng);
+        ExchangeStep move = new ExchangeStep(cfEmbeddings, basisMatrix, siteToCfIndex,
+                ncf, eciCvcf, basis, numComp, T, R, rng);
         int N = config.getN();
         deltaEWindow.clear();
         long startTime = System.currentTimeMillis();
 
-        // ── Step 2: COMPUTE INITIAL ENERGY E(σ) ──────────────────────────────
-        // Full evaluation via cluster expansion. Subsequent steps update it
+        // ── Step 2: COMPUTE INITIAL ENERGY E(σ) — CVCF basis ─────────────────
+        // Full evaluation via CVCF cluster expansion. Subsequent steps update it
         // incrementally using ΔE (Step 5), resyncing every DRIFT_CHECK_SWEEPS.
-        double currentEnergy = Embeddings.totalEnergy(config, emb, eci, orbits);
+        Embeddings.resetDebugCounters();  // reset sampled counters for this run
+        double currentEnergy = Embeddings.totalEnergyCvcf(
+                config, cfEmbeddings, basisMatrix, ncf, eciCvcf, basis);
+
+        // ── MCS-DBG: initial energy + composition ──
+        if (MCSDebug.ENABLED) {
+            double[] comp = config.composition();
+            MCSDebug.separator("INITIAL ENERGY E(σ₀) — CVCF basis");
+            MCSDebug.log("E-INIT", "E(σ₀) = %.10f  (E/site = %.10f)", currentEnergy, currentEnergy / N);
+            MCSDebug.log("E-INIT", "N = %d, T = %.2f K, nEquil = %d, nAvg = %d", N, T, nEquil, nAvg);
+            MCSDebug.vector("E-INIT", "composition", comp);
+        }
 
         // ── Step 3: EQUILIBRATION LOOP ────────────────────────────────────────
         // N trial moves = 1 sweep. Moves are accepted/rejected (Steps 4–6) but
@@ -125,11 +150,12 @@ public class MetropolisMC {
                 currentEnergy += dE;
                 sweepDeltaE   += dE;
             }
-            sampler.sample(config, emb, currentEnergy);
+            sampler.sample(config, null /* emb not used */, currentEnergy);
 
             // Periodic full-energy resync to suppress floating-point drift.
             if ((s + 1) % DRIFT_CHECK_SWEEPS == 0) {
-                double Hfull = Embeddings.totalEnergy(config, emb, eci, orbits);
+                double Hfull = Embeddings.totalEnergyCvcf(
+                        config, cfEmbeddings, basisMatrix, ncf, eciCvcf, basis);
                 double drift = Math.abs(currentEnergy - Hfull);
                 if (drift > 1e-6 * Math.max(1.0, Math.abs(Hfull)))
                     LOG.warning(String.format(
@@ -159,12 +185,15 @@ public class MetropolisMC {
      */
     static class ExchangeStep {
 
-        private final Embeddings           emb;
-        private final double[]             eci;
-        private final List<List<Cluster>>  orbits;
-        private final double               beta;    // 1 / (R·T)
-        private final int                  numComp;
-        private final Random               rng;
+        private final List<List<Embeddings.Embedding>> cfEmbeddings;
+        private final double[][]     basisMatrix;
+        private final List<int[]>[]  siteToCfIndex;
+        private final int            ncf;
+        private final double[]       eciCvcf;
+        private final CvCfBasis      basis;
+        private final double         beta;    // 1 / (R·T)
+        private final int            numComp;
+        private final Random         rng;
 
         private ArrayList<Integer>[] speciesSites;  // per-species site index cache
         private boolean cacheInitialized = false;
@@ -172,16 +201,21 @@ public class MetropolisMC {
         private long attempts = 0;
         private long accepted = 0;
 
-        ExchangeStep(Embeddings emb, double[] eci, List<List<Cluster>> orbits,
+        ExchangeStep(List<List<Embeddings.Embedding>> cfEmbeddings,
+                     double[][] basisMatrix, List<int[]>[] siteToCfIndex,
+                     int ncf, double[] eciCvcf, CvCfBasis basis,
                      int numComp, double T, double R, Random rng) {
             if (T <= 0) throw new IllegalArgumentException("T must be > 0");
             if (R <= 0) throw new IllegalArgumentException("R must be > 0");
-            this.emb     = emb;
-            this.eci     = eci;
-            this.orbits  = orbits;
-            this.numComp = numComp;
-            this.beta    = 1.0 / (R * T);
-            this.rng     = rng;
+            this.cfEmbeddings  = cfEmbeddings;
+            this.basisMatrix   = basisMatrix;
+            this.siteToCfIndex = siteToCfIndex;
+            this.ncf           = ncf;
+            this.eciCvcf       = eciCvcf;
+            this.basis         = basis;
+            this.numComp       = numComp;
+            this.beta          = 1.0 / (R * T);
+            this.rng           = rng;
         }
 
         /**
@@ -189,7 +223,7 @@ public class MetropolisMC {
          *
          * <ol>
          *   <li>Step 4 — randomly pick species c1 ≠ c2, then site i of c1 and site j of c2</li>
-         *   <li>Step 5 — compute ΔE = E(swap) − E(current) locally via cluster expansion</li>
+         *   <li>Step 5 — compute ΔE in CVCF basis via cfEmbeddings + Tinv transform</li>
          *   <li>Step 6 — Metropolis: accept if ΔE ≤ 0 or rand < exp(−β·ΔE)</li>
          * </ol>
          *
@@ -209,8 +243,10 @@ public class MetropolisMC {
             int i = list1.get(rng.nextInt(list1.size()));
             int j = list2.get(rng.nextInt(list2.size()));
 
-            // Step 5: COMPUTE ΔE — local cluster expansion around sites i and j
-            double dE = Embeddings.deltaEExchange(i, j, config, emb, eci, orbits);
+            // Step 5: COMPUTE ΔE — CVCF basis via cfEmbeddings + Tinv
+            double dE = Embeddings.deltaEExchangeCvcf(
+                    i, j, config, cfEmbeddings, basisMatrix, siteToCfIndex,
+                    ncf, eciCvcf, basis);
 
             // Step 6: METROPOLIS ACCEPT/REJECT — P = min(1, exp(−ΔE / kT))
             if (accept(dE)) {
@@ -370,6 +406,24 @@ public class MetropolisMC {
             nSamples++;
             seriesHmix.add(Hmix);
             seriesE.add(currentEnergy);
+
+            // ── MCS-DBG: detailed Sampler trace (first 3 averaging sweeps) ──
+            if (MCSDebug.ENABLED && nSamples <= 3) {
+                MCSDebug.separator("SAMPLER.sample — sweep #" + nSamples);
+                MCSDebug.vector("SAMP", "uOrth (measured)", uOrth);
+                MCSDebug.vector("SAMP", "v (CVCF, after Tinv)", v);
+                StringBuilder contribs = new StringBuilder();
+                for (int l = 0; l < ncf; l++) {
+                    contribs.append(String.format(" eci[%d]*v[%d]=%.6f*%.6f=%.8f",
+                            l, l, eci[l], v[l], eci[l] * v[l]));
+                }
+                MCSDebug.log("SAMP", "Per-CF ECI contributions:%s", contribs);
+                MCSDebug.log("SAMP", "hmix_per_site = %.10f", hmix_per_site);
+                MCSDebug.log("SAMP", "Hmix (total)  = %.10f  (N=%d)", Hmix, N);
+                MCSDebug.log("SAMP", "currentEnergy = %.10f  (E/site = %.10f)", currentEnergy, currentEnergy / N);
+                MCSDebug.log("SAMP", "running ⟨Hmix⟩/site = %.10f, nSamples = %d",
+                        (sumHmix / nSamples) / N, nSamples);
+            }
         }
 
         long     getSampleCount()   { return nSamples; }
@@ -603,6 +657,33 @@ public class MetropolisMC {
         double   hmix = sampler.meanHmixPerSite();
         int      N    = config.getN();
         double energy = currentEnergy / N;
+
+        // ── MCS-DBG: CROSS-VALIDATION — recompute energy from scratch ──
+        if (MCSDebug.ENABLED) {
+            double freshE = Embeddings.totalEnergyCvcf(
+                    config, cfEmbeddings, basisMatrix, ncf, eciCvcf, basis);
+            double freshPerSite = freshE / N;
+            double drift = Math.abs(energy - freshPerSite);
+            MCSDebug.separator("CROSS-VALIDATION (buildResult)");
+            MCSDebug.log("XVAL", "running E/site   = %.10f", energy);
+            MCSDebug.log("XVAL", "fresh   E/site   = %.10f  (totalEnergyCvcf recompute)", freshPerSite);
+            MCSDebug.log("XVAL", "drift            = %.3e", drift);
+            MCSDebug.log("XVAL", "Sampler hmix/site= %.10f", hmix);
+            MCSDebug.log("XVAL", "MATCH? running vs fresh: %s", drift < 1e-6 ? "YES ✓" : "NO ✗ — ΔE accumulation bug!");
+            MCSDebug.log("XVAL", "MATCH? running vs hmix:  %s",
+                    Math.abs(energy - hmix) < 1e-3 ? "YES ✓" : "NO ✗ — different energy paths!");
+        }
+
+        // ── MCS-DBG: final result assembly ──
+        if (MCSDebug.ENABLED) {
+            MCSDebug.separator("BUILD RESULT (MetropolisMC)");
+            MCSDebug.log("RESULT", "nSamples      = %d", sampler.getSampleCount());
+            MCSDebug.log("RESULT", "acceptRate     = %.4f", acceptRate);
+            MCSDebug.log("RESULT", "currentEnergy = %.10f  (E/site = %.10f)", currentEnergy, energy);
+            MCSDebug.log("RESULT", "⟨Hmix⟩/site   = %.10f", hmix);
+            MCSDebug.log("RESULT", "Cv/site (fluct)= %.10f", sampler.heatCapacityPerSite(T));
+            MCSDebug.vector("RESULT", "⟨CF⟩ (mean CFs)", cfs);
+        }
 
         return new MCResult(
                 T, config.composition(), nEquil, nAvg, L, N,

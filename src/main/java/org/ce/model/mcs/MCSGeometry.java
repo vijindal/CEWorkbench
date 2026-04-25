@@ -2,6 +2,7 @@ package org.ce.model.mcs;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 
+import org.ce.debug.MCSDebug;
 import org.ce.model.ModelSession;
 import org.ce.model.cluster.Cluster;
 import org.ce.model.cluster.CMatrixPipeline;
@@ -126,6 +127,28 @@ public final class MCSGeometry {
         }
 
         LOG.info(String.format("MCSGeometry built — L=%d, N=%d sites, numComp=%d", L, positions.size(), numComp));
+
+        // ── MCS-DBG: embedding + CF structure validation ──
+        if (MCSDebug.ENABLED) {
+            MCSDebug.separator("GEOMETRY BUILT — L=" + L + ", N=" + positions.size());
+            MCSDebug.log("GEO", "Total embeddings: %d", emb.totalEmbeddingCount());
+            MCSDebug.log("GEO", "Orbit types (tc): %d", tc);
+            for (int t = 0; t < tc; t++) {
+                MCSDebug.log("GEO", "  orbit[%d]: %d members, multiSiteEmbedCount=%d",
+                        t, orbitSizes[t], multiSiteEmbedCounts[t]);
+            }
+            if (cfEmbeddings != null) {
+                MCSDebug.log("GEO", "cfEmbeddings: %d CF columns", cfEmbeddings.size());
+                for (int l = 0; l < cfEmbeddings.size(); l++) {
+                    MCSDebug.log("GEO", "  cfEmb[%d]: %d embeddings", l, cfEmbeddings.get(l).size());
+                }
+            } else {
+                MCSDebug.log("GEO", "cfEmbeddings: NULL (no CF measurement possible)");
+            }
+            if (basisMatrix != null) {
+                MCSDebug.matrix("GEO", "basisMatrix (Embeddings.buildBasisValues)", basisMatrix);
+            }
+        }
     }
 
     /**

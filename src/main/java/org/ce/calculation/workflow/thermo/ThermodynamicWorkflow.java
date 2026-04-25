@@ -1,6 +1,7 @@
 package org.ce.calculation.workflow.thermo;
 
 import org.ce.calculation.CalculationDescriptor.Property;
+import org.ce.debug.MCSDebug;
 import org.ce.model.ModelSession;
 import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
@@ -126,6 +127,16 @@ public class ThermodynamicWorkflow {
     // ── MCS Engine ────────────────────────────────────────────────────────────
 
     private ThermodynamicResult runMcs(ModelSession session, Request request) throws Exception {
+        // Route debug output to the GUI progress sink
+        MCSDebug.setSink(request.progressSink());
+        try {
+            return runMcsInternal(session, request);
+        } finally {
+            MCSDebug.clearSink();
+        }
+    }
+
+    private ThermodynamicResult runMcsInternal(ModelSession session, Request request) throws Exception {
         int L = request.mcsL;
 
         if (mcsCache == null || !mcsCache.geoValidFor(session, L)) {
@@ -168,6 +179,15 @@ public class ThermodynamicWorkflow {
                 },
                 () -> false // cancellationCheck
         ).result;
+
+        // ── MCS-DBG: MCResult → ThermodynamicResult mapping ──
+        if (MCSDebug.ENABLED) {
+            MCSDebug.separator("MCResult → ThermodynamicResult MAPPING");
+            MCSDebug.log("FLOW", "MCResult.energyPerSite = %.10f  → ThermodynamicResult.enthalpy", r.getEnergyPerSite());
+            MCSDebug.log("FLOW", "MCResult.hmixPerSite   = %.10f  (NOT in ThermodynamicResult)", r.getHmixPerSite());
+            MCSDebug.log("FLOW", "MCResult.acceptRate    = %.4f", r.getAcceptRate());
+            MCSDebug.vector("FLOW", "MCResult.avgCFs → ThermodynamicResult.avgCFs", r.getAvgCFs());
+        }
 
         return new ThermodynamicResult(
                 request.temperature(),

@@ -2,6 +2,7 @@ package org.ce.model.mcs;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 
+import org.ce.debug.MCSDebug;
 import org.ce.model.cluster.Cluster;
 import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
 import org.ce.model.cvm.CvCfBasis;
@@ -20,6 +21,24 @@ import java.util.logging.Logger;
 public class Embeddings {
 
     private static final Logger LOG = Logger.getLogger(Embeddings.class.getName());
+
+    // ── MCS-DBG sampling counters (to avoid flooding) ──
+    private static int dbgTotalEnergyCalls  = 0;
+    private static int dbgClusterProdCalls  = 0;
+    private static int dbgDeltaExchCalls    = 0;
+    private static int dbgDeltaSingleCalls  = 0;
+    private static int dbgMeasureCVCalls    = 0;
+    private static int dbgApplyTinvCalls    = 0;
+
+    /** Reset all debug sample counters (call at start of a new run). */
+    public static void resetDebugCounters() {
+        dbgTotalEnergyCalls = 0;
+        dbgClusterProdCalls = 0;
+        dbgDeltaExchCalls   = 0;
+        dbgDeltaSingleCalls = 0;
+        dbgMeasureCVCalls   = 0;
+        dbgApplyTinvCalls   = 0;
+    }
 
     private final List<Embedding>   allEmbeddings;
     private final List<Embedding>[] siteToEmbeddings;
@@ -194,6 +213,19 @@ public class Embeddings {
         int[]  alphas = e.getAlphaIndices();
         for (int k = 0; k < idx.length; k++)
             prod *= config.evaluateBasis(alphas[k], config.getOccupation(idx[k]));
+
+        // ── MCS-DBG: sampled clusterProduct trace (first 3 calls) ──
+        if (MCSDebug.ENABLED && dbgClusterProdCalls < 3) {
+            dbgClusterProdCalls++;
+            StringBuilder sb = new StringBuilder();
+            for (int k = 0; k < idx.length; k++) {
+                int occ = config.getOccupation(idx[k]);
+                double bv = config.evaluateBasis(alphas[k], occ);
+                sb.append(String.format(" site[%d]=(α=%d,σ=%d,φ=%.4f)", idx[k], alphas[k], occ, bv));
+            }
+            MCSDebug.log("CPROD", "type=%d prod=%.8f ←%s", e.getClusterType(), prod, sb);
+        }
+
         return prod;
     }
 
@@ -202,12 +234,36 @@ public class Embeddings {
                                      double[] eci,
                                      List<List<Cluster>> orbits) {
         double sum = 0.0;
+        // ── MCS-DBG: per-orbit accumulation (first call only) ──
+        boolean trace = MCSDebug.ENABLED && dbgTotalEnergyCalls == 0;
+        double[] orbitSums = trace ? new double[orbits.size()] : null;
+        int[]    orbitCnts = trace ? new int[orbits.size()] : null;
+
         for (Embedding e : emb.getAllEmbeddings()) {
             int size = e.size();
+            double cp = clusterProduct(e, config);
+            double contrib;
             if (size > 0)
-                sum += eci[e.getClusterType()] * clusterProduct(e, config) / size;
+                contrib = eci[e.getClusterType()] * cp / size;
             else
-                sum += eci[e.getClusterType()] * clusterProduct(e, config);
+                contrib = eci[e.getClusterType()] * cp;
+            sum += contrib;
+            if (trace) {
+                int t = e.getClusterType();
+                if (t < orbitSums.length) { orbitSums[t] += contrib; orbitCnts[t]++; }
+            }
+        }
+
+        if (trace) {
+            dbgTotalEnergyCalls++;
+            MCSDebug.separator("TOTAL ENERGY E(σ) BREAKDOWN");
+            MCSDebug.log("E-TOT", "Total E(σ) = %.10f  (E/site = %.10f, N=%d)", sum, sum / config.getN(), config.getN());
+            for (int t = 0; t < orbitSums.length; t++) {
+                if (orbitCnts[t] > 0) {
+                    MCSDebug.log("E-TOT", "  orbit[%d]: eci=%.8f, embeds=%d, Σcontrib=%.10f",
+                            t, t < eci.length ? eci[t] : 0.0, orbitCnts[t], orbitSums[t]);
+                }
+            }
         }
         return sum;
     }
@@ -220,6 +276,9 @@ public class Embeddings {
                                           List<List<Cluster>> orbits) {
         int oldOcc = config.getOccupation(i);
         if (oldOcc == newOcc) return 0.0;
+
+        boolean trace = MCSDebug.ENABLED && dbgDeltaSingleCalls < 2;
+        if (trace) dbgDeltaSingleCalls++;
 
         double dE = 0.0;
         for (Embedding e : emb.getSiteToEmbeddings()[i]) {
@@ -239,7 +298,18 @@ public class Embeddings {
             double phiNew = config.evaluateBasis(alphaI, newOcc);
             int size = e.size();
             double energyCont = eci[t] * (phiNew - phiOld) * restProduct;
-            dE += (size > 0) ? (energyCont / size) : energyCont;
+            double contrib = (size > 0) ? (energyCont / size) : energyCont;
+            dE += contrib;
+
+            // ── MCS-DBG: per-embedding ΔE detail (sampled) ──
+            if (trace && Math.abs(contrib) > 1e-14) {
+                MCSDebug.log("ΔE-SITE", "  site=%d t=%d eci=%.6f φold=%.4f φnew=%.4f rest=%.6f cont=%.10f",
+                        i, t, eci[t], phiOld, phiNew, restProduct, contrib);
+            }
+        }
+
+        if (trace) {
+            MCSDebug.log("ΔE-SITE", "  site=%d %d→%d TOTAL dE=%.10f", i, oldOcc, newOcc, dE);
         }
         return dE;
     }
@@ -262,6 +332,14 @@ public class Embeddings {
         } finally {
             config.setOccupation(i, occI);
         }
+
+        // ── MCS-DBG: sampled deltaEExchange trace (first 5 calls) ──
+        if (MCSDebug.ENABLED && dbgDeltaExchCalls < 5) {
+            dbgDeltaExchCalls++;
+            MCSDebug.log("ΔE-EXCH", "swap(%d↔%d) occ(%d↔%d): dEi=%.10f, dEj=%.10f, ΔE=%.10f",
+                    i, j, occI, occJ, dEi, dEj, dEi + dEj);
+        }
+
         return dEi + dEj;
     }
 
@@ -281,20 +359,40 @@ public class Embeddings {
             List<List<Embedding>> cfEmbeddings,
             double[][] basisMatrix,
             int ncf) {
+        boolean trace = MCSDebug.ENABLED && dbgMeasureCVCalls == 0;
+        if (trace) dbgMeasureCVCalls++;
+
         double[] v = new double[ncf];
         for (int l = 0; l < ncf; l++) {
             List<Embedding> embs = cfEmbeddings.get(l);
             if (embs == null || embs.isEmpty()) { v[l] = 0.0; continue; }
             double sum = 0.0;
-            for (Embedding e : embs) {
+            for (int ei = 0; ei < embs.size(); ei++) {
+                Embedding e = embs.get(ei);
                 int[] sites  = e.getSiteIndices();
                 int[] alphas = e.getAlphaIndices();
                 double prod  = 1.0;
                 for (int k = 0; k < sites.length; k++)
                     prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
                 sum += prod;
+
+                // ── MCS-DBG: first 3 embedding products for CF column 0 ──
+                if (trace && l == 0 && ei < 3) {
+                    MCSDebug.log("CF-MEAS", "  cf[0] emb[%d]: prod=%.8f sites=%s alphas=%s",
+                            ei, prod, Arrays.toString(sites), Arrays.toString(alphas));
+                }
             }
             v[l] = sum / embs.size();
+
+            // ── MCS-DBG: per-CF summary (first sweep) ──
+            if (trace) {
+                MCSDebug.log("CF-MEAS", "cf[%d]: nEmb=%d, sum=%.8f, avg=%.8f",
+                        l, embs.size(), sum, v[l]);
+            }
+        }
+
+        if (trace) {
+            MCSDebug.vector("CF-MEAS", "measureCVsFromConfig result (uOrth)", v);
         }
         return v;
     }
@@ -322,7 +420,10 @@ public class Embeddings {
         int nonPt = Math.min(uOrthNonPoint.length, tRows);
         System.arraycopy(uOrthNonPoint, 0, uFull, 0, nonPt);
         for (int k = 0; k < nPoint && nonPt + k < tRows; k++)
-            uFull[nonPt + k] = uPoint[k];
+            uFull[nonPt + k] = uPoint[nPoint - 1 - k]; // Reverse the order to match cfColMap
+        if (tRows > nonPt + nPoint) {
+            uFull[tRows - 1] = 1.0; // The constant term
+        }
 
         double[] vCvcf = new double[ncf];
         for (int i = 0; i < ncf; i++) {
@@ -331,7 +432,231 @@ public class Embeddings {
                 sum += Tinv[i][j] * uFull[j];
             vCvcf[i] = sum;
         }
+
+        // ── MCS-DBG: full Tinv transform trace (first call only) ──
+        if (MCSDebug.ENABLED && dbgApplyTinvCalls == 0) {
+            dbgApplyTinvCalls++;
+            MCSDebug.separator("TINV TRANSFORM (applyTinvTransform)");
+            MCSDebug.vector("TINV", "uOrthNonPoint (input)", uOrthNonPoint);
+            MCSDebug.vector("TINV", "composition", composition);
+            MCSDebug.vector("TINV", "uPoint (derived)", uPoint);
+            MCSDebug.vector("TINV", "uFull (assembled)", uFull);
+            MCSDebug.log("TINV", "Tinv dims: %dx%d, ncf=%d", Tinv.length, tRows, ncf);
+            MCSDebug.vector("TINV", "vCvcf (output)", vCvcf);
+        }
+
         return vCvcf;
+    }
+
+    // ── CVCF-basis energy computation (replaces orthogonal engine) ────────────
+
+    /**
+     * Builds a per-site index into cfEmbeddings for efficient local ΔE.
+     * For each site i, stores a list of {cfColumn, embeddingIndex} pairs.
+     */
+    @SuppressWarnings("unchecked")
+    public static List<int[]>[] buildSiteToCfIndex(List<List<Embedding>> cfEmbeddings, int N) {
+        List<int[]>[] index = new ArrayList[N];
+        for (int i = 0; i < N; i++) index[i] = new ArrayList<>();
+
+        for (int l = 0; l < cfEmbeddings.size(); l++) {
+            List<Embedding> embs = cfEmbeddings.get(l);
+            if (embs == null) continue;
+            for (int ei = 0; ei < embs.size(); ei++) {
+                for (int site : embs.get(ei).getSiteIndices()) {
+                    index[site].add(new int[]{l, ei});
+                }
+            }
+        }
+
+        // ── MCS-DBG: site-to-CF index statistics ──
+        if (MCSDebug.ENABLED) {
+            int totalEntries = 0;
+            int maxPerSite = 0;
+            for (int i = 0; i < N; i++) {
+                totalEntries += index[i].size();
+                maxPerSite = Math.max(maxPerSite, index[i].size());
+            }
+            MCSDebug.log("CF-IDX", "Built siteToCfIndex: N=%d, totalEntries=%d, maxPerSite=%d, avgPerSite=%.1f",
+                    N, totalEntries, maxPerSite, (double) totalEntries / N);
+        }
+
+        return index;
+    }
+
+    /**
+     * Computes total energy in the CVCF basis:
+     *   E = N × Σ_l eciCvcf[l] × vCvcf[l]
+     * where vCvcf = Tinv × uOrth and uOrth is measured from cfEmbeddings.
+     */
+    public static double totalEnergyCvcf(
+            LatticeConfig config,
+            List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
+            int ncf, double[] eciCvcf, CvCfBasis basis) {
+
+        int N = config.getN();
+
+        // Step 1: Measure orthogonal CFs from cfEmbeddings
+        double[] uOrth = measureCVsFromConfig(config, cfEmbeddings, basisMatrix, ncf);
+
+        // Step 2: Transform to CVCF basis
+        double[] vCvcf = applyTinvTransform(uOrth, config.composition(), basis);
+
+        // Step 3: E = N × Σ eciCvcf[l] × vCvcf[l]
+        double E = 0.0;
+        for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
+            E += eciCvcf[l] * vCvcf[l];
+        }
+        E *= N;
+
+        // ── MCS-DBG: CVCF total energy breakdown ──
+        boolean trace = MCSDebug.ENABLED && dbgTotalEnergyCalls == 0;
+        if (trace) {
+            dbgTotalEnergyCalls++;
+            MCSDebug.separator("TOTAL ENERGY E(σ) — CVCF BASIS");
+            MCSDebug.vector("E-CVCF", "uOrth (measured)", uOrth);
+            MCSDebug.vector("E-CVCF", "vCvcf (after Tinv)", vCvcf);
+            MCSDebug.log("E-CVCF", "E(σ) = %.10f  (E/site = %.10f, N=%d)", E, E / N, N);
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
+                if (Math.abs(eciCvcf[l] * vCvcf[l]) > 1e-14) {
+                    MCSDebug.log("E-CVCF", "  eci[%d]=%.8f × v[%d]=%.8f = %.10f",
+                            l, eciCvcf[l], l, vCvcf[l], eciCvcf[l] * vCvcf[l]);
+                }
+            }
+        }
+
+        return E;
+    }
+
+    /**
+     * Computes ΔE for exchanging sites i↔j in the CVCF basis.
+     *
+     * <p>Algorithm:
+     * 1. For each affected CF column l, compute oldProd for affected embeddings
+     * 2. Temporarily swap i↔j
+     * 3. Compute newProd for the same embeddings
+     * 4. ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
+     * 5. ΔvCvcf = Tinv × ΔuOrth
+     * 6. ΔE = N × Σ eciCvcf[l] × ΔvCvcf[l]
+     * 7. Undo the swap
+     */
+    public static double deltaEExchangeCvcf(
+            int i, int j,
+            LatticeConfig config,
+            List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
+            List<int[]>[] siteToCfIndex,
+            int ncf, double[] eciCvcf, CvCfBasis basis) {
+
+        int occI = config.getOccupation(i);
+        int occJ = config.getOccupation(j);
+        if (occI == occJ) return 0.0;
+
+        int N = config.getN();
+
+        // Collect affected (cfColumn, embeddingIndex) pairs for sites i and j
+        // Use a set to avoid counting shared embeddings twice
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        List<int[]> affectedPairs = new ArrayList<>();
+        for (int[] pair : siteToCfIndex[i]) {
+            long key = ((long) pair[0] << 32) | (pair[1] & 0xFFFFFFFFL);
+            if (seen.add(key)) affectedPairs.add(pair);
+        }
+        for (int[] pair : siteToCfIndex[j]) {
+            long key = ((long) pair[0] << 32) | (pair[1] & 0xFFFFFFFFL);
+            if (seen.add(key)) affectedPairs.add(pair);
+        }
+
+        // Step 1: Compute old products for affected embeddings
+        double[] oldSumDelta = new double[ncf]; // accumulates (prod_old) per CF column
+        for (int[] pair : affectedPairs) {
+            int l  = pair[0];
+            int ei = pair[1];
+            Embedding e  = cfEmbeddings.get(l).get(ei);
+            int[] sites  = e.getSiteIndices();
+            int[] alphas = e.getAlphaIndices();
+            double prod  = 1.0;
+            for (int k = 0; k < sites.length; k++)
+                prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+            oldSumDelta[l] += prod;
+        }
+
+        // Step 2: Temporarily swap
+        config.setOccupation(i, occJ);
+        config.setOccupation(j, occI);
+
+        // Step 3: Compute new products for same embeddings
+        double[] newSumDelta = new double[ncf];
+        for (int[] pair : affectedPairs) {
+            int l  = pair[0];
+            int ei = pair[1];
+            Embedding e  = cfEmbeddings.get(l).get(ei);
+            int[] sites  = e.getSiteIndices();
+            int[] alphas = e.getAlphaIndices();
+            double prod  = 1.0;
+            for (int k = 0; k < sites.length; k++)
+                prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+            newSumDelta[l] += prod;
+        }
+
+        // Step 4: Undo the swap
+        config.setOccupation(i, occI);
+        config.setOccupation(j, occJ);
+
+        // Step 5: Compute ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
+        double[] deltaUOrth = new double[ncf];
+        for (int l = 0; l < ncf; l++) {
+            double diff = newSumDelta[l] - oldSumDelta[l];
+            if (Math.abs(diff) > 0.0) {
+                int nEmbs = cfEmbeddings.get(l).size();
+                deltaUOrth[l] = diff / nEmbs;
+            }
+        }
+
+        // Step 6: ΔvCvcf = Tinv × ΔuOrth  (only the non-point part changes)
+        double[][] Tinv = basis.Tinv;
+        double[] deltaVCvcf;
+        if (Tinv != null) {
+            deltaVCvcf = new double[ncf];
+            int tCols = Tinv[0].length;
+            for (int l = 0; l < ncf && l < Tinv.length; l++) {
+                double sum = 0.0;
+                // Only non-point CFs change (composition is fixed in canonical MC)
+                for (int m = 0; m < ncf && m < tCols; m++) {
+                    sum += Tinv[l][m] * deltaUOrth[m];
+                }
+                deltaVCvcf[l] = sum;
+            }
+        } else {
+            deltaVCvcf = deltaUOrth;
+        }
+
+        // Step 7: ΔE = N × Σ eciCvcf[l] × ΔvCvcf[l]
+        double dE = 0.0;
+        for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
+            dE += eciCvcf[l] * deltaVCvcf[l];
+        }
+        dE *= N;
+
+        // ── MCS-DBG: sampled CVCF ΔE trace (first 5 calls) ──
+        if (MCSDebug.ENABLED && dbgDeltaExchCalls < 5) {
+            dbgDeltaExchCalls++;
+            MCSDebug.log("ΔE-CVCF", "swap(%d↔%d) occ(%d↔%d): ΔE=%.10f, affected=%d embeddings",
+                    i, j, occI, occJ, dE, affectedPairs.size());
+            if (dbgDeltaExchCalls <= 2) {
+                MCSDebug.vector("ΔE-CVCF", "ΔuOrth", deltaUOrth);
+                MCSDebug.vector("ΔE-CVCF", "ΔvCvcf", deltaVCvcf);
+                StringBuilder contribs = new StringBuilder();
+                for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
+                    if (Math.abs(eciCvcf[l] * deltaVCvcf[l]) > 1e-14) {
+                        contribs.append(String.format(" eci[%d]×Δv[%d]=%.6f×%.6f=%.8f",
+                                l, l, eciCvcf[l], deltaVCvcf[l], eciCvcf[l] * deltaVCvcf[l]));
+                    }
+                }
+                MCSDebug.log("ΔE-CVCF", "per-CF: %s → ΔE/site=%.10f", contribs, dE / N);
+            }
+        }
+
+        return dE;
     }
 
     // ── Private generation helpers ────────────────────────────────────────────

@@ -1,5 +1,7 @@
 package org.ce.model.mcs;
 
+import org.ce.debug.MCSDebug;
+
 import java.util.Arrays;
 import java.util.Random;
 
@@ -91,6 +93,20 @@ public class LatticeConfig {
         Basis(int numComp) {
             if (numComp < 2) throw new IllegalArgumentException("numComp must be >= 2");
             this.basisMatrix = buildBasis(numComp);
+
+            // ── MCS-DBG: print full basis function table once ──
+            if (MCSDebug.ENABLED) {
+                MCSDebug.separator("BASIS FUNCTION TABLE (numComp=" + numComp + ")");
+                StringBuilder hdr = new StringBuilder("         ");
+                for (int s = 0; s < numComp; s++) hdr.append(String.format("  σ=%-5d", s));
+                MCSDebug.log("BASIS", hdr.toString());
+                for (int a = 0; a < basisMatrix.length; a++) {
+                    StringBuilder row = new StringBuilder(String.format("  α=%-3d  ", a + 1));
+                    for (int s = 0; s < basisMatrix[a].length; s++)
+                        row.append(String.format("  %+.4f", basisMatrix[a][s]));
+                    MCSDebug.log("BASIS", row.toString());
+                }
+            }
         }
 
         double evaluate(int alpha, int sigma) {

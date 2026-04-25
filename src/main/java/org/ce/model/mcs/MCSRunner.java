@@ -1,5 +1,6 @@
 package org.ce.model.mcs;
 
+import org.ce.debug.MCSDebug;
 import org.ce.model.ModelSession;
 import org.ce.model.PhysicsConstants;
 import org.ce.model.hamiltonian.CECEvaluator;
@@ -7,6 +8,7 @@ import org.ce.model.mcs.MetropolisMC.MCSUpdate;
 import org.ce.model.mcs.MetropolisMC.MCResult;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -23,20 +25,19 @@ public class MCSRunner {
     private static final Logger LOG = Logger.getLogger(MCSRunner.class.getName());
 
     private final MCSGeometry geo;
-    private final double[]    eciOrth;      // ECIs in orthogonal basis
     private final double[]    eciCvcf;      // ECIs in CVCF basis
     private final double      T;
     private final double      R;
+    private final List<int[]>[] siteToCfIndex;  // per-site CF embedding index
 
-    private MCSRunner(MCSGeometry geo, double[] eciCvcf, double[] eciOrth, double T, double R) {
+    private MCSRunner(MCSGeometry geo, double[] eciCvcf, List<int[]>[] siteToCfIndex, double T, double R) {
         this.geo = geo;
         this.eciCvcf = eciCvcf.clone();
-        this.eciOrth = eciOrth.clone();
+        this.siteToCfIndex = siteToCfIndex;
         this.T = T;
         this.R = R;
 
         LOG.info(String.format("MCSRunner ready — T=%.1f K, numComp=%d", T, geo.numComp));
-        Debug.printEciInfo(eciCvcf, eciOrth, geo.basis, geo.nSites(), geo.orbitSizes);
     }
 
     /**
@@ -45,12 +46,26 @@ public class MCSRunner {
     public static MCSRunner forTemperature(MCSGeometry geo, ModelSession session, double T, Consumer<String> progressSink) {
         // Evaluate Hamiltonian at T — ECI in CVCF basis
         double[] eciCvcf = CECEvaluator.evaluate(session.cecEntry, T, geo.basis, "MCS", progressSink);
-        
-        // Transform ECIs to orthogonal basis
-        int tc = geo.clusterData.getTc();
-        double[] eciOrth = buildEciByOrbitType(eciCvcf, tc, geo.basis);
-        
-        return new MCSRunner(geo, eciCvcf, eciOrth, T, PhysicsConstants.R_GAS);
+
+        // Build site-to-cfEmbedding index for efficient ΔE computation
+        List<int[]>[] siteToCfIndex = Embeddings.buildSiteToCfIndex(geo.cfEmbeddings, geo.nSites());
+
+        // ── MCS-DBG: ECI vectors after Hamiltonian evaluation ──
+        if (MCSDebug.ENABLED) {
+            MCSDebug.separator("ECI EVALUATION at T=" + T + " K");
+            if (geo.basis != null) {
+                MCSDebug.log("ECI", "Basis: %s, K=%d, numNonPointCfs=%d",
+                        geo.basis.structurePhase, geo.basis.numComponents, geo.basis.numNonPointCfs);
+                MCSDebug.log("ECI", "Tinv: %s",
+                        geo.basis.Tinv != null
+                                ? (geo.basis.Tinv.length + "x" + geo.basis.Tinv[0].length)
+                                : "NULL");
+            }
+            MCSDebug.vector("ECI", "eciCvcf (CVCF basis — used for E and ΔE)", eciCvcf);
+            MCSDebug.log("ECI", "NOTE: buildEciByOrbitType REMOVED — engine uses CVCF ECIs directly");
+        }
+
+        return new MCSRunner(geo, eciCvcf, siteToCfIndex, T, PhysicsConstants.R_GAS);
     }
 
     /** Holds the MCResult and Sampler from one run. */
@@ -85,13 +100,18 @@ public class MCSRunner {
         config.randomise(xFrac, rng);
         emit(progressSink, String.format("  Step 1 [INIT]   random occupation set (seed=%d)", seed));
 
-        emit(progressSink, "  Step 2 [HAMILTONIAN]  computing E(σ₀) via cluster expansion...");
+        emit(progressSink, "  Step 2 [HAMILTONIAN]  computing E(σ₀) via CVCF cluster expansion...");
+
+        int ncf = geo.basis != null ? geo.basis.numNonPointCfs : eciCvcf.length;
 
         MetropolisMC.Sampler sampler = new MetropolisMC.Sampler(
                 N, geo.orbitSizes, geo.orbits, R, eciCvcf,
                 geo.multiSiteEmbedCounts, geo.basis, geo.cfEmbeddings, geo.basisMatrix);
 
-        MetropolisMC engine = new MetropolisMC(geo.emb, eciOrth, geo.orbits, geo.numComp, T, nEquil, nAvg, R, rng);
+        MetropolisMC engine = new MetropolisMC(
+                geo.cfEmbeddings, geo.basisMatrix, siteToCfIndex,
+                ncf, eciCvcf, geo.basis,
+                geo.numComp, T, nEquil, nAvg, R, rng);
         if (cancellationCheck != null) engine.setCancellationCheck(cancellationCheck);
 
         emit(progressSink, String.format(
@@ -128,25 +148,6 @@ public class MCSRunner {
     public int nSites() { return geo.nSites(); }
     public double temperature() { return T; }
 
-    private static double[] buildEciByOrbitType(double[] eciCvcf, int tc, org.ce.model.cvm.CvCfBasis basis) {
-        if (basis == null || basis.Tinv == null) {
-            LOG.warning("buildEciByOrbitType: Tinv unavailable — passing CVCF eci[] directly to MCEngine");
-            double[] out = new double[tc];
-            System.arraycopy(eciCvcf, 0, out, 0, Math.min(eciCvcf.length, tc));
-            return out;
-        }
-        double[][] Tinv = basis.Tinv;
-        int nCvcf = eciCvcf.length;
-        double[] eciOrth = new double[tc];
-        for (int t = 0; t < tc; t++) {
-            double sum = 0.0;
-            for (int l = 0; l < nCvcf && l < Tinv.length; l++)
-                if (t < Tinv[l].length) sum += eciCvcf[l] * Tinv[l][t];
-            eciOrth[t] = sum;
-        }
-        return eciOrth;
-    }
-
     private static void emit(Consumer<String> sink, String msg) {
         if (sink != null) sink.accept(msg);
     }
@@ -165,24 +166,6 @@ public class MCSRunner {
             System.out.println("------------------------------------------------------------");
             System.out.printf("  <E>/site      : %.6f J/mol%n", result.getEnergyPerSite());
             System.out.printf("  <H>/site      : %.6f J/mol%n", result.getHmixPerSite());
-            System.out.println("============================================================");
-        }
-
-        public static void printEciInfo(double[] eciCvcf, double[] eciOrth,
-                                        org.ce.model.cvm.CvCfBasis basis, int N, int[] orbitSizes) {
-            System.out.println("============================================================");
-            System.out.println("  MCS ECI & ORBIT DIAGNOSTIC");
-            System.out.println("============================================================");
-            if (basis != null) {
-                System.out.printf("  CVCF Basis: %s (K=%d), numNonPointCfs=%d%n",
-                        basis.structurePhase, basis.numComponents, basis.numNonPointCfs);
-            }
-            if (eciOrth != null) {
-                System.out.println("  Transformed ECIs (Metropolis ECIs, orthogonal basis):");
-                for (int t = 0; t < eciOrth.length; t++)
-                    if (Math.abs(eciOrth[t]) > 1e-12)
-                        System.out.printf("    Orbit %2d : %+.6f%n", t, eciOrth[t]);
-            }
             System.out.println("============================================================");
         }
     }

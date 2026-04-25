@@ -90,3 +90,8 @@ task runDebugCli(type: JavaExec) {
 }
 
 
+
+task runScratch(type: JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.ce.scratch.RunComparison'
+}

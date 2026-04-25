@@ -54,8 +54,8 @@ public final class CalculationDescriptor {
         public static final Parameter X_STEPS      = new Parameter("X Steps", double[].class, null);
 
         public static final Parameter MCS_L        = new Parameter("Lattice Size L", Integer.class, 4);
-        public static final Parameter MCS_NEQUIL   = new Parameter("Equil. Sweeps", Integer.class, 1000);
-        public static final Parameter MCS_NAVG     = new Parameter("Avg. Sweeps", Integer.class, 2000);
+        public static final Parameter MCS_NEQUIL   = new Parameter("Equil. Sweeps", Integer.class, 100);
+        public static final Parameter MCS_NAVG     = new Parameter("Avg. Sweeps", Integer.class, 500);
         public static final Parameter FIXED_CORRELATIONS = new Parameter("Fixed Correlations", double[].class, null);
 
         public final String name;
