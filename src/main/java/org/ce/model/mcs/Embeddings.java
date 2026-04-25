@@ -528,6 +528,193 @@ public class Embeddings {
         return E;
     }
 
+    // ── Pre-allocated scratch buffers for zero-allocation ΔE computation ─────
+
+    /**
+     * Reusable scratch space for {@link #deltaEExchangeCvcf}.
+     * Allocate once per ExchangeStep, reuse across all trial moves.
+     */
+    public static final class DeltaScratch {
+        final double[] oldSumDelta;
+        final double[] newSumDelta;
+        final double[] deltaUOrth;
+        final double[] deltaVCvcf;
+        /** Flat arrays for collecting affected (cfCol, embIdx) pairs without boxing. */
+        final int[] affectedL;
+        final int[] affectedEI;
+        /** Bit-set for deduplication (replaces HashSet<Long>). Max total embedding count. */
+        final boolean[] seen;
+        int affectedCount;
+        final int ncf;
+
+        public DeltaScratch(int ncf, int totalEmbeddings) {
+            this.ncf = ncf;
+            this.oldSumDelta = new double[ncf];
+            this.newSumDelta = new double[ncf];
+            this.deltaUOrth  = new double[ncf];
+            this.deltaVCvcf  = new double[ncf];
+            // Max affected pairs per move: entries for site_i + entries for site_j
+            // Use totalEmbeddings as the upper bound for the seen-flag array
+            this.seen = new boolean[totalEmbeddings];
+            // Upper bound for affected pairs: sum of all per-site entries for two sites
+            // In practice much smaller; use totalEmbeddings as safe upper bound
+            this.affectedL  = new int[totalEmbeddings];
+            this.affectedEI = new int[totalEmbeddings];
+        }
+
+        /** Resets scratch state for the next move. Only clears what was actually used. */
+        void reset(int[] lastAffectedL, int[] lastAffectedEI, int lastCount) {
+            for (int a = 0; a < lastCount; a++) {
+                oldSumDelta[lastAffectedL[a]] = 0.0;
+                newSumDelta[lastAffectedL[a]] = 0.0;
+                deltaUOrth[lastAffectedL[a]]  = 0.0;
+                deltaVCvcf[lastAffectedL[a]]  = 0.0;
+            }
+            affectedCount = 0;
+        }
+
+        /** Computes a unique key for (cfColumn, embeddingIndex) — used as index into seen[]. */
+        static int pairKey(int cfCol, int embIdx, int maxEmbPerCol) {
+            return cfCol * maxEmbPerCol + embIdx;
+        }
+    }
+
+    /** Computes the total number of (cfCol, embIdx) pairs across all CF columns. */
+    public static int totalCfEmbeddingCount(List<List<Embedding>> cfEmbeddings) {
+        int total = 0;
+        int maxPerCol = 0;
+        for (List<Embedding> embs : cfEmbeddings) {
+            if (embs != null) {
+                total += embs.size();
+                maxPerCol = Math.max(maxPerCol, embs.size());
+            }
+        }
+        return total;
+    }
+
+    /** Returns the max number of embeddings in any single CF column. */
+    public static int maxEmbPerCfColumn(List<List<Embedding>> cfEmbeddings) {
+        int max = 0;
+        for (List<Embedding> embs : cfEmbeddings)
+            if (embs != null) max = Math.max(max, embs.size());
+        return max;
+    }
+
+    /**
+     * Allocation-free version of {@link #deltaEExchangeCvcf} using pre-allocated scratch.
+     * This is the hot-path method called ~260K times per MCS run.
+     */
+    public static double deltaEExchangeCvcf(
+            int i, int j,
+            LatticeConfig config,
+            List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
+            List<int[]>[] siteToCfIndex,
+            int ncf, double[] eciCvcf, CvCfBasis basis,
+            DeltaScratch scratch, int maxEmbPerCol) {
+
+        int occI = config.getOccupation(i);
+        int occJ = config.getOccupation(j);
+        if (occI == occJ) return 0.0;
+
+        int N = config.getN();
+
+        // Collect affected pairs using flat arrays + boolean[] seen flag (no boxing)
+        int ac = 0;
+        for (int[] pair : siteToCfIndex[i]) {
+            int key = pair[0] * maxEmbPerCol + pair[1];
+            if (!scratch.seen[key]) {
+                scratch.seen[key] = true;
+                scratch.affectedL[ac]  = pair[0];
+                scratch.affectedEI[ac] = pair[1];
+                ac++;
+            }
+        }
+        for (int[] pair : siteToCfIndex[j]) {
+            int key = pair[0] * maxEmbPerCol + pair[1];
+            if (!scratch.seen[key]) {
+                scratch.seen[key] = true;
+                scratch.affectedL[ac]  = pair[0];
+                scratch.affectedEI[ac] = pair[1];
+                ac++;
+            }
+        }
+        scratch.affectedCount = ac;
+
+        // Compute old products
+        for (int a = 0; a < ac; a++) {
+            int l  = scratch.affectedL[a];
+            int ei = scratch.affectedEI[a];
+            Embedding e  = cfEmbeddings.get(l).get(ei);
+            int[] sites  = e.getSiteIndices();
+            int[] alphas = e.getAlphaIndices();
+            double prod  = 1.0;
+            for (int k = 0; k < sites.length; k++)
+                prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+            scratch.oldSumDelta[l] += prod;
+        }
+
+        // Temporarily swap
+        config.setOccupation(i, occJ);
+        config.setOccupation(j, occI);
+
+        // Compute new products
+        for (int a = 0; a < ac; a++) {
+            int l  = scratch.affectedL[a];
+            int ei = scratch.affectedEI[a];
+            Embedding e  = cfEmbeddings.get(l).get(ei);
+            int[] sites  = e.getSiteIndices();
+            int[] alphas = e.getAlphaIndices();
+            double prod  = 1.0;
+            for (int k = 0; k < sites.length; k++)
+                prod *= basisMatrix[config.getOccupation(sites[k])][alphas[k] - 1];
+            scratch.newSumDelta[l] += prod;
+        }
+
+        // Undo swap
+        config.setOccupation(i, occI);
+        config.setOccupation(j, occJ);
+
+        // ΔuOrth
+        for (int a = 0; a < ac; a++) {
+            int l = scratch.affectedL[a];
+            double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
+            if (diff != 0.0) {
+                scratch.deltaUOrth[l] = diff / cfEmbeddings.get(l).size();
+            }
+        }
+
+        // Tinv transform + ECI dot product
+        double[][] Tinv = basis.Tinv;
+        double dE = 0.0;
+        if (Tinv != null) {
+            int tCols = Tinv[0].length;
+            for (int l = 0; l < ncf && l < Tinv.length; l++) {
+                double sum = 0.0;
+                for (int m = 0; m < ncf && m < tCols; m++)
+                    sum += Tinv[l][m] * scratch.deltaUOrth[m];
+                scratch.deltaVCvcf[l] = sum;
+            }
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaVCvcf[l];
+        } else {
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaUOrth[l];
+        }
+        dE *= N;
+
+        // Clean up: reset only the used entries in seen[] and accumulators
+        for (int a = 0; a < ac; a++) {
+            int key = scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a];
+            scratch.seen[key] = false;
+            scratch.oldSumDelta[scratch.affectedL[a]] = 0.0;
+            scratch.newSumDelta[scratch.affectedL[a]] = 0.0;
+            scratch.deltaUOrth[scratch.affectedL[a]]  = 0.0;
+            scratch.deltaVCvcf[scratch.affectedL[a]]  = 0.0;
+        }
+
+        return dE;
+    }
+
     /**
      * Computes ΔE for exchanging sites i↔j in the CVCF basis.
      *

@@ -195,6 +195,10 @@ public class MetropolisMC {
         private final int            numComp;
         private final Random         rng;
 
+        // Pre-allocated scratch for zero-allocation ΔE computation
+        private final Embeddings.DeltaScratch scratch;
+        private final int maxEmbPerCol;
+
         private ArrayList<Integer>[] speciesSites;  // per-species site index cache
         private boolean cacheInitialized = false;
 
@@ -216,6 +220,17 @@ public class MetropolisMC {
             this.numComp       = numComp;
             this.beta          = 1.0 / (R * T);
             this.rng           = rng;
+
+            // Initialize scratch buffers once
+            if (cfEmbeddings != null) {
+                int maxPerCol = Embeddings.maxEmbPerCfColumn(cfEmbeddings);
+                int seenSize  = cfEmbeddings.size() * maxPerCol;
+                this.scratch       = new Embeddings.DeltaScratch(ncf, seenSize);
+                this.maxEmbPerCol  = maxPerCol;
+            } else {
+                this.scratch       = null;
+                this.maxEmbPerCol  = 0;
+            }
         }
 
         /**
@@ -243,10 +258,10 @@ public class MetropolisMC {
             int i = list1.get(rng.nextInt(list1.size()));
             int j = list2.get(rng.nextInt(list2.size()));
 
-            // Step 5: COMPUTE ΔE — CVCF basis via cfEmbeddings + Tinv
+            // Step 5: COMPUTE ΔE — zero-allocation CVCF path
             double dE = Embeddings.deltaEExchangeCvcf(
                     i, j, config, cfEmbeddings, basisMatrix, siteToCfIndex,
-                    ncf, eciCvcf, basis);
+                    ncf, eciCvcf, basis, scratch, maxEmbPerCol);
 
             // Step 6: METROPOLIS ACCEPT/REJECT — P = min(1, exp(−ΔE / kT))
             if (accept(dE)) {
