@@ -42,6 +42,7 @@ public class MetropolisMC {
     private final List<int[]>[]         siteToCfIndex; // per-site CF embedding index
     private final int                   ncf;          // number of non-point CFs
     private final double[]              eciCvcf;      // effective cluster interactions (CVCF basis)
+    private final double[]              eciOrth;      // pre-computed: eciOrth[m] = Σ_l eci[l] × Tinv[l][m]
     private final CvCfBasis             basis;        // CVCF basis transform (Tinv)
     private final int                   numComp;      // number of species (K)
     private final double                T;            // temperature [K]
@@ -59,6 +60,7 @@ public class MetropolisMC {
                         List<int[]>[] siteToCfIndex,
                         int ncf,
                         double[] eciCvcf,
+                        double[] eciOrth,
                         CvCfBasis basis,
                         int numComp,
                         double T, int nEquil, int nAvg, double R, Random rng) {
@@ -70,6 +72,7 @@ public class MetropolisMC {
         this.siteToCfIndex = siteToCfIndex;
         this.ncf           = ncf;
         this.eciCvcf       = eciCvcf;
+        this.eciOrth       = eciOrth;
         this.basis         = basis;
         this.numComp       = numComp;
         this.T             = T;
@@ -94,7 +97,7 @@ public class MetropolisMC {
         // config (lattice + occupations) and sampler were prepared by MCSRunner.
         // Here we wire up the move engine and compute the starting energy.
         ExchangeStep move = new ExchangeStep(cfEmbeddings, basisMatrix, siteToCfIndex,
-                ncf, eciCvcf, basis, numComp, T, R, rng);
+                ncf, eciCvcf, eciOrth, basis, numComp, T, R, rng);
         int N = config.getN();
         deltaEWindow.clear();
         long startTime = System.currentTimeMillis();
@@ -190,6 +193,7 @@ public class MetropolisMC {
         private final List<int[]>[]  siteToCfIndex;
         private final int            ncf;
         private final double[]       eciCvcf;
+        private final double[]       eciOrth;      // pre-computed for Tinv bypass
         private final CvCfBasis      basis;
         private final double         beta;    // 1 / (R·T)
         private final int            numComp;
@@ -207,7 +211,7 @@ public class MetropolisMC {
 
         ExchangeStep(List<List<Embeddings.Embedding>> cfEmbeddings,
                      double[][] basisMatrix, List<int[]>[] siteToCfIndex,
-                     int ncf, double[] eciCvcf, CvCfBasis basis,
+                     int ncf, double[] eciCvcf, double[] eciOrth, CvCfBasis basis,
                      int numComp, double T, double R, Random rng) {
             if (T <= 0) throw new IllegalArgumentException("T must be > 0");
             if (R <= 0) throw new IllegalArgumentException("R must be > 0");
@@ -216,6 +220,7 @@ public class MetropolisMC {
             this.siteToCfIndex = siteToCfIndex;
             this.ncf           = ncf;
             this.eciCvcf       = eciCvcf;
+            this.eciOrth       = eciOrth;
             this.basis         = basis;
             this.numComp       = numComp;
             this.beta          = 1.0 / (R * T);
@@ -258,10 +263,10 @@ public class MetropolisMC {
             int i = list1.get(rng.nextInt(list1.size()));
             int j = list2.get(rng.nextInt(list2.size()));
 
-            // Step 5: COMPUTE ΔE — zero-allocation CVCF path
+            // Step 5: COMPUTE ΔE — zero-allocation CVCF path with Tinv bypass
             double dE = Embeddings.deltaEExchangeCvcf(
                     i, j, config, cfEmbeddings, basisMatrix, siteToCfIndex,
-                    ncf, eciCvcf, basis, scratch, maxEmbPerCol);
+                    ncf, eciCvcf, basis, scratch, maxEmbPerCol, eciOrth);
 
             // Step 6: METROPOLIS ACCEPT/REJECT — P = min(1, exp(−ΔE / kT))
             if (accept(dE)) {

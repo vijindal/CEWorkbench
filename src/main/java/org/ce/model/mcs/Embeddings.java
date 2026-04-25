@@ -603,6 +603,7 @@ public class Embeddings {
     /**
      * Allocation-free version of {@link #deltaEExchangeCvcf} using pre-allocated scratch.
      * This is the hot-path method called ~260K times per MCS run.
+     * When eciOrth is provided, bypasses the Tinv matrix-vector multiply entirely.
      */
     public static double deltaEExchangeCvcf(
             int i, int j,
@@ -610,7 +611,7 @@ public class Embeddings {
             List<List<Embedding>> cfEmbeddings, double[][] basisMatrix,
             List<int[]>[] siteToCfIndex,
             int ncf, double[] eciCvcf, CvCfBasis basis,
-            DeltaScratch scratch, int maxEmbPerCol) {
+            DeltaScratch scratch, int maxEmbPerCol, double[] eciOrth) {
 
         int occI = config.getOccupation(i);
         int occJ = config.getOccupation(j);
@@ -674,7 +675,7 @@ public class Embeddings {
         config.setOccupation(i, occI);
         config.setOccupation(j, occJ);
 
-        // ΔuOrth
+        // ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
         for (int a = 0; a < ac; a++) {
             int l = scratch.affectedL[a];
             double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
@@ -683,10 +684,15 @@ public class Embeddings {
             }
         }
 
-        // Tinv transform + ECI dot product
-        double[][] Tinv = basis.Tinv;
+        // Compute ΔE — use eciOrth for direct dot product (bypasses Tinv multiply)
         double dE = 0.0;
-        if (Tinv != null) {
+        if (eciOrth != null) {
+            // Fast path: ΔE = N × Σ_m ΔuOrth[m] × eciOrth[m]
+            for (int m = 0; m < ncf; m++)
+                dE += scratch.deltaUOrth[m] * eciOrth[m];
+        } else if (basis != null && basis.Tinv != null) {
+            // Fallback: Tinv matrix-vector multiply + ECI dot product
+            double[][] Tinv = basis.Tinv;
             int tCols = Tinv[0].length;
             for (int l = 0; l < ncf && l < Tinv.length; l++) {
                 double sum = 0.0;
@@ -702,7 +708,7 @@ public class Embeddings {
         }
         dE *= N;
 
-        // Clean up: reset only the used entries in seen[] and accumulators
+        // Clean up: reset only the used entries
         for (int a = 0; a < ac; a++) {
             int key = scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a];
             scratch.seen[key] = false;
