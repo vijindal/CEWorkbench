@@ -579,6 +579,10 @@ public class Embeddings {
         /** Bit-set for deduplication (replaces HashSet<Long>). Max total embedding count. */
         final boolean[] seen;
         int affectedCount;
+        /** Unique CF columns touched by this move — used for sparse dot product. */
+        final int[]     affectedCols;
+        final boolean[] seenCol;        // dedup flag, length = ncf
+        int             affectedColCount;
         final int ncf;
 
         public DeltaScratch(int ncf, int totalEmbeddings) {
@@ -592,8 +596,10 @@ public class Embeddings {
             this.seen = new boolean[totalEmbeddings];
             // Upper bound for affected pairs: sum of all per-site entries for two sites
             // In practice much smaller; use totalEmbeddings as safe upper bound
-            this.affectedL  = new int[totalEmbeddings];
-            this.affectedEI = new int[totalEmbeddings];
+            this.affectedL    = new int[totalEmbeddings];
+            this.affectedEI   = new int[totalEmbeddings];
+            this.affectedCols = new int[ncf];
+            this.seenCol      = new boolean[ncf];
         }
 
         /** Resets scratch state for the next move. Only clears what was actually used. */
@@ -721,20 +727,30 @@ public class Embeddings {
         occ[j] = occJ;
 
         // ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
+        // Also collect unique CF columns touched (affectedCols) for sparse dot product.
+        int cc = 0;
         for (int a = 0; a < ac; a++) {
             int l = scratch.affectedL[a];
-            double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
-            if (diff != 0.0) {
-                scratch.deltaUOrth[l] = diff / cfEmbeddings.get(l).size();
+            if (!scratch.seenCol[l]) {
+                scratch.seenCol[l] = true;
+                scratch.affectedCols[cc++] = l;
+                double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
+                if (diff != 0.0) {
+                    scratch.deltaUOrth[l] = diff / cfEmbeddings.get(l).size();
+                }
             }
         }
+        scratch.affectedColCount = cc;
 
         // Compute ΔE — use eciOrth for direct dot product (bypasses Tinv multiply)
         double dE = 0.0;
         if (eciOrth != null) {
             // Fast path: ΔE = N × Σ_m ΔuOrth[m] × eciOrth[m]
-            for (int m = 0; m < ncf; m++)
+            // Only unique affected CF columns have non-zero ΔuOrth — sparse iteration
+            for (int a = 0; a < cc; a++) {
+                int m = scratch.affectedCols[a];
                 dE += scratch.deltaUOrth[m] * eciOrth[m];
+            }
         } else if (basis != null && basis.Tinv != null) {
             // Fallback: Tinv matrix-vector multiply + ECI dot product
             double[][] Tinv = basis.Tinv;
@@ -757,11 +773,16 @@ public class Embeddings {
         for (int a = 0; a < ac; a++) {
             int key = scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a];
             scratch.seen[key] = false;
-            scratch.oldSumDelta[scratch.affectedL[a]] = 0.0;
-            scratch.newSumDelta[scratch.affectedL[a]] = 0.0;
-            scratch.deltaUOrth[scratch.affectedL[a]]  = 0.0;
-            scratch.deltaVCvcf[scratch.affectedL[a]]  = 0.0;
         }
+        for (int a = 0; a < cc; a++) {
+            int l = scratch.affectedCols[a];
+            scratch.seenCol[l]      = false;
+            scratch.oldSumDelta[l]  = 0.0;
+            scratch.newSumDelta[l]  = 0.0;
+            scratch.deltaUOrth[l]   = 0.0;
+            scratch.deltaVCvcf[l]   = 0.0;
+        }
+        scratch.affectedColCount = 0;
 
         return dE;
     }
