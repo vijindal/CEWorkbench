@@ -168,13 +168,31 @@ public class MetropolisMC {
         move.resetCounters();
         sampler.reset();
 
+        // ── Incremental CF sums: initialize from post-equilibration config ────
+        // runningCfSum[l] = Σ_e prod(e) for CF column l (unnormalized).
+        // Updated per accepted move by ExchangeStep; avoids O(totalEmbeddings) scan each sweep.
+        double[] runningCfSum = null;
+        int[]    cfEmbCount   = null;
+        if (ncf > 0 && cfEmbeddings != null) {
+            cfEmbCount   = new int[ncf];
+            runningCfSum = new double[ncf];
+            double[] initUOrth = Embeddings.measureCVsFromConfig(
+                    config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
+            for (int l = 0; l < ncf; l++) {
+                cfEmbCount[l]   = cfEmbeddings.get(l).size();
+                runningCfSum[l] = initUOrth[l] * cfEmbCount[l];  // un-normalize
+            }
+            move.runningCfSum = runningCfSum;
+            move.cfEmbCount   = cfEmbCount;
+        }
+
         // ── Step 7: AVERAGING LOOP ────────────────────────────────────────────
         // Same move cycle as equilibration (Steps 4–6 each sweep), but now
         // Sampler records ⟨E⟩, ⟨Hmix⟩, ⟨CF⟩ every sweep for post-processing.
         for (int s = 0; s < nAvg; s++) {
             if (cancellationCheck.getAsBoolean())
                 throw new CancellationException("Cancelled during averaging (sweep " + (nEquil + s) + ")");
-            
+
             double sweepDeltaE;
             if (parallelEnabled) {
                 sweepDeltaE = move.runParallelSweep(config, true);
@@ -187,9 +205,10 @@ public class MetropolisMC {
                 }
             }
             currentEnergy += sweepDeltaE;
-            sampler.sample(config, null /* emb not used */, currentEnergy, flatBasisMatrix, numComp);
+            sampler.sample(config, null, currentEnergy, flatBasisMatrix, numComp,
+                           runningCfSum, cfEmbCount);
 
-            // Periodic full-energy resync to suppress floating-point drift.
+            // Periodic full-energy and CF resync to suppress floating-point drift.
             if ((s + 1) % DRIFT_CHECK_SWEEPS == 0) {
                 double Hfull = Embeddings.totalEnergyCvcf(
                         config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
@@ -199,6 +218,13 @@ public class MetropolisMC {
                             "Energy drift at avg sweep %d: running=%.10f, full=%.10f, diff=%.3e",
                             nEquil + s + 1, currentEnergy, Hfull, drift));
                 currentEnergy = Hfull;
+                // Resync runningCfSum to suppress floating-point accumulation drift
+                if (runningCfSum != null) {
+                    double[] freshUOrth = Embeddings.measureCVsFromConfig(
+                            config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
+                    for (int l = 0; l < ncf; l++)
+                        runningCfSum[l] = freshUOrth[l] * cfEmbCount[l];
+                }
             }
             if ((nEquil + s + 1) % 100 == 0 || s + 1 == nAvg)
                 emitUpdate(nEquil + s + 1, currentEnergy, sweepDeltaE, MCSUpdate.Phase.AVERAGING,
@@ -238,6 +264,11 @@ public class MetropolisMC {
         private final int maxEmbPerCol;
         // Per-thread scratch for parallel path — avoids per-sweep BlockWorker allocation
         private final ThreadLocal<Embeddings.DeltaScratch> perThreadScratch;
+
+        // Incremental CF sums: runningCfSum[l] = Σ_e prod(e) for CF column l (unnormalized)
+        // Updated per accepted move; used by Sampler instead of full measureCVsFromConfig each sweep.
+        double[] runningCfSum;   // set externally by MetropolisMC.run() before averaging
+        int[]    cfEmbCount;     // cfEmbCount[l] = number of embeddings in CF column l (constant)
 
         // Block-based species cache for parallel-safe canonical moves
         private int[][][] blockSpeciesSites;  // [blockIdx][species][idx] = siteIndex
@@ -349,20 +380,28 @@ public class MetropolisMC {
                 int i = blockSpeciesSites[bIdx][c1][localRng.nextInt(blockSpeciesSizes[bIdx][c1])];
                 int j = blockSpeciesSites[bIdx][c2][localRng.nextInt(blockSpeciesSizes[bIdx][c2])];
 
+                Embeddings.DeltaScratch s = perThreadScratch.get();
                 double dE = Embeddings.deltaEExchangeCvcf(
                         i, j, config, flatEmbData, flatBasisMatrix, siteToCfIndex,
-                        ncf, eciCvcf, basis, perThreadScratch.get(), maxEmbPerCol, eciOrth, numComp);
+                        ncf, eciCvcf, basis, s, maxEmbPerCol, eciOrth, numComp);
 
-                if (dE <= 0.0 || localRng.nextDouble() < Math.exp(-beta * dE)) {
-                    synchronized (config) { // Minimal sync only for occupation swap and cache update
+                boolean accepted_move = (dE <= 0.0 || localRng.nextDouble() < Math.exp(-beta * dE));
+                if (accepted_move) {
+                    synchronized (config) { // Minimal sync: occupation swap + CF update + cache
                         updateCacheForFlipBlock(i, j, c1, c2, bIdx);
                         config.setOccupation(i, c2);
                         config.setOccupation(j, c1);
+                        if (runningCfSum != null) {
+                            for (int a = 0; a < s.affectedColCount; a++) {
+                                int l = s.affectedCols[a];
+                                runningCfSum[l] += s.newSumDelta[l] - s.oldSumDelta[l];
+                            }
+                        }
                         accepted++;
                     }
-                    return dE;
                 }
-                return 0.0;
+                s.cleanup(maxEmbPerCol);
+                return accepted_move ? dE : 0.0;
             }
         }
 
@@ -384,14 +423,22 @@ public class MetropolisMC {
                     i, j, config, flatEmbData, flatBasisMatrix, siteToCfIndex,
                     ncf, eciCvcf, basis, scratch, maxEmbPerCol, eciOrth, numComp);
 
-            if (dE <= 0.0 || rng.nextDouble() < Math.exp(-beta * dE)) {
+            boolean accepted_move = (dE <= 0.0 || rng.nextDouble() < Math.exp(-beta * dE));
+            if (accepted_move) {
                 updateCacheForFlipBlock(i, j, c1, c2, bIdx);
                 config.setOccupation(i, c2);
                 config.setOccupation(j, c1);
+                // Incremental CF sum update
+                if (runningCfSum != null) {
+                    for (int a = 0; a < scratch.affectedColCount; a++) {
+                        int l = scratch.affectedCols[a];
+                        runningCfSum[l] += scratch.newSumDelta[l] - scratch.oldSumDelta[l];
+                    }
+                }
                 accepted++;
-                return dE;
             }
-            return 0.0;
+            scratch.cleanup(maxEmbPerCol);
+            return accepted_move ? dE : 0.0;
         }
 
         double acceptRate()    { return attempts == 0 ? 0.0 : (double) accepted / attempts; }
@@ -526,8 +573,11 @@ public class MetropolisMC {
         /**
          * Records one sweep's worth of observables from the current configuration.
          * Called once per averaging sweep by MetropolisMC after N trial moves.
+         * When runningCfSum/cfEmbCount are provided, uses incremental CFs instead of
+         * a full O(totalEmbeddings) measurement scan.
          */
-        void sample(LatticeConfig config, Embeddings emb, double currentEnergy, double[] flatBasisMatrix, int numComp) {
+        void sample(LatticeConfig config, Embeddings emb, double currentEnergy, double[] flatBasisMatrix, int numComp,
+                    double[] runningCfSum, int[] cfEmbCount) {
             if (cfEmbeddings == null || basis == null) {
                 if (!hmixWarnedOnce) {
                     SLOG.warning("CVCF measurement unavailable: cfEmbeddings or basis is null.");
@@ -540,8 +590,15 @@ public class MetropolisMC {
 
             int ncf = basis.numNonPointCfs;
 
-            // Measure orthogonal correlation functions from current config
-            double[] uOrth = Embeddings.measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
+            // Use incremental CF sums if available; otherwise full measurement scan
+            double[] uOrth;
+            if (runningCfSum != null && cfEmbCount != null) {
+                uOrth = new double[ncf];
+                for (int l = 0; l < ncf; l++)
+                    uOrth[l] = (cfEmbCount[l] > 0) ? runningCfSum[l] / cfEmbCount[l] : 0.0;
+            } else {
+                uOrth = Embeddings.measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
+            }
 
             // Transform to CVCF basis: v = Tinv · u_orth
             if (basis.Tinv == null && !hmixWarnedOnce) {

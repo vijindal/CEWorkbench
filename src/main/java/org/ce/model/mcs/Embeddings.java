@@ -689,6 +689,27 @@ public class Embeddings {
             affectedCount = 0;
         }
 
+        /**
+         * Clears scratch after a move. Call once after deltaEExchangeCvcf (flat overload)
+         * and after the caller has consumed oldSumDelta/newSumDelta for incremental CF updates.
+         */
+        void cleanup(int maxEmbPerCol) {
+            int ac = affectedCount;
+            int cc = affectedColCount;
+            for (int a = 0; a < ac; a++)
+                seen[affectedL[a] * maxEmbPerCol + affectedEI[a]] = false;
+            for (int a = 0; a < cc; a++) {
+                int l = affectedCols[a];
+                seenCol[l]     = false;
+                oldSumDelta[l] = 0.0;
+                newSumDelta[l] = 0.0;
+                deltaUOrth[l]  = 0.0;
+                deltaVCvcf[l]  = 0.0;
+            }
+            affectedCount    = 0;
+            affectedColCount = 0;
+        }
+
         /** Computes a unique key for (cfColumn, embeddingIndex) — used as index into seen[]. */
         static int pairKey(int cfCol, int embIdx, int maxEmbPerCol) {
             return cfCol * maxEmbPerCol + embIdx;
@@ -983,20 +1004,9 @@ public class Embeddings {
         }
         dE *= N;
 
-        // Clean up
-        for (int a = 0; a < ac; a++) {
-            scratch.seen[scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a]] = false;
-        }
-        for (int a = 0; a < cc; a++) {
-            int l = scratch.affectedCols[a];
-            scratch.seenCol[l]     = false;
-            scratch.oldSumDelta[l] = 0.0;
-            scratch.newSumDelta[l] = 0.0;
-            scratch.deltaUOrth[l]  = 0.0;
-            scratch.deltaVCvcf[l]  = 0.0;
-        }
-        scratch.affectedColCount = 0;
-
+        // NOTE: scratch is intentionally left populated here.
+        // Caller reads oldSumDelta/newSumDelta for incremental CF update on acceptance,
+        // then calls scratch.cleanup(maxEmbPerCol) to reset for the next move.
         return dE;
     }
 
