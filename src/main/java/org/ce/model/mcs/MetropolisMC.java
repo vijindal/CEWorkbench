@@ -233,9 +233,11 @@ public class MetropolisMC {
         private final int            numComp;
         private final Random         rng;
 
-        // Pre-allocated scratch for zero-allocation ΔE computation
+        // Pre-allocated scratch for zero-allocation ΔE computation (serial path)
         private final Embeddings.DeltaScratch scratch;
         private final int maxEmbPerCol;
+        // Per-thread scratch for parallel path — avoids per-sweep BlockWorker allocation
+        private final ThreadLocal<Embeddings.DeltaScratch> perThreadScratch;
 
         // Block-based species cache for parallel-safe canonical moves
         private int[][][] blockSpeciesSites;  // [blockIdx][species][idx] = siteIndex
@@ -281,6 +283,10 @@ public class MetropolisMC {
             // Primary scratch for serial phases
             int seenSize = (cfEmbeddings != null) ? cfEmbeddings.size() * maxEmbPerCol : 0;
             this.scratch = (cfEmbeddings != null) ? new Embeddings.DeltaScratch(ncf, seenSize) : null;
+            // Per-thread scratch for parallel phases — one instance per ForkJoin worker, reused across sweeps
+            final int seenSizeFinal = seenSize;
+            this.perThreadScratch = ThreadLocal.withInitial(
+                    () -> new Embeddings.DeltaScratch(ncf, seenSizeFinal));
         }
 
         /**
@@ -316,13 +322,11 @@ public class MetropolisMC {
         private final class BlockWorker {
             private final int bIdx;
             private final int numMoves;
-            private final Embeddings.DeltaScratch localScratch;
             private final ThreadLocalRandom localRng;
 
             BlockWorker(int bIdx, int numMoves) {
                 this.bIdx = bIdx;
                 this.numMoves = numMoves;
-                this.localScratch = new Embeddings.DeltaScratch(ncf, cfEmbeddings.size() * maxEmbPerCol);
                 this.localRng = ThreadLocalRandom.current();
             }
 
@@ -346,7 +350,7 @@ public class MetropolisMC {
 
                 double dE = Embeddings.deltaEExchangeCvcf(
                         i, j, config, cfEmbeddings, flatBasisMatrix, siteToCfIndex,
-                        ncf, eciCvcf, basis, localScratch, maxEmbPerCol, eciOrth, numComp);
+                        ncf, eciCvcf, basis, perThreadScratch.get(), maxEmbPerCol, eciOrth, numComp);
 
                 if (dE <= 0.0 || localRng.nextDouble() < Math.exp(-beta * dE)) {
                     synchronized (config) { // Minimal sync only for occupation swap and cache update
