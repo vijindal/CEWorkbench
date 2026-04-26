@@ -12,23 +12,27 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
- * Canonical-ensemble Metropolis Monte Carlo algorithm for alloy simulations.
+ * Canonical-ensemble Metropolis Monte Carlo engine.
  *
- * <p>This class implements the standard MC algorithm. The seven steps are explicit:
+ * <p>Implements the seven-step MC algorithm and owns the sweep loops.
+ * See {@link MCSRunner} for the authoritative pipeline diagram.
  *
+ * <p>Inner class layout (in pipeline order):
  * <pre>
- *  Step 1 — INITIALIZATION    : MCSRunner builds lattice + config, calls run()
- *  Step 2 — HAMILTONIAN       : Embeddings evaluates E(σ) via cluster expansion
- *  Step 3 — EQUILIBRATION     : sweep loop, moves accepted/rejected, no sampling
- *  Step 4 — TRIAL MOVE        : ExchangeStep selects site pair (canonical swap)
- *  Step 5 — COMPUTE ΔE        : Embeddings.deltaEExchange (local, O(neighbors))
- *  Step 6 — METROPOLIS ACCEPT : ExchangeStep.accept — min(1, exp(−ΔE/kT))
- *  Step 7 — AVERAGING + RESULT: Sampler accumulates ⟨E⟩, ⟨Hmix⟩, ⟨CF⟩, Cv series
+ *  Fields + constructor       Step 1 state (algorithm parameters, ECI arrays, RNG)
+ *  run()                      Steps 2–7  main entry point; calls ExchangeStep + Sampler
+ *  ExchangeStep               Steps 4–6  trial move, ΔE, Metropolis accept/reject
+ *    └─ BlockWorker           Step 4     parallel block execution (checkerboard)
+ *  Sampler                    Step 7     sweep-level observable accumulation
+ *  MCResult                             immutable output DTO
+ *  MCSUpdate                            real-time progress event
+ *  RollingWindow                        ΔE statistics (rolling mean/σ)
  * </pre>
  */
 public class MetropolisMC {
@@ -109,7 +113,7 @@ public class MetropolisMC {
     }
 
     // =========================================================================
-    // Main algorithm entry point
+    // Steps 2–7: Main run() loop — initial energy, equilibration, averaging
     // =========================================================================
 
     public MCResult run(LatticeConfig config, Sampler sampler) {
@@ -236,7 +240,7 @@ public class MetropolisMC {
     }
 
     // =========================================================================
-    // Step 4 + 6: TRIAL MOVE + METROPOLIS ACCEPT/REJECT
+    // Steps 4–6: ExchangeStep — trial move, ΔE, Metropolis accept/reject
     // =========================================================================
 
     /**
@@ -279,8 +283,8 @@ public class MetropolisMC {
         private final LatticeDecomposer.DecomposedLattice decomposedLattice;
         private boolean cacheInitialized = false;
 
-        private long attempts = 0;
-        private long accepted = 0;
+        private final AtomicLong attempts = new AtomicLong();
+        private final AtomicLong accepted = new AtomicLong();
 
         ExchangeStep(List<List<Embeddings.Embedding>> cfEmbeddings,
                      double[] flatBasisMatrix, Embeddings.CsrSiteToCfIndex siteToCfIndex,
@@ -371,7 +375,7 @@ public class MetropolisMC {
             }
 
             private double attemptBlock(LatticeConfig config) {
-                attempts++; // note: simple increment might lose counts in parallel, but acceptable for rate estimation
+                attempts.incrementAndGet();
                 
                 int c1 = randomNonEmptySpeciesBlock(bIdx, -1, localRng);
                 int c2 = randomNonEmptySpeciesBlock(bIdx, c1, localRng);
@@ -397,7 +401,7 @@ public class MetropolisMC {
                                 runningCfSum[l] += s.newSumDelta[l] - s.oldSumDelta[l];
                             }
                         }
-                        accepted++;
+                        accepted.incrementAndGet();
                     }
                 }
                 s.cleanup(maxEmbPerCol);
@@ -410,7 +414,7 @@ public class MetropolisMC {
             // If numBlocks > 1, we should ideally pick a random block to maintain ergodicity.
             int bIdx = (numBlocks > 1) ? rng.nextInt(numBlocks) : 0;
             rebuildCacheIfNeeded(config);
-            attempts++;
+            attempts.incrementAndGet();
 
             int c1 = randomNonEmptySpeciesBlock(bIdx, -1, rng);
             int c2 = randomNonEmptySpeciesBlock(bIdx, c1, rng);
@@ -435,14 +439,14 @@ public class MetropolisMC {
                         runningCfSum[l] += scratch.newSumDelta[l] - scratch.oldSumDelta[l];
                     }
                 }
-                accepted++;
+                accepted.incrementAndGet();
             }
             scratch.cleanup(maxEmbPerCol);
             return accepted_move ? dE : 0.0;
         }
 
-        double acceptRate()    { return attempts == 0 ? 0.0 : (double) accepted / attempts; }
-        void   resetCounters() { attempts = 0; accepted = 0; }
+        double acceptRate()    { long a = attempts.get(); return a == 0 ? 0.0 : (double) accepted.get() / a; }
+        void   resetCounters() { attempts.set(0); accepted.set(0); }
 
         private int randomNonEmptySpeciesBlock(int bIdx, int exclude, Random r) {
             int count = 0;
@@ -687,7 +691,7 @@ public class MetropolisMC {
     }
 
     // =========================================================================
-    // Infrastructure: update events, result builder, rolling statistics
+    // Result & Event Types + Infrastructure: MCResult, MCSUpdate, RollingWindow
     // =========================================================================
 
     /** Real-time update event emitted periodically during equilibration and averaging. */

@@ -45,8 +45,8 @@ public final class MCSGeometry {
         this.L = L;
         this.numComp = session.numComponents();
 
-        // ── Stage 1a: Cluster & CF Identification ─────────────────────────────
-        emit(progressSink, "  [Session] Stage 1a: Cluster identification...");
+        // ── Step 1a: Cluster & CF Identification ──────────────────────────────
+        emit(progressSink, "  [Session] Step 1a: Cluster identification...");
 
         String structure = session.systemId.structure();
         String model = session.systemId.model();
@@ -90,8 +90,8 @@ public final class MCSGeometry {
                 numComp,
                 progressSink);
 
-        // ── Stage 1d: Basis Transformation ────────────────────────────────────
-        emit(progressSink, "\n  [Session] Stage 1d: Basis transformation...");
+        // ── Step 1b: Basis Transformation ─────────────────────────────────────
+        emit(progressSink, "\n  [Session] Step 1b: Basis transformation...");
         String parentStructure = ClusterCFIdentificationPipeline.resolveParentStructure(structure);
         CvCfBasis basisRef = CvCfBasis.generate(parentStructure, pr, matrixData, model, progressSink);
 
@@ -100,7 +100,7 @@ public final class MCSGeometry {
 
         int tc = clusterData.getTc();
 
-        // Build lattice geometry and embeddings
+        // ── Step 1c: Lattice & Embedding Generation ────────────────────────────
         this.positions = buildBCCPositions(L);
         this.emb = Embeddings.generate(positions, clusterData, L);
 

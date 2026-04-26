@@ -16,10 +16,54 @@ import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
- * Persistent MCS model for a fixed (system, temperature) point.
+ * Entry point for canonical-ensemble Metropolis Monte Carlo thermodynamic calculations.
  *
- * <p>Now split into {@link MCSGeometry} (lattice data) and {@link MCSRunner} (ECIs at T).
- * This allows reusing the expensive geometry across different temperature points.</p>
+ * <p>Holds pre-computed ECIs and temperature for one (geometry, T) point.
+ * Geometry is provided by {@link MCSGeometry} and can be reused across temperature points.
+ *
+ * <h2>Pipeline</h2>
+ * <pre>
+ *  Step 1  INITIALIZATION      MCSGeometry.build()             — BCC lattice, cluster embeddings,
+ *                                                                 CVCF basis (temperature-independent)
+ *          TEMPERATURE SETUP   MCSRunner.forTemperature()      — ECI evaluation, eciOrth pre-compute,
+ *                                                                 CSR site-to-CF index
+ *          CONFIG INIT         MCSRunner.run()                 — random occupation, LatticeConfig
+ *
+ *  Step 2  INITIAL ENERGY      Embeddings.totalEnergyCvcf()    — E(σ₀) = N × Σ eciCvcf[l] × vCvcf[l]
+ *
+ *  Step 3  EQUILIBRATION       MetropolisMC.run() equil loop   — nEquil sweeps × N moves, no sampling
+ *
+ *  Step 4  TRIAL MOVE          ExchangeStep.attempt()          — select site pair (i,j) with σᵢ ≠ σⱼ
+ *                              ExchangeStep.runParallelSweep() — checkerboard parallel variant
+ *
+ *  Step 5  COMPUTE ΔE          Embeddings.deltaEExchangeCvcf() — local O(neighbors), zero-allocation
+ *                                                                 via FlatEmbData + DeltaScratch
+ *
+ *  Step 6  METROPOLIS ACCEPT   ExchangeStep (inline)           — min(1, exp(−ΔE / R·T))
+ *                                                                 incremental CF sum update on accept
+ *
+ *  Step 7  AVERAGING           MetropolisMC.run() avg loop     — nAvg sweeps × N moves
+ *          MEASUREMENT         Sampler.sample()                — ⟨E⟩, ⟨Hmix⟩, ⟨CF⟩ per sweep
+ *                                                                 via incremental runningCfSum
+ *
+ *  Result  MCResult                                            — immutable DTO with all averages
+ * </pre>
+ *
+ * <h2>Key Data Flow</h2>
+ * <pre>
+ *  MCSGeometry  ──►  MCSRunner  ──►  MetropolisMC.run()
+ *  (geometry)        (ECIs, T)        │
+ *                                     ├─ ExchangeStep  ──►  Embeddings.deltaEExchangeCvcf()
+ *                                     │                      (FlatEmbData, DeltaScratch)
+ *                                     └─ Sampler       ──►  Embeddings.applyTinvTransform()
+ *                                                            (runningCfSum → uOrth → vCvcf)
+ * </pre>
+ *
+ * <h2>Parallelism</h2>
+ * <p>For L ≥ 4, the supercell is partitioned into a 2×2×2 (or 4×4×4 for L ≥ 12)
+ * checkerboard by {@link LatticeDecomposer}. Same-color blocks are updated in parallel
+ * via {@code parallelStream()}. Each block uses a {@code ThreadLocal<DeltaScratch>}
+ * and {@code ThreadLocalRandom} for zero-contention hot paths.
  */
 public class MCSRunner {
 
@@ -45,18 +89,18 @@ public class MCSRunner {
     }
 
     /**
-     * Factory method to build a runner for a specific temperature using an existing geometry.
+     * Step 1 (TEMPERATURE SETUP) — builds a runner for a specific temperature using an existing geometry.
+     * Evaluates the Hamiltonian ECIs at T and pre-computes the eciOrth fast-path vector.
      */
     public static MCSRunner forTemperature(MCSGeometry geo, ModelSession session, double T, Consumer<String> progressSink) {
-        // Evaluate Hamiltonian at T — ECI in CVCF basis
+        // Step 1: ECI evaluation — Hamiltonian at T in CVCF basis
         double[] eciCvcf = CECEvaluator.evaluate(session.cecEntry, T, geo.basis, "MCS", progressSink);
 
-        // Build site-to-cfEmbedding index for efficient ΔE computation
+        // Step 1: CSR site-to-CF index for O(neighbors) ΔE computation
         Embeddings.CsrSiteToCfIndex siteToCfIndex = Embeddings.buildSiteToCfIndex(geo.cfEmbeddings, geo.nSites());
 
-        // Pre-compute eciOrth: eciOrth[m] = Σ_l eci[l] × Tinv[l][m]
-        // This collapses the Tinv matrix-vector multiply + ECI dot product
-        // into a single dot product in the hot loop.
+        // Step 1: eciOrth[m] = Σ_l eciCvcf[l] × Tinv[l][m] — collapses matrix multiply + ECI dot
+        // product into a single dot product in the hot loop (Steps 5–6).
         double[] eciOrth = computeEciOrth(eciCvcf, geo.basis);
 
         // ── MCS-DBG: ECI vectors after Hamiltonian evaluation ──
@@ -110,6 +154,10 @@ public class MCSRunner {
         }
     }
 
+    /**
+     * Steps 1–7 (CONFIG INIT → RESULT) — runs the full MC simulation at fixed (T, xFrac).
+     * Delegates Steps 2–7 to {@link MetropolisMC#run}.
+     */
     public MCSRunResult run(
             double[] xFrac,
             int nEquil,
