@@ -562,6 +562,82 @@ public class Embeddings {
         return E;
     }
 
+    // ── Flat embedding arrays for cache-friendly cluster product evaluation ─────
+
+    /**
+     * Fully flattened representation of cfEmbeddings (List-of-Lists-of-Embedding).
+     * Eliminates all object pointer indirections in the deltaEExchangeCvcf hot path.
+     *
+     * Layout:
+     *   cfOffsets[l]..cfOffsets[l+1]  → embedding indices for CF column l
+     *   embSiteStart[e]..embSiteStart[e+1] → site/alpha indices for embedding e
+     *   siteData[k], alphaData[k] → site index and alpha for the k-th site of embedding e
+     */
+    public static final class FlatEmbData {
+        public final int   ncf;
+        public final int[] cfOffsets;      // length ncf+1
+        public final int[] embSiteStart;   // length totalEmb+1 (CSR offsets into siteData/alphaData)
+        public final int[] siteData;       // flat site indices
+        public final int[] alphaData;      // flat alpha indices
+        public final int[] cfEmbCount;     // length ncf; cfOffsets[l+1]-cfOffsets[l]
+
+        private FlatEmbData(int ncf, int[] cfOffsets, int[] embSiteStart,
+                            int[] siteData, int[] alphaData, int[] cfEmbCount) {
+            this.ncf          = ncf;
+            this.cfOffsets    = cfOffsets;
+            this.embSiteStart = embSiteStart;
+            this.siteData     = siteData;
+            this.alphaData    = alphaData;
+            this.cfEmbCount   = cfEmbCount;
+        }
+
+        public static FlatEmbData build(List<List<Embedding>> cfEmbeddings) {
+            int ncf = cfEmbeddings.size();
+            int[] cfOffsets  = new int[ncf + 1];
+            int[] cfEmbCount = new int[ncf];
+
+            // First pass: count total embeddings and sites
+            int totalEmb   = 0;
+            int totalSites = 0;
+            for (int l = 0; l < ncf; l++) {
+                List<Embedding> embs = cfEmbeddings.get(l);
+                int ne = (embs != null) ? embs.size() : 0;
+                cfOffsets[l]    = totalEmb;
+                cfEmbCount[l]   = ne;
+                totalEmb       += ne;
+                if (embs != null)
+                    for (Embedding e : embs) totalSites += e.getSiteIndices().length;
+            }
+            cfOffsets[ncf] = totalEmb;
+
+            int[] embSiteStart = new int[totalEmb + 1];
+            int[] siteData     = new int[totalSites];
+            int[] alphaData    = new int[totalSites];
+
+            // Second pass: populate flat arrays
+            int embIdx  = 0;
+            int siteIdx = 0;
+            for (int l = 0; l < ncf; l++) {
+                List<Embedding> embs = cfEmbeddings.get(l);
+                if (embs == null) continue;
+                for (Embedding e : embs) {
+                    int[] sites  = e.getSiteIndices();
+                    int[] alphas = e.getAlphaIndices();
+                    embSiteStart[embIdx] = siteIdx;
+                    for (int k = 0; k < sites.length; k++) {
+                        siteData[siteIdx]  = sites[k];
+                        alphaData[siteIdx] = alphas[k];
+                        siteIdx++;
+                    }
+                    embIdx++;
+                }
+            }
+            embSiteStart[totalEmb] = siteIdx;
+
+            return new FlatEmbData(ncf, cfOffsets, embSiteStart, siteData, alphaData, cfEmbCount);
+        }
+    }
+
     // ── Pre-allocated scratch buffers for zero-allocation ΔE computation ─────
 
     /**
@@ -781,6 +857,143 @@ public class Embeddings {
             scratch.newSumDelta[l]  = 0.0;
             scratch.deltaUOrth[l]   = 0.0;
             scratch.deltaVCvcf[l]   = 0.0;
+        }
+        scratch.affectedColCount = 0;
+
+        return dE;
+    }
+
+    /**
+     * Flat-array overload of {@link #deltaEExchangeCvcf} — eliminates all object
+     * pointer indirections in the inner cluster-product loop.
+     * Uses FlatEmbData instead of List-of-Lists-of-Embedding.
+     */
+    public static double deltaEExchangeCvcf(
+            int i, int j,
+            LatticeConfig config,
+            FlatEmbData flat, double[] flatBasisMatrix,
+            CsrSiteToCfIndex siteToCfIndex,
+            int ncf, double[] eciCvcf, CvCfBasis basis,
+            DeltaScratch scratch, int maxEmbPerCol, double[] eciOrth, int numComp) {
+
+        int[] occ = config.getRawOcc();
+        int occI = occ[i];
+        int occJ = occ[j];
+        if (occI == occJ) return 0.0;
+
+        int N = config.getN();
+
+        // Collect affected (cfCol, embIdx) pairs for sites i and j
+        int ac = 0;
+        int startI = siteToCfIndex.offsets[i], endI = siteToCfIndex.offsets[i + 1];
+        for (int idx = startI; idx < endI; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
+            if (!scratch.seen[key]) {
+                scratch.seen[key] = true;
+                scratch.affectedL[ac]  = l;
+                scratch.affectedEI[ac] = ei;
+                ac++;
+            }
+        }
+        int startJ = siteToCfIndex.offsets[j], endJ = siteToCfIndex.offsets[j + 1];
+        for (int idx = startJ; idx < endJ; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
+            if (!scratch.seen[key]) {
+                scratch.seen[key] = true;
+                scratch.affectedL[ac]  = l;
+                scratch.affectedEI[ac] = ei;
+                ac++;
+            }
+        }
+        scratch.affectedCount = ac;
+
+        // Compute old products — flat array access, zero object dereferences
+        for (int a = 0; a < ac; a++) {
+            int l   = scratch.affectedL[a];
+            int ei  = scratch.affectedEI[a];
+            int flatEmbIdx = flat.cfOffsets[l] + ei;
+            int sStart = flat.embSiteStart[flatEmbIdx];
+            int sEnd   = flat.embSiteStart[flatEmbIdx + 1];
+            double prod = 1.0;
+            for (int k = sStart; k < sEnd; k++)
+                prod *= flatBasisMatrix[occ[flat.siteData[k]] * numComp + flat.alphaData[k]];
+            scratch.oldSumDelta[l] += prod;
+        }
+
+        // Temporarily swap
+        occ[i] = occJ;
+        occ[j] = occI;
+
+        // Compute new products
+        for (int a = 0; a < ac; a++) {
+            int l   = scratch.affectedL[a];
+            int ei  = scratch.affectedEI[a];
+            int flatEmbIdx = flat.cfOffsets[l] + ei;
+            int sStart = flat.embSiteStart[flatEmbIdx];
+            int sEnd   = flat.embSiteStart[flatEmbIdx + 1];
+            double prod = 1.0;
+            for (int k = sStart; k < sEnd; k++)
+                prod *= flatBasisMatrix[occ[flat.siteData[k]] * numComp + flat.alphaData[k]];
+            scratch.newSumDelta[l] += prod;
+        }
+
+        // Undo swap
+        occ[i] = occI;
+        occ[j] = occJ;
+
+        // ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
+        int cc = 0;
+        for (int a = 0; a < ac; a++) {
+            int l = scratch.affectedL[a];
+            if (!scratch.seenCol[l]) {
+                scratch.seenCol[l] = true;
+                scratch.affectedCols[cc++] = l;
+                double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
+                if (diff != 0.0)
+                    scratch.deltaUOrth[l] = diff / flat.cfEmbCount[l];
+            }
+        }
+        scratch.affectedColCount = cc;
+
+        // Compute ΔE
+        double dE = 0.0;
+        if (eciOrth != null) {
+            for (int a = 0; a < cc; a++) {
+                int m = scratch.affectedCols[a];
+                dE += scratch.deltaUOrth[m] * eciOrth[m];
+            }
+        } else if (basis != null && basis.Tinv != null) {
+            double[][] Tinv = basis.Tinv;
+            int tCols = Tinv[0].length;
+            for (int l = 0; l < ncf && l < Tinv.length; l++) {
+                double sum = 0.0;
+                for (int m = 0; m < ncf && m < tCols; m++)
+                    sum += Tinv[l][m] * scratch.deltaUOrth[m];
+                scratch.deltaVCvcf[l] = sum;
+            }
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaVCvcf[l];
+        } else {
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaUOrth[l];
+        }
+        dE *= N;
+
+        // Clean up
+        for (int a = 0; a < ac; a++) {
+            scratch.seen[scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a]] = false;
+        }
+        for (int a = 0; a < cc; a++) {
+            int l = scratch.affectedCols[a];
+            scratch.seenCol[l]     = false;
+            scratch.oldSumDelta[l] = 0.0;
+            scratch.newSumDelta[l] = 0.0;
+            scratch.deltaUOrth[l]  = 0.0;
+            scratch.deltaVCvcf[l]  = 0.0;
         }
         scratch.affectedColCount = 0;
 

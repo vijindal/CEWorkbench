@@ -222,7 +222,7 @@ public class MetropolisMC {
      */
     static class ExchangeStep {
 
-        private final List<List<Embeddings.Embedding>> cfEmbeddings;
+        private final Embeddings.FlatEmbData         flatEmbData;  // cache-friendly flat embedding arrays
         private final double[]       flatBasisMatrix;
         private final Embeddings.CsrSiteToCfIndex siteToCfIndex;
         private final int            ncf;
@@ -258,7 +258,6 @@ public class MetropolisMC {
                      LatticeDecomposer.DecomposedLattice decomposedLattice) {
             if (T <= 0) throw new IllegalArgumentException("T must be > 0");
             if (R <= 0) throw new IllegalArgumentException("R must be > 0");
-            this.cfEmbeddings  = cfEmbeddings;
             this.flatBasisMatrix = flatBasisMatrix;
             this.siteToCfIndex = siteToCfIndex;
             this.ncf           = ncf;
@@ -280,6 +279,8 @@ public class MetropolisMC {
                 this.decomposedLattice = null;
             }
 
+            // Flat embedding arrays — eliminates object pointer indirections in hot product loop
+            this.flatEmbData = (cfEmbeddings != null) ? Embeddings.FlatEmbData.build(cfEmbeddings) : null;
             // Primary scratch for serial phases
             int seenSize = (cfEmbeddings != null) ? cfEmbeddings.size() * maxEmbPerCol : 0;
             this.scratch = (cfEmbeddings != null) ? new Embeddings.DeltaScratch(ncf, seenSize) : null;
@@ -349,7 +350,7 @@ public class MetropolisMC {
                 int j = blockSpeciesSites[bIdx][c2][localRng.nextInt(blockSpeciesSizes[bIdx][c2])];
 
                 double dE = Embeddings.deltaEExchangeCvcf(
-                        i, j, config, cfEmbeddings, flatBasisMatrix, siteToCfIndex,
+                        i, j, config, flatEmbData, flatBasisMatrix, siteToCfIndex,
                         ncf, eciCvcf, basis, perThreadScratch.get(), maxEmbPerCol, eciOrth, numComp);
 
                 if (dE <= 0.0 || localRng.nextDouble() < Math.exp(-beta * dE)) {
@@ -380,7 +381,7 @@ public class MetropolisMC {
             int j = blockSpeciesSites[bIdx][c2][rng.nextInt(blockSpeciesSizes[bIdx][c2])];
 
             double dE = Embeddings.deltaEExchangeCvcf(
-                    i, j, config, cfEmbeddings, flatBasisMatrix, siteToCfIndex,
+                    i, j, config, flatEmbData, flatBasisMatrix, siteToCfIndex,
                     ncf, eciCvcf, basis, scratch, maxEmbPerCol, eciOrth, numComp);
 
             if (dE <= 0.0 || rng.nextDouble() < Math.exp(-beta * dE)) {
