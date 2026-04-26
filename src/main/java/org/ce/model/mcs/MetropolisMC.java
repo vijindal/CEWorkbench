@@ -482,6 +482,7 @@ public class MetropolisMC {
         private final CvCfBasis   basis;
         private final List<List<Embeddings.Embedding>> cfEmbeddings;
         private final double[][]  basisMatrix;
+        private double[]          fixedComposition; // set once before averaging; canonical MC keeps composition constant
         private boolean           hmixWarnedOnce = false;
 
         // Accumulators for ⟨Hmix⟩ and ⟨Hmix²⟩
@@ -542,7 +543,8 @@ public class MetropolisMC {
                 SLOG.warning("CvCf Tinv unavailable — reporting orthogonal CFs as CVCF approximation.");
                 hmixWarnedOnce = true;
             }
-            double[] v = Embeddings.applyTinvTransform(uOrth, config.composition(), basis);
+            double[] comp = (fixedComposition != null) ? fixedComposition : config.composition();
+            double[] v = Embeddings.applyTinvTransform(uOrth, comp, basis);
 
             // Accumulate: Hmix/site = Σ_l eci[l] · v[l]
             double hmix_per_site = 0.0;
@@ -577,6 +579,9 @@ public class MetropolisMC {
                         (sumHmix / nSamples) / N, nSamples);
             }
         }
+
+        /** Cache the (invariant) composition so applyTinvTransform avoids O(N) recount each sweep. */
+        void setFixedComposition(double[] composition) { this.fixedComposition = composition.clone(); }
 
         long     getSampleCount()   { return nSamples; }
         double   meanHmixPerSite()  { return nSamples == 0 ? 0.0 : (sumHmix / nSamples) / N; }
