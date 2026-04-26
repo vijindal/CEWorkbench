@@ -3,6 +3,7 @@ package org.ce.ui.gui;
 import org.ce.calculation.CalculationDescriptor.ModelSpecifications;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ModelSession;
+import org.ce.model.mcs.McsSuggester;
 import org.ce.model.storage.Workspace.SystemId;
 import org.ce.calculation.CalculationDescriptor.*;
 import org.ce.calculation.QuantityDescriptor;
@@ -319,6 +320,11 @@ public class DynamicCalculationPanel extends JPanel {
                     if (n < elements.length - 1) gbc.gridy = row++;
                 }
                 i += 3;
+            } else if (p == Parameter.MCS_L && i + 2 < requirements.size() &&
+                       requirements.get(i+1) == Parameter.MCS_NEQUIL && requirements.get(i+2) == Parameter.MCS_NAVG) {
+
+                parameterForm.add(createMcsGroup(), gbc);
+                i += 3;
             } else {
                 JPanel pnl = new JPanel(new BorderLayout(0, 2));
                 pnl.setOpaque(false);
@@ -515,6 +521,60 @@ public class DynamicCalculationPanel extends JPanel {
         JSpinner spinner = (JSpinner) ParameterFieldFactory.createEditor(p, null);
         parameterFields.put(p, spinner);
         return createCustomMiniField(p.name.split(" ")[1], spinner);
+    }
+
+    private JPanel createMcsGroup() {
+        McsSuggester.Suggestion def = McsSuggester.defaultSuggestion();
+
+        JSpinner lSpinner     = (JSpinner) ParameterFieldFactory.createEditor(Parameter.MCS_L,      null);
+        JSpinner equilSpinner = (JSpinner) ParameterFieldFactory.createEditor(Parameter.MCS_NEQUIL, null);
+        JSpinner avgSpinner   = (JSpinner) ParameterFieldFactory.createEditor(Parameter.MCS_NAVG,   null);
+
+        lSpinner.setValue(def.L());
+        equilSpinner.setValue(def.nEquil());
+        avgSpinner.setValue(def.nAvg());
+
+        parameterFields.put(Parameter.MCS_L,      lSpinner);
+        parameterFields.put(Parameter.MCS_NEQUIL, equilSpinner);
+        parameterFields.put(Parameter.MCS_NAVG,   avgSpinner);
+
+        JLabel hintLabel = new JLabel(McsSuggester.hint(def.L()));
+        hintLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+        hintLabel.setForeground(new Color(0x888888));
+
+        // When L changes, update equil/avg suggestions
+        lSpinner.addChangeListener(e -> {
+            int L = (Integer) lSpinner.getValue();
+            McsSuggester.Suggestion s = McsSuggester.suggest(L);
+            equilSpinner.setValue(s.nEquil());
+            avgSpinner.setValue(s.nAvg());
+            hintLabel.setText(McsSuggester.hint(L));
+        });
+
+        JPanel outer = new JPanel(new GridBagLayout());
+        outer.setOpaque(false);
+        GridBagConstraints g = new GridBagConstraints();
+        g.fill    = GridBagConstraints.HORIZONTAL;
+        g.weightx = 1.0;
+        g.gridx   = 0;
+
+        g.gridy  = 0; g.insets = new Insets(0, 0, 2, 0);
+        outer.add(createLabel("MCS Parameters"), g);
+
+        // L / Equil / Avg in one row
+        JPanel row = new JPanel(new GridLayout(1, 3, 4, 0));
+        row.setOpaque(false);
+        row.add(createCustomMiniField("L",     lSpinner));
+        row.add(createCustomMiniField("Equil", equilSpinner));
+        row.add(createCustomMiniField("Avg",   avgSpinner));
+
+        g.gridy  = 1; g.insets = new Insets(0, 0, 3, 0);
+        outer.add(row, g);
+
+        g.gridy  = 2; g.insets = new Insets(0, 0, 0, 0);
+        outer.add(hintLabel, g);
+
+        return outer;
     }
 
     private JLabel createLabel(String text) {
