@@ -11,18 +11,43 @@ import java.util.*;
 import java.util.logging.Logger;
 
 /**
- * Unified Hamiltonian layer for MCS: holds all cluster embeddings for a supercell,
- * provides factory methods to generate them from cluster geometry, and supplies
- * static utilities for energy and observable computation.
+ * Unified Hamiltonian layer for MCS.
  *
- * <p>Combines what were previously three separate files:
- * EmbeddingData (product), EmbeddingGenerator (producer), LocalEnergyCalc (computations).</p>
+ * <p>Holds all cluster embeddings for a supercell and provides static utilities
+ * for every energy/observable computation step of the MC pipeline:
+ *
+ * <pre>
+ *  Section A — Inner data types       Embedding, CsrSiteToCfIndex, FlatEmbData,
+ *                                     DeltaScratch, Vector3DKey, ClusterTemplate
+ *
+ *  Section B — Instance container     allEmbeddings, siteToEmbeddings,
+ *                                     query methods, multiSiteEmbedCountsPerType
+ *
+ *  Section C — Step 1: Generation     generate(), generateCfEmbeddings()
+ *                                     + helpers: buildTemplates, alphaFromSymbol,
+ *                                       toVector3D, reduceMod, buildBasisValues
+ *
+ *  Section D — Step 2: Initial E(σ)   totalEnergyCvcf(), clusterProduct()
+ *
+ *  Section E — Step 5: ΔE (hot path)  deltaEExchangeCvcf(FlatEmbData)   ← primary
+ *                                     deltaEExchangeCvcf(List-based)     ← fallback
+ *
+ *  Section F — Step 7: Observables    measureCVsFromConfig(), applyTinvTransform()
+ *
+ *  Section G — Index builders         buildSiteToCfIndex(), FlatEmbData.build(),
+ *                                     maxEmbPerCfColumn(), totalCfEmbeddingCount()
+ *
+ *  Section H — Debug counters         resetDebugCounters() + static counter fields
+ * </pre>
  */
 public class Embeddings {
 
     private static final Logger LOG = Logger.getLogger(Embeddings.class.getName());
 
-    // ── MCS-DBG sampling counters (to avoid flooding) ──
+    // =========================================================================
+    // Section H — Debug counters (reset at start of each run)
+    // =========================================================================
+
     private static int     dbgClusterProdCalls    = 0;
     private static int     dbgMeasureCVCalls      = 0;
     private static int     dbgApplyTinvCalls      = 0;
@@ -36,6 +61,10 @@ public class Embeddings {
         dbgTotalEnergyTraced = false;
     }
 
+    // =========================================================================
+    // Section B — Instance container (holds pre-generated embedding lists)
+    // =========================================================================
+
     private final List<Embedding>   allEmbeddings;
     private final List<Embedding>[] siteToEmbeddings;
 
@@ -44,7 +73,7 @@ public class Embeddings {
         this.siteToEmbeddings = siteToEmbeddings;
     }
 
-    // ── Container query methods ───────────────────────────────────────────────
+    // ── Container queries ─────────────────────────────────────────────────────
 
     public List<Embedding>   getAllEmbeddings()    { return allEmbeddings; }
     public List<Embedding>[] getSiteToEmbeddings() { return siteToEmbeddings; }
@@ -60,7 +89,9 @@ public class Embeddings {
         return counts;
     }
 
-    // ── Factory: generate embeddings from cluster geometry ────────────────────
+    // =========================================================================
+    // Section C — Step 1: Generation  (called once per supercell build)
+    // =========================================================================
 
     /** Generates all cluster embeddings for a supercell from cluster geometry definitions. */
     public static Embeddings generate(
@@ -178,7 +209,10 @@ public class Embeddings {
         return cfEmbeddings;
     }
 
-    // ── Energy and observable computation (Hamiltonian layer) ─────────────────
+    // =========================================================================
+    // Section D — Step 2: Initial energy E(σ)
+    // Called once before equilibration: totalEnergyCvcf() + clusterProduct()
+    // =========================================================================
 
     public static double clusterProduct(Embedding e, LatticeConfig config) {
         double prod  = 1.0;
@@ -201,6 +235,12 @@ public class Embeddings {
 
         return prod;
     }
+
+    // =========================================================================
+    // Section F — Step 7: Observable measurement
+    // Called once per averaging sweep: measureCVsFromConfig() + applyTinvTransform()
+    // Also: buildBasisValues() used during initialization
+    // =========================================================================
 
     /** Builds the basis value lookup table [occ][alpha-1] for direct CF measurement. */
     public static double[][] buildBasisValues(int numComp) {
@@ -308,7 +348,11 @@ public class Embeddings {
         return vCvcf;
     }
 
-    // ── CVCF-basis energy computation (replaces orthogonal engine) ────────────
+    // =========================================================================
+    // Section G — Index builders  (called once during MCSRunner initialization)
+    // buildSiteToCfIndex(), FlatEmbData.build(), maxEmbPerCfColumn(),
+    // totalCfEmbeddingCount()
+    // =========================================================================
 
     public static final class CsrSiteToCfIndex {
         public final int[] offsets;  // length N+1
@@ -421,8 +465,6 @@ public class Embeddings {
         return E;
     }
 
-    // ── Flat embedding arrays for cache-friendly cluster product evaluation ─────
-
     /**
      * Fully flattened representation of cfEmbeddings (List-of-Lists-of-Embedding).
      * Eliminates all object pointer indirections in the deltaEExchangeCvcf hot path.
@@ -496,8 +538,6 @@ public class Embeddings {
             return new FlatEmbData(ncf, cfOffsets, embSiteStart, siteData, alphaData, cfEmbCount);
         }
     }
-
-    // ── Pre-allocated scratch buffers for zero-allocation ΔE computation ─────
 
     /**
      * Reusable scratch space for {@link #deltaEExchangeCvcf}.
@@ -595,6 +635,12 @@ public class Embeddings {
             if (embs != null) max = Math.max(max, embs.size());
         return max;
     }
+
+    // =========================================================================
+    // Section E — Step 5: ΔE computation (hot path, ~N×(nEquil+nAvg) calls)
+    // Primary: deltaEExchangeCvcf(FlatEmbData)  — zero object indirections
+    // Fallback: deltaEExchangeCvcf(List-based)  — used when flat data unavailable
+    // =========================================================================
 
     /**
      * Allocation-free version of {@link #deltaEExchangeCvcf} using pre-allocated scratch.
@@ -869,7 +915,7 @@ public class Embeddings {
         return dE;
     }
 
-    // ── Private generation helpers ────────────────────────────────────────────
+    // ── Section C helpers: generation internals ───────────────────────────────
 
     /** Parses alpha index from site symbol (e.g. "s1" → 1). */
     static int alphaFromSymbol(String symbol) {
@@ -925,7 +971,9 @@ public class Embeddings {
                 v.getZ() - L * Math.floor(v.getZ() / L));
     }
 
-    // ── Inner classes ─────────────────────────────────────────────────────────
+    // =========================================================================
+    // Section A — Inner data types (referenced by all sections above)
+    // =========================================================================
 
     /** A single embedding of an abstract cluster type onto specific lattice sites. */
     public static class Embedding {
