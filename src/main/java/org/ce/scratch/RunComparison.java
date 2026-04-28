@@ -16,67 +16,74 @@ public class RunComparison {
         java.util.logging.LogManager.getLogManager().reset();
         Workspace workspace = new Workspace();
         CEWorkbenchContext context = new CEWorkbenchContext(workspace);
-        
-        SystemId systemId = new SystemId("Nb-Ti", "BCC_A2", "T");
-        
-        // Suppress all verbose logs for clean timing
+
         Consumer<String> nullSink = s -> {};
-
-        ModelSession.Builder builder = new ModelSession.Builder(context.getHamiltonianStore());
-        ModelSession mcsSession = builder.build(systemId, EngineConfig.MCS, nullSink);
-        ModelSession cvmSession = builder.build(systemId, EngineConfig.CVM, nullSink);
-
         ThermodynamicWorkflow thermoWorkflow = new ThermodynamicWorkflow();
 
-        double temp = 1000.0;
-        double[][] compositions = {
-            {0.1, 0.9},
-            {0.3, 0.7},
-            {0.5, 0.5},
-            {0.7, 0.3},
-            {0.9, 0.1}
-        };
+        // ── 4-component: Nb-Ti-V-Zr at (0.25, 0.25, 0.25, 0.25), T=1000K ──
+        SystemId quatId = new SystemId("Nb-Ti-V-Zr", "BCC_A2", "T");
+        ModelSession.Builder builder = new ModelSession.Builder(context.getHamiltonianStore());
+        ModelSession mcsSess4 = builder.build(quatId, EngineConfig.MCS, nullSink);
+        ModelSession cvmSess4 = builder.build(quatId, EngineConfig.CVM, nullSink);
 
-        System.out.println("=== MCS PERFORMANCE BENCHMARK (Nb-Ti, T=1000K, L=6, equil=100, avg=500) ===");
-        System.out.printf(" %-12s | %-12s | %-12s | %-10s | %-12s | %-12s%n",
-                "Composition", "CVM H", "MCS H", "MCS Time", "ΔH", "Max ΔCF");
-        System.out.println("----------------------------------------------------------------------------------------");
+        double T = 1000.0;
+        double[] x4 = {0.25, 0.25, 0.25, 0.25};
 
-        long totalMcsTime = 0;
-        for (double[] x : compositions) {
-            // Run CVM
-            ThermodynamicWorkflow.Request reqCvm = new ThermodynamicWorkflow.Request(
-                    temp, x, Property.ENTHALPY, nullSink, null,
-                    0, 0, 0, null);
-            ThermodynamicResult rCvm = thermoWorkflow.runCalculation(cvmSession, reqCvm);
+        ThermodynamicResult rCvm4 = thermoWorkflow.runCalculation(cvmSess4,
+                new ThermodynamicWorkflow.Request(T, x4, Property.ENTHALPY, nullSink, null,
+                        0, 0, 0, null));
 
-            // Run MCS with timing
-            ThermodynamicWorkflow.Request reqMcs = new ThermodynamicWorkflow.Request(
-                    temp, x, Property.ENTHALPY, nullSink, null,
-                    6, 100, 500, null);
-            long t0 = System.currentTimeMillis();
-            ThermodynamicResult rMcs = thermoWorkflow.runCalculation(mcsSession, reqMcs);
-            long elapsed = System.currentTimeMillis() - t0;
-            totalMcsTime += elapsed;
+        long t0 = System.currentTimeMillis();
+        ThermodynamicResult rMcs4 = thermoWorkflow.runCalculation(mcsSess4,
+                new ThermodynamicWorkflow.Request(T, x4, Property.ENTHALPY, nullSink, null,
+                        6, 2000, 4000, null));
+        long elapsed = System.currentTimeMillis() - t0;
 
-            double deltaH = Math.abs(rCvm.enthalpy - rMcs.enthalpy);
-            
-            // Calculate max CF diff
-            double maxDeltaCF = 0.0;
-            if (rCvm.optimizedCFs != null && rMcs.avgCFs != null) {
-                int len = Math.min(rCvm.optimizedCFs.length, rMcs.avgCFs.length);
-                for (int i = 0; i < len; i++) {
-                    double diff = Math.abs(rCvm.optimizedCFs[i] - rMcs.avgCFs[i]);
-                    maxDeltaCF = Math.max(maxDeltaCF, diff);
-                }
+        System.out.println("=== CVM vs MCS: Nb-Ti-V-Zr BCC_A2 T-model, T=1000K, x=(0.25,0.25,0.25,0.25) ===");
+        System.out.println();
+        System.out.printf("  CVM  H = %12.4f J/mol%n", rCvm4.enthalpy);
+        System.out.printf("  MCS  H = %12.4f J/mol   (L=6, equil=2000, avg=4000, %d ms)%n", rMcs4.enthalpy, elapsed);
+        System.out.printf("  |ΔH| = %12.4f J/mol%n", Math.abs(rCvm4.enthalpy - rMcs4.enthalpy));
+        System.out.println();
+
+        // CF comparison
+        double[] cvmCFs = rCvm4.optimizedCFs;
+        double[] mcsCFs = rMcs4.avgCFs;
+
+        int ncf = (cvmCFs != null && mcsCFs != null) ? Math.min(cvmCFs.length, mcsCFs.length) : 0;
+        if (ncf == 0) {
+            System.out.println("  (CFs not available for comparison)");
+        } else {
+            double maxDelta = 0.0;
+            System.out.printf("  %-5s  %-12s  %-12s  %-12s%n", "CF#", "CVM", "MCS", "|Δ|");
+            System.out.println("  " + "-".repeat(48));
+            for (int i = 0; i < ncf; i++) {
+                double delta = Math.abs(cvmCFs[i] - mcsCFs[i]);
+                maxDelta = Math.max(maxDelta, delta);
+                System.out.printf("  %-5d  %+12.6f  %+12.6f  %12.6f%n", i, cvmCFs[i], mcsCFs[i], delta);
             }
-
-            System.out.printf(" [%.1f, %.1f]   | %10.2f   | %10.2f   | %6d ms  | %8.2f   | %8.4f%n",
-                    x[0], x[1], rCvm.enthalpy, rMcs.enthalpy, elapsed, deltaH, maxDeltaCF);
+            System.out.println("  " + "-".repeat(48));
+            System.out.printf("  Max |ΔCF| = %.6f%n", maxDelta);
         }
-        System.out.println("----------------------------------------------------------------------------------------");
-        System.out.printf(" TOTAL MCS TIME: %d ms (avg: %d ms/composition)%n",
-                totalMcsTime, totalMcsTime / compositions.length);
-        System.out.println("==========================================================================");
+
+        System.out.println();
+
+        // ── Binary sanity check: Nb-Ti at (0.5, 0.5) ──
+        SystemId binId = new SystemId("Nb-Ti", "BCC_A2", "T");
+        ModelSession mcsSess2 = builder.build(binId, EngineConfig.MCS, nullSink);
+        ModelSession cvmSess2 = builder.build(binId, EngineConfig.CVM, nullSink);
+        double[] x2 = {0.5, 0.5};
+
+        ThermodynamicResult rCvm2 = thermoWorkflow.runCalculation(cvmSess2,
+                new ThermodynamicWorkflow.Request(T, x2, Property.ENTHALPY, nullSink, null,
+                        0, 0, 0, null));
+        ThermodynamicResult rMcs2 = thermoWorkflow.runCalculation(mcsSess2,
+                new ThermodynamicWorkflow.Request(T, x2, Property.ENTHALPY, nullSink, null,
+                        6, 2000, 4000, null));
+
+        System.out.println("=== Sanity check: Nb-Ti, x=(0.5,0.5) ===");
+        System.out.printf("  CVM  H = %12.4f J/mol%n", rCvm2.enthalpy);
+        System.out.printf("  MCS  H = %12.4f J/mol%n", rMcs2.enthalpy);
+        System.out.printf("  |ΔH| = %12.4f J/mol%n", Math.abs(rCvm2.enthalpy - rMcs2.enthalpy));
     }
 }

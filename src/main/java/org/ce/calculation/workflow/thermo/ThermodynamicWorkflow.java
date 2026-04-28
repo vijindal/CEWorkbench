@@ -183,8 +183,8 @@ public class ThermodynamicWorkflow {
         // ── MCS-DBG: MCResult → ThermodynamicResult mapping ──
         if (MCSDebug.ENABLED) {
             MCSDebug.separator("MCResult → ThermodynamicResult MAPPING");
-            MCSDebug.log("FLOW", "MCResult.energyPerSite = %.10f  → ThermodynamicResult.enthalpy", r.getEnergyPerSite());
-            MCSDebug.log("FLOW", "MCResult.hmixPerSite   = %.10f  (NOT in ThermodynamicResult)", r.getHmixPerSite());
+            MCSDebug.log("FLOW", "MCResult.hmixPerSite   = %.10f  → ThermodynamicResult.enthalpy", r.getHmixPerSite());
+            MCSDebug.log("FLOW", "MCResult.energyPerSite = %.10f  (incremental running E/N, not used)", r.getEnergyPerSite());
             MCSDebug.log("FLOW", "MCResult.acceptRate    = %.4f", r.getAcceptRate());
             MCSDebug.vector("FLOW", "MCResult.avgCFs → ThermodynamicResult.avgCFs", r.getAvgCFs());
         }
@@ -193,7 +193,7 @@ public class ThermodynamicWorkflow {
                 request.temperature(),
                 request.composition(),
                 Double.NaN, // G not directly available in single-point MCS
-                r.getEnergyPerSite(),
+                r.getHmixPerSite(),  // ⟨Hmix⟩/site = Σ eci·⟨vCvcf⟩, matches CVM calH()
                 Double.NaN, // S not directly available
                 Double.NaN, // stdEnthalpy (σ) - not in MCResult
                 Double.NaN, // heatCapacity - requires FSS

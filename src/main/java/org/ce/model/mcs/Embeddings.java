@@ -51,7 +51,7 @@ public class Embeddings {
     private static int     dbgClusterProdCalls    = 0;
     private static int     dbgMeasureCVCalls      = 0;
     private static int     dbgApplyTinvCalls      = 0;
-    private static boolean dbgTotalEnergyTraced   = false;  // fire once per run
+    private static boolean dbgTotalEnergyTraced   = false;
 
     /** Reset all debug sample counters (call at start of a new run). */
     public static void resetDebugCounters() {
@@ -93,7 +93,13 @@ public class Embeddings {
     // Section C — Step 1: Generation  (called once per supercell build)
     // =========================================================================
 
-    /** Generates all cluster embeddings for a supercell from cluster geometry definitions. */
+    /**
+     * Generates deduplicated cluster embeddings for the energy path.
+     *
+     * <p>For each physical site as anchor, tries all cluster templates. Deduplicates
+     * by sorted site indices so each unordered cluster instance appears once.
+     * Alpha assignments come from orbit member site symbols (anchor-first order).
+     */
     public static Embeddings generate(
             List<Vector3D>    latticePositions,
             ClusCoordListData clusterData,
@@ -130,12 +136,13 @@ public class Embeddings {
 
                 if (!valid) continue;
 
-                int ttype = template.getClusterType();
-                int omIdx = template.getOrbitMemberIndex();
-                List<Site> sites     = clusterData.getOrbitList().get(ttype).get(omIdx).getAllSites();
-                int        anchorIdx = template.getAnchorIndex();
-                int[]      alphas    = new int[sites.size()];
+                int ttype    = template.getClusterType();
+                int omIdx    = template.getOrbitMemberIndex();
+                int anchorIdx = template.getAnchorIndex();
+                List<Site> sites = clusterData.getOrbitList().get(ttype).get(omIdx).getAllSites();
+                int[]      alphas = new int[sites.size()];
 
+                // Anchor-first alpha assignment from orbit member site symbols
                 int slot = 0;
                 alphas[slot++] = alphaFromSymbol(sites.get(anchorIdx).getSymbol());
                 for (int k = 0; k < sites.size(); k++) {
@@ -143,9 +150,10 @@ public class Embeddings {
                         alphas[slot++] = alphaFromSymbol(sites.get(k).getSymbol());
                 }
 
-                raw.add(new Embedding(ttype, omIdx, indices, alphas));
+                raw.add(new Embedding(ttype, omIdx, indices, alphas, anchorIdx));
             }
 
+            // Deduplicate: keep one embedding per unordered cluster instance
             Set<String>     seen    = new LinkedHashSet<>();
             List<Embedding> deduped = new ArrayList<>();
             for (Embedding e : raw) {
@@ -163,15 +171,38 @@ public class Embeddings {
         return new Embeddings(allEmbeddings, siteToEmbeddings);
     }
 
-    /** Generates per-CF-column embedding lists for direct CVCF measurement. */
+    /**
+     * Generates per-CF-column directed embedding lists for CVCF measurement and ΔE.
+     *
+     * <p>Unlike {@link #generate()}, this method produces ALL directed embeddings
+     * (one per anchor choice per cluster instance) without deduplication. This is
+     * required for K≥3 asymmetric CF columns: e.g., the ternary 1NN pair CF u_{12}
+     * = (1/N_emb) × Σ φ_1(σ_i)·φ_2(σ_j) must sum over ordered pairs (i→j) only,
+     * and including the reversed embedding (j→i with swapped alphas) correctly
+     * double-counts in a way that preserves the average.
+     *
+     * <p>Alpha assignment per CF column ({@code cfBasisIndices[l]}) is in canonical
+     * {@code getAllSites()} order. Each directed embedding maps these alphas to the
+     * anchor-first physical site ordering by reordering {@code cfBasisIndices[l]}
+     * according to the template's {@code anchorIndex}.
+     */
     public static List<List<Embedding>> generateCfEmbeddings(
-            List<Embedding>   baseEmbeddings,
+            List<Vector3D>    latticePositions,
             ClusCoordListData clusterData,
+            int               L,
             int[][]           cfBasisIndices,
             int[][]           lcf) {
 
-        if (cfBasisIndices == null || baseEmbeddings == null) return null;
+        if (cfBasisIndices == null || latticePositions == null) return null;
 
+        int N = latticePositions.size();
+
+        // Build position → lattice index lookup
+        Map<Vector3DKey, Integer> posToIndex = new HashMap<>();
+        for (int i = 0; i < N; i++)
+            posToIndex.put(new Vector3DKey(reduceMod(latticePositions.get(i), L)), i);
+
+        // Map each CF column to its orbit type
         int ncf = cfBasisIndices.length;
         int[] colToOrbitType = new int[ncf];
         int col = 0;
@@ -180,30 +211,73 @@ public class Embeddings {
                 for (int k = 0; k < lcf[t][j] && col < ncf; k++)
                     colToOrbitType[col++] = t;
 
-        Map<Integer, List<Embedding>> typeMap = new HashMap<>();
-        for (Embedding e : baseEmbeddings)
-            typeMap.computeIfAbsent(e.getClusterType(), k -> new ArrayList<>()).add(e);
+        // Build templates (same as generate(), but we use ALL templates without dedup)
+        List<ClusterTemplate> templates = buildTemplates(clusterData);
 
+        // Group templates by orbit type for efficient lookup
+        Map<Integer, List<ClusterTemplate>> templatesByType = new HashMap<>();
+        for (ClusterTemplate tmpl : templates)
+            templatesByType.computeIfAbsent(tmpl.getClusterType(), k -> new ArrayList<>()).add(tmpl);
+
+        // For each CF column, generate all directed embeddings
         List<List<Embedding>> cfEmbeddings = new ArrayList<>(ncf);
         for (int l = 0; l < ncf; l++) {
-            int[] alphas = cfBasisIndices[l];
-            List<Embedding> matched = new ArrayList<>();
+            int[] cfAlphas = cfBasisIndices[l];
+            List<Embedding> directed = new ArrayList<>();
 
-            if (alphas == null || alphas.length < 2) {
-                cfEmbeddings.add(matched);
+            if (cfAlphas == null || cfAlphas.length < 2) {
+                cfEmbeddings.add(directed);
                 continue;
             }
 
             int t = colToOrbitType[l];
-            List<Embedding> typeEmbs = typeMap.get(t);
-            if (typeEmbs != null) {
-                for (Embedding base : typeEmbs) {
-                    matched.add(new Embedding(
-                            t, base.getOrbitMemberIndex(),
-                            base.getSiteIndices().clone(), alphas.clone()));
+            int n = cfAlphas.length; // sites per cluster
+            List<ClusterTemplate> typeTemplates = templatesByType.getOrDefault(t, Collections.emptyList());
+
+            for (ClusterTemplate template : typeTemplates) {
+                int omIdx    = template.getOrbitMemberIndex();
+                int anchorIdx = template.getAnchorIndex();
+                Vector3D[] rel = template.getRelativeVectors();
+
+                // Try each physical site as the anchor
+                for (int i = 0; i < N; i++) {
+                    Vector3D anchor = latticePositions.get(i);
+                    int[] indices = new int[n];
+                    boolean valid = true;
+
+                    for (int k = 0; k < n; k++) {
+                        Vector3D target = reduceMod(anchor.add(rel[k]), L);
+                        Integer  j      = posToIndex.get(new Vector3DKey(target));
+                        if (j == null) { valid = false; break; }
+                        indices[k] = j;
+                    }
+                    if (!valid) continue;
+
+                    // Map cfBasisIndices[l] (canonical getAllSites() order) to anchor-first order:
+                    //   slot 0 → canonical site anchorIdx
+                    //   slots 1..n-1 → remaining canonical sites in order, skipping anchorIdx
+                    int[] alphas = new int[n];
+                    int slot = 0;
+                    alphas[slot++] = cfAlphas[anchorIdx];
+                    for (int k = 0; k < n; k++) {
+                        if (k != anchorIdx)
+                            alphas[slot++] = cfAlphas[k];
+                    }
+
+                    directed.add(new Embedding(t, omIdx, indices, alphas, anchorIdx));
                 }
             }
-            cfEmbeddings.add(matched);
+
+            cfEmbeddings.add(directed);
+        }
+
+        if (MCSDebug.ENABLED) {
+            MCSDebug.separator("generateCfEmbeddings — directed embedding counts");
+            for (int l = 0; l < Math.min(ncf, 10); l++) {
+                MCSDebug.log("CF-GEN", "cf[%d]: orbitType=%d, nDirected=%d, cfAlphas=%s",
+                        l, colToOrbitType[l], cfEmbeddings.get(l).size(),
+                        Arrays.toString(cfBasisIndices[l]));
+            }
         }
 
         return cfEmbeddings;
@@ -276,7 +350,6 @@ public class Embeddings {
                     prod *= flatBasisMatrix[occ[sites[k]] * numComp + alphas[k]];
                 sum += prod;
 
-                // ── MCS-DBG: first 3 embedding products for CF column 0 ──
                 if (trace && l == 0 && ei < 3) {
                     MCSDebug.log("CF-MEAS", "  cf[0] emb[%d]: prod=%.8f sites=%s alphas=%s",
                             ei, prod, Arrays.toString(sites), Arrays.toString(alphas));
@@ -284,7 +357,6 @@ public class Embeddings {
             }
             v[l] = sum / embs.size();
 
-            // ── MCS-DBG: per-CF summary (first sweep) ──
             if (trace) {
                 MCSDebug.log("CF-MEAS", "cf[%d]: nEmb=%d, sum=%.8f, avg=%.8f",
                         l, embs.size(), sum, v[l]);
@@ -298,8 +370,12 @@ public class Embeddings {
     }
 
     /**
-     * Transforms orthogonal CFs to CVCF basis: v_cvcf = Tinv * [uOrthNonPoint | uPoint].
-     * Returns uOrthNonPoint unchanged when Tinv is null (caller handles logging).
+     * Transforms orthogonal CFs to CVCF basis: v_cvcf = Tinv * [uOrthNonPoint | uPoint | 1].
+     * Returns uOrthNonPoint unchanged when Tinv is null.
+     *
+     * <p>uFull layout: [uOrth(0..ncf-1) | uPoint(φ₁..φ_{K-1}) | 1.0]
+     * Point CFs in natural order φ_k = Σ_s x_s · basis[s]^k (k=1..K-1),
+     * matching CvCfBasis.computeRandomStateVectors.
      */
     public static double[] applyTinvTransform(
             double[] uOrthNonPoint, double[] composition, CvCfBasis basis) {
@@ -320,10 +396,9 @@ public class Embeddings {
         int nonPt = Math.min(uOrthNonPoint.length, tRows);
         System.arraycopy(uOrthNonPoint, 0, uFull, 0, nonPt);
         for (int k = 0; k < nPoint && nonPt + k < tRows; k++)
-            uFull[nonPt + k] = uPoint[nPoint - 1 - k]; // Reverse the order to match cfColMap
-        if (tRows > nonPt + nPoint) {
-            uFull[tRows - 1] = 1.0; // The constant term
-        }
+            uFull[nonPt + k] = uPoint[k];
+        if (tRows > nonPt + nPoint)
+            uFull[tRows - 1] = 1.0;
 
         double[] vCvcf = new double[ncf];
         for (int i = 0; i < ncf; i++) {
@@ -333,7 +408,6 @@ public class Embeddings {
             vCvcf[i] = sum;
         }
 
-        // ── MCS-DBG: full Tinv transform trace (first call only) ──
         if (MCSDebug.ENABLED && dbgApplyTinvCalls == 0) {
             dbgApplyTinvCalls++;
             MCSDebug.separator("TINV TRANSFORM (applyTinvTransform)");
@@ -358,7 +432,7 @@ public class Embeddings {
         public final int[] offsets;  // length N+1
         public final int[] dataL;    // length totalEntries
         public final int[] dataEI;   // length totalEntries
-        
+
         public CsrSiteToCfIndex(int[] offsets, int[] dataL, int[] dataEI) {
             this.offsets = offsets;
             this.dataL   = dataL;
@@ -367,11 +441,10 @@ public class Embeddings {
     }
 
     /**
-     * Builds a per-site index into cfEmbeddings for efficient local ΔE.
-     * Uses CSR (Compressed Sparse Row) format for zero-allocation, contiguous iteration.
+     * Builds a per-site CSR index into cfEmbeddings for efficient local ΔE computation.
+     * For each site, records all (cfCol, embIdx) pairs where that site participates.
      */
     public static CsrSiteToCfIndex buildSiteToCfIndex(List<List<Embedding>> cfEmbeddings, int N) {
-        // Pass 1: Count entries per site to allocate arrays
         int[] counts = new int[N];
         for (int l = 0; l < cfEmbeddings.size(); l++) {
             List<Embedding> embs = cfEmbeddings.get(l);
@@ -394,7 +467,6 @@ public class Embeddings {
         int[] dataL  = new int[totalEntries];
         int[] dataEI = new int[totalEntries];
 
-        // Pass 2: Populate flat arrays
         int[] currentOffsets = offsets.clone();
         for (int l = 0; l < cfEmbeddings.size(); l++) {
             List<Embedding> embs = cfEmbeddings.get(l);
@@ -408,12 +480,9 @@ public class Embeddings {
             }
         }
 
-        // ── MCS-DBG: site-to-CF index statistics ──
         if (MCSDebug.ENABLED) {
             int maxPerSite = 0;
-            for (int i = 0; i < N; i++) {
-                maxPerSite = Math.max(maxPerSite, counts[i]);
-            }
+            for (int i = 0; i < N; i++) maxPerSite = Math.max(maxPerSite, counts[i]);
             MCSDebug.log("CF-IDX", "Built CSR siteToCfIndex: N=%d, totalEntries=%d, maxPerSite=%d, avgPerSite=%.1f",
                     N, totalEntries, maxPerSite, (double) totalEntries / N);
         }
@@ -424,7 +493,6 @@ public class Embeddings {
     /**
      * Computes total energy in the CVCF basis:
      *   E = N × Σ_l eciCvcf[l] × vCvcf[l]
-     * where vCvcf = Tinv × uOrth and uOrth is measured from cfEmbeddings.
      */
     public static double totalEnergyCvcf(
             LatticeConfig config,
@@ -432,21 +500,14 @@ public class Embeddings {
             int ncf, double[] eciCvcf, CvCfBasis basis, int numComp) {
 
         int N = config.getN();
-
-        // Step 1: Measure orthogonal CFs from cfEmbeddings
         double[] uOrth = measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
-
-        // Step 2: Transform to CVCF basis
         double[] vCvcf = applyTinvTransform(uOrth, config.composition(), basis);
 
-        // Step 3: E = N × Σ eciCvcf[l] × vCvcf[l]
         double E = 0.0;
-        for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
+        for (int l = 0; l < ncf && l < eciCvcf.length; l++)
             E += eciCvcf[l] * vCvcf[l];
-        }
         E *= N;
 
-        // ── MCS-DBG: CVCF total energy breakdown (first call only) ──
         boolean trace = MCSDebug.ENABLED && !dbgTotalEnergyTraced;
         if (trace) {
             dbgTotalEnergyTraced = true;
@@ -454,33 +515,26 @@ public class Embeddings {
             MCSDebug.vector("E-CVCF", "uOrth (measured)", uOrth);
             MCSDebug.vector("E-CVCF", "vCvcf (after Tinv)", vCvcf);
             MCSDebug.log("E-CVCF", "E(σ) = %.10f  (E/site = %.10f, N=%d)", E, E / N, N);
-            for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
-                if (Math.abs(eciCvcf[l] * vCvcf[l]) > 1e-14) {
-                    MCSDebug.log("E-CVCF", "  eci[%d]=%.8f × v[%d]=%.8f = %.10f",
-                            l, eciCvcf[l], l, vCvcf[l], eciCvcf[l] * vCvcf[l]);
-                }
-            }
         }
 
         return E;
     }
 
     /**
-     * Fully flattened representation of cfEmbeddings (List-of-Lists-of-Embedding).
-     * Eliminates all object pointer indirections in the deltaEExchangeCvcf hot path.
+     * Fully flattened representation of cfEmbeddings for zero-allocation hot paths.
      *
-     * Layout:
-     *   cfOffsets[l]..cfOffsets[l+1]  → embedding indices for CF column l
+     * <p>Layout:
+     *   cfOffsets[l]..cfOffsets[l+1]     → embedding indices for CF column l
      *   embSiteStart[e]..embSiteStart[e+1] → site/alpha indices for embedding e
-     *   siteData[k], alphaData[k] → site index and alpha for the k-th site of embedding e
+     *   siteData[k], alphaData[k]         → site index and alpha for the k-th site of embedding e
      */
     public static final class FlatEmbData {
         public final int   ncf;
         public final int[] cfOffsets;      // length ncf+1
-        public final int[] embSiteStart;   // length totalEmb+1 (CSR offsets into siteData/alphaData)
-        public final int[] siteData;       // flat site indices
-        public final int[] alphaData;      // flat alpha indices
-        public final int[] cfEmbCount;     // length ncf; cfOffsets[l+1]-cfOffsets[l]
+        public final int[] embSiteStart;   // length totalEmb+1
+        public final int[] siteData;
+        public final int[] alphaData;
+        public final int[] cfEmbCount;     // length ncf
 
         private FlatEmbData(int ncf, int[] cfOffsets, int[] embSiteStart,
                             int[] siteData, int[] alphaData, int[] cfEmbCount) {
@@ -497,15 +551,14 @@ public class Embeddings {
             int[] cfOffsets  = new int[ncf + 1];
             int[] cfEmbCount = new int[ncf];
 
-            // First pass: count total embeddings and sites
             int totalEmb   = 0;
             int totalSites = 0;
             for (int l = 0; l < ncf; l++) {
                 List<Embedding> embs = cfEmbeddings.get(l);
                 int ne = (embs != null) ? embs.size() : 0;
-                cfOffsets[l]    = totalEmb;
-                cfEmbCount[l]   = ne;
-                totalEmb       += ne;
+                cfOffsets[l]  = totalEmb;
+                cfEmbCount[l] = ne;
+                totalEmb     += ne;
                 if (embs != null)
                     for (Embedding e : embs) totalSites += e.getSiteIndices().length;
             }
@@ -515,7 +568,6 @@ public class Embeddings {
             int[] siteData     = new int[totalSites];
             int[] alphaData    = new int[totalSites];
 
-            // Second pass: populate flat arrays
             int embIdx  = 0;
             int siteIdx = 0;
             for (int l = 0; l < ncf; l++) {
@@ -548,36 +600,28 @@ public class Embeddings {
         final double[] newSumDelta;
         final double[] deltaUOrth;
         final double[] deltaVCvcf;
-        /** Flat arrays for collecting affected (cfCol, embIdx) pairs without boxing. */
-        final int[] affectedL;
-        final int[] affectedEI;
-        /** Bit-set for deduplication (replaces HashSet<Long>). Max total embedding count. */
+        final int[]    affectedL;
+        final int[]    affectedEI;
         final boolean[] seen;
         int affectedCount;
-        /** Unique CF columns touched by this move — used for sparse dot product. */
         final int[]     affectedCols;
-        final boolean[] seenCol;        // dedup flag, length = ncf
+        final boolean[] seenCol;
         int             affectedColCount;
         final int ncf;
 
         public DeltaScratch(int ncf, int totalEmbeddings) {
-            this.ncf = ncf;
-            this.oldSumDelta = new double[ncf];
-            this.newSumDelta = new double[ncf];
-            this.deltaUOrth  = new double[ncf];
-            this.deltaVCvcf  = new double[ncf];
-            // Max affected pairs per move: entries for site_i + entries for site_j
-            // Use totalEmbeddings as the upper bound for the seen-flag array
-            this.seen = new boolean[totalEmbeddings];
-            // Upper bound for affected pairs: sum of all per-site entries for two sites
-            // In practice much smaller; use totalEmbeddings as safe upper bound
+            this.ncf          = ncf;
+            this.oldSumDelta  = new double[ncf];
+            this.newSumDelta  = new double[ncf];
+            this.deltaUOrth   = new double[ncf];
+            this.deltaVCvcf   = new double[ncf];
+            this.seen         = new boolean[totalEmbeddings];
             this.affectedL    = new int[totalEmbeddings];
             this.affectedEI   = new int[totalEmbeddings];
             this.affectedCols = new int[ncf];
             this.seenCol      = new boolean[ncf];
         }
 
-        /** Resets scratch state for the next move. Only clears what was actually used. */
         void reset(int[] lastAffectedL, int[] lastAffectedEI, int lastCount) {
             for (int a = 0; a < lastCount; a++) {
                 oldSumDelta[lastAffectedL[a]] = 0.0;
@@ -588,10 +632,6 @@ public class Embeddings {
             affectedCount = 0;
         }
 
-        /**
-         * Clears scratch after a move. Call once after deltaEExchangeCvcf (flat overload)
-         * and after the caller has consumed oldSumDelta/newSumDelta for incremental CF updates.
-         */
         void cleanup(int maxEmbPerCol) {
             int ac = affectedCount;
             int cc = affectedColCount;
@@ -609,26 +649,18 @@ public class Embeddings {
             affectedColCount = 0;
         }
 
-        /** Computes a unique key for (cfColumn, embeddingIndex) — used as index into seen[]. */
         static int pairKey(int cfCol, int embIdx, int maxEmbPerCol) {
             return cfCol * maxEmbPerCol + embIdx;
         }
     }
 
-    /** Computes the total number of (cfCol, embIdx) pairs across all CF columns. */
     public static int totalCfEmbeddingCount(List<List<Embedding>> cfEmbeddings) {
         int total = 0;
-        int maxPerCol = 0;
-        for (List<Embedding> embs : cfEmbeddings) {
-            if (embs != null) {
-                total += embs.size();
-                maxPerCol = Math.max(maxPerCol, embs.size());
-            }
-        }
+        for (List<Embedding> embs : cfEmbeddings)
+            if (embs != null) total += embs.size();
         return total;
     }
 
-    /** Returns the max number of embeddings in any single CF column. */
     public static int maxEmbPerCfColumn(List<List<Embedding>> cfEmbeddings) {
         int max = 0;
         for (List<Embedding> embs : cfEmbeddings)
@@ -643,9 +675,8 @@ public class Embeddings {
     // =========================================================================
 
     /**
-     * Allocation-free version of {@link #deltaEExchangeCvcf} using pre-allocated scratch.
-     * This is the hot-path method called ~260K times per MCS run.
-     * When eciOrth is provided, bypasses the Tinv matrix-vector multiply entirely.
+     * List-based ΔE: used when FlatEmbData is unavailable.
+     * Computes ΔE for swapping occupations at sites i and j.
      */
     public static double deltaEExchangeCvcf(
             int i, int j,
@@ -662,11 +693,8 @@ public class Embeddings {
 
         int N = config.getN();
 
-        // Collect affected pairs using flat arrays + boolean[] seen flag (no boxing)
         int ac = 0;
-        
-        int startI = siteToCfIndex.offsets[i];
-        int endI   = siteToCfIndex.offsets[i+1];
+        int startI = siteToCfIndex.offsets[i], endI = siteToCfIndex.offsets[i+1];
         for (int idx = startI; idx < endI; idx++) {
             int l  = siteToCfIndex.dataL[idx];
             int ei = siteToCfIndex.dataEI[idx];
@@ -678,9 +706,7 @@ public class Embeddings {
                 ac++;
             }
         }
-        
-        int startJ = siteToCfIndex.offsets[j];
-        int endJ   = siteToCfIndex.offsets[j+1];
+        int startJ = siteToCfIndex.offsets[j], endJ = siteToCfIndex.offsets[j+1];
         for (int idx = startJ; idx < endJ; idx++) {
             int l  = siteToCfIndex.dataL[idx];
             int ei = siteToCfIndex.dataEI[idx];
@@ -694,7 +720,6 @@ public class Embeddings {
         }
         scratch.affectedCount = ac;
 
-        // Compute old products
         for (int a = 0; a < ac; a++) {
             int l  = scratch.affectedL[a];
             int ei = scratch.affectedEI[a];
@@ -707,11 +732,9 @@ public class Embeddings {
             scratch.oldSumDelta[l] += prod;
         }
 
-        // Temporarily swap
         occ[i] = occJ;
         occ[j] = occI;
 
-        // Compute new products
         for (int a = 0; a < ac; a++) {
             int l  = scratch.affectedL[a];
             int ei = scratch.affectedEI[a];
@@ -724,12 +747,9 @@ public class Embeddings {
             scratch.newSumDelta[l] += prod;
         }
 
-        // Undo swap
         occ[i] = occI;
         occ[j] = occJ;
 
-        // ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
-        // Also collect unique CF columns touched (affectedCols) for sparse dot product.
         int cc = 0;
         for (int a = 0; a < ac; a++) {
             int l = scratch.affectedL[a];
@@ -737,24 +757,19 @@ public class Embeddings {
                 scratch.seenCol[l] = true;
                 scratch.affectedCols[cc++] = l;
                 double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
-                if (diff != 0.0) {
+                if (diff != 0.0)
                     scratch.deltaUOrth[l] = diff / cfEmbeddings.get(l).size();
-                }
             }
         }
         scratch.affectedColCount = cc;
 
-        // Compute ΔE — use eciOrth for direct dot product (bypasses Tinv multiply)
         double dE = 0.0;
         if (eciOrth != null) {
-            // Fast path: ΔE = N × Σ_m ΔuOrth[m] × eciOrth[m]
-            // Only unique affected CF columns have non-zero ΔuOrth — sparse iteration
             for (int a = 0; a < cc; a++) {
                 int m = scratch.affectedCols[a];
                 dE += scratch.deltaUOrth[m] * eciOrth[m];
             }
         } else if (basis != null && basis.Tinv != null) {
-            // Fallback: Tinv matrix-vector multiply + ECI dot product
             double[][] Tinv = basis.Tinv;
             int tCols = Tinv[0].length;
             for (int l = 0; l < ncf && l < Tinv.length; l++) {
@@ -771,18 +786,15 @@ public class Embeddings {
         }
         dE *= N;
 
-        // Clean up: reset only the used entries
-        for (int a = 0; a < ac; a++) {
-            int key = scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a];
-            scratch.seen[key] = false;
-        }
+        for (int a = 0; a < ac; a++)
+            scratch.seen[scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a]] = false;
         for (int a = 0; a < cc; a++) {
             int l = scratch.affectedCols[a];
-            scratch.seenCol[l]      = false;
-            scratch.oldSumDelta[l]  = 0.0;
-            scratch.newSumDelta[l]  = 0.0;
-            scratch.deltaUOrth[l]   = 0.0;
-            scratch.deltaVCvcf[l]   = 0.0;
+            scratch.seenCol[l]     = false;
+            scratch.oldSumDelta[l] = 0.0;
+            scratch.newSumDelta[l] = 0.0;
+            scratch.deltaUOrth[l]  = 0.0;
+            scratch.deltaVCvcf[l]  = 0.0;
         }
         scratch.affectedColCount = 0;
 
@@ -790,9 +802,12 @@ public class Embeddings {
     }
 
     /**
-     * Flat-array overload of {@link #deltaEExchangeCvcf} — eliminates all object
-     * pointer indirections in the inner cluster-product loop.
+     * Flat-array ΔE: primary hot path with zero object indirections.
      * Uses FlatEmbData instead of List-of-Lists-of-Embedding.
+     *
+     * <p>NOTE: scratch is left populated after return. The caller reads
+     * oldSumDelta/newSumDelta for incremental CF updates on acceptance,
+     * then calls scratch.cleanup(maxEmbPerCol).
      */
     public static double deltaEExchangeCvcf(
             int i, int j,
@@ -809,7 +824,6 @@ public class Embeddings {
 
         int N = config.getN();
 
-        // Collect affected (cfCol, embIdx) pairs for sites i and j
         int ac = 0;
         int startI = siteToCfIndex.offsets[i], endI = siteToCfIndex.offsets[i + 1];
         for (int idx = startI; idx < endI; idx++) {
@@ -837,7 +851,6 @@ public class Embeddings {
         }
         scratch.affectedCount = ac;
 
-        // Compute old products — flat array access, zero object dereferences
         for (int a = 0; a < ac; a++) {
             int l   = scratch.affectedL[a];
             int ei  = scratch.affectedEI[a];
@@ -850,11 +863,9 @@ public class Embeddings {
             scratch.oldSumDelta[l] += prod;
         }
 
-        // Temporarily swap
         occ[i] = occJ;
         occ[j] = occI;
 
-        // Compute new products
         for (int a = 0; a < ac; a++) {
             int l   = scratch.affectedL[a];
             int ei  = scratch.affectedEI[a];
@@ -867,11 +878,9 @@ public class Embeddings {
             scratch.newSumDelta[l] += prod;
         }
 
-        // Undo swap
         occ[i] = occI;
         occ[j] = occJ;
 
-        // ΔuOrth[l] = (newSum - oldSum) / nEmbeddings[l]
         int cc = 0;
         for (int a = 0; a < ac; a++) {
             int l = scratch.affectedL[a];
@@ -885,7 +894,6 @@ public class Embeddings {
         }
         scratch.affectedColCount = cc;
 
-        // Compute ΔE
         double dE = 0.0;
         if (eciOrth != null) {
             for (int a = 0; a < cc; a++) {
@@ -909,15 +917,13 @@ public class Embeddings {
         }
         dE *= N;
 
-        // NOTE: scratch is intentionally left populated here.
-        // Caller reads oldSumDelta/newSumDelta for incremental CF update on acceptance,
-        // then calls scratch.cleanup(maxEmbPerCol) to reset for the next move.
+        // Leave scratch populated — caller reads deltas, then calls cleanup()
         return dE;
     }
 
-    // ── Section C helpers: generation internals ───────────────────────────────
+    // ── Section C helpers ─────────────────────────────────────────────────────
 
-    /** Parses alpha index from site symbol (e.g. "s1" → 1). */
+    /** Parses alpha index from site symbol (e.g. "s1" → 1). 1-indexed to match flatBasisMatrix layout. */
     static int alphaFromSymbol(String symbol) {
         if (symbol == null || !symbol.startsWith("s"))
             throw new IllegalArgumentException("Site symbol must start with 's', got: " + symbol);
@@ -972,22 +978,26 @@ public class Embeddings {
     }
 
     // =========================================================================
-    // Section A — Inner data types (referenced by all sections above)
+    // Section A — Inner data types
     // =========================================================================
 
-    /** A single embedding of an abstract cluster type onto specific lattice sites. */
+    /** A single directed embedding of a cluster onto specific physical lattice sites. */
     public static class Embedding {
 
         private final int   clusterType;
         private final int   orbitMemberIndex;
         private final int[] siteIndices;
         private final int[] alphaIndices;
+        // anchorIndex: canonical getAllSites() position of siteIndices[0]. -1 for CF embeddings.
+        private final int   anchorIndex;
 
-        public Embedding(int clusterType, int orbitMemberIndex, int[] siteIndices, int[] alphaIndices) {
+        public Embedding(int clusterType, int orbitMemberIndex,
+                         int[] siteIndices, int[] alphaIndices, int anchorIndex) {
             this.clusterType      = clusterType;
             this.orbitMemberIndex = orbitMemberIndex;
             this.siteIndices      = siteIndices;
             this.alphaIndices     = alphaIndices;
+            this.anchorIndex      = anchorIndex;
         }
 
         public int   getClusterType()      { return clusterType; }
@@ -995,6 +1005,7 @@ public class Embeddings {
         public int[] getSiteIndices()      { return siteIndices; }
         public int   size()                { return siteIndices.length; }
         public int[] getAlphaIndices()     { return alphaIndices; }
+        public int   getAnchorIndex()      { return anchorIndex; }
 
         @Override
         public String toString() {
@@ -1027,7 +1038,7 @@ public class Embeddings {
         }
     }
 
-    /** Intermediate representation of one orbit member, used only during template building. */
+    /** Intermediate representation of one (orbit member, anchor) pair for template-based generation. */
     private static final class ClusterTemplate {
 
         private final int        clusterType;

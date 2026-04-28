@@ -119,7 +119,7 @@ public final class MCSGeometry {
 
         if (basis != null && matData != null) {
             this.cfEmbeddings = Embeddings.generateCfEmbeddings(
-                    emb.getAllEmbeddings(), clusterData, matData.getCfBasisIndices(), pr.getLcf());
+                    this.positions, clusterData, L, matData.getCfBasisIndices(), pr.getLcf());
             this.basisMatrix = Embeddings.buildBasisValues(numComp);
         } else {
             this.cfEmbeddings = null;
@@ -164,6 +164,10 @@ public final class MCSGeometry {
 
     public int nSites() {
         return positions.size();
+    }
+
+    public List<List<Embeddings.Embedding>> cfEmbeddings() {
+        return cfEmbeddings;
     }
 
     private static List<Vector3D> buildBCCPositions(int L) {
