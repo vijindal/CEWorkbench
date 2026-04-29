@@ -19,11 +19,46 @@ import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
- * Encapsulates the temperature-independent geometry and orbit structure of an MCS model.
+ * Encapsulates the static, temperature-independent geometry and orbit structure of a 
+ * Monte Carlo Simulation (MCS) model.
  * 
- * <p>Building this object involves expensive lattice construction and cluster embedding
- * generation. By caching {@code MCSGeometry}, we can reuse the spatial structure across
- * multiple temperature points in a thermodynamic scan, only re-evaluating the ECIs.</p>
+ * <p>
+ * This class serves as the structural "blueprint" for the simulation. It defines the physical 
+ * arrangement of sites, identifies all unique cluster orbits allowed by the space group 
+ * symmetry, and pre-computes high-performance indices for energy evaluations.
+ * </p>
+ * 
+ * <h3>Key Responsibilities:</h3>
+ * <ul>
+ *   <li><b>Lattice Construction:</b> Generates the 3D atomic positions for a supercell 
+ *       of dimension {@code L} based on the crystal structure (e.g., BCC_A2).</li>
+ *   <li><b>Orbit Resolution:</b> Identifies and deduplicates cluster instances into 
+ *       symmetrically equivalent orbits.</li>
+ *   <li><b>Embedding Generation:</b> Locates all instances (embeddings) of every cluster 
+ *       type within the periodic supercell.</li>
+ *   <li><b>Performance Indexing:</b> Builds the <b>CSR (Compressed Sparse Row)</b> 
+ *       site-to-embedding index and <b>Flattened Embedding Data</b> structures. These indices 
+ *       enable $O(1)$ local energy updates during the simulation's trial moves.</li>
+ * </ul>
+ * 
+ * <h3>Computational Complexity:</h3>
+ * <p>
+ * Instantiating this class is an <b>expensive $O(N)$ operation</b> because it involves 
+ * recursive cluster searching and symmetry checks across the entire supercell. However, 
+ * because the spatial structure is independent of temperature, this object is designed 
+ * to be <b>cached and reused</b> across multiple thermodynamic points in a temperature scan.
+ * </p>
+ * 
+ * <h3>Thread Safety:</h3>
+ * <p>
+ * This class is <b>effectively immutable</b> after construction. All fields are final and 
+ * represent fixed geometric properties. It can be safely shared across multiple 
+ * {@link AlloyMC} engine instances.
+ * </p>
+ * 
+ * @see org.ce.model.mcs.AlloyMC
+ * @see org.ce.model.mcs.Embeddings
+ * @see org.ce.model.mcs.LatticeConfig
  */
 public final class MCSGeometry {
 
@@ -37,9 +72,13 @@ public final class MCSGeometry {
     final int[]                   multiSiteEmbedCounts;
     final CvCfBasis               basis;
     final List<List<Embeddings.Embedding>> cfEmbeddings;
-    final double[][]              basisMatrix;
-    final int                     L;
-    final int                     numComp;
+    final Embeddings.CsrSiteToCfIndex     siteToCfIndex;
+    final Embeddings.FlatEmbData          flatEmbData;
+    final double[][]                      basisMatrix;
+    final double[]                        flatBasisMatrix;
+    final int                             L;
+    final int                             numComp;
+    final int                             ncf;
 
     private MCSGeometry(ModelSession session, int L, Consumer<String> progressSink) {
         this.L = L;
@@ -65,8 +104,6 @@ public final class MCSGeometry {
         orderedClusters.replaceAll(Cluster::sorted);
         SpaceGroup orderedSpaceGroup = InputLoader.parseSpaceGroup(config.getOrderedSymmetryGroup());
 
-        // 2. Stage 1 & 2: Identification Pipeline
-        emit(progressSink, "\n[STAGE 1/2]: Running Identification Pipeline...");
         PipelineResult pr = ClusterCFIdentificationPipeline.run(
                 disorderedClusters,
                 disorderedSpaceGroup.getOperations(),
@@ -80,6 +117,8 @@ public final class MCSGeometry {
                 },
                 numComp,
                 progressSink);
+        
+        this.ncf = pr.getNcf();
 
         // 3. Stage 3: C-Matrix foundation
         emit(progressSink, "\n[STAGE 3]: Running C-Matrix Pipeline...");
@@ -121,9 +160,26 @@ public final class MCSGeometry {
             this.cfEmbeddings = Embeddings.generateCfEmbeddings(
                     this.positions, clusterData, L, matData.getCfBasisIndices(), pr.getLcf());
             this.basisMatrix = Embeddings.buildBasisValues(numComp);
+            
+            // Build high-performance indices for ΔE
+            this.siteToCfIndex = Embeddings.buildSiteToCfIndex(cfEmbeddings, nSites());
+            this.flatEmbData   = Embeddings.FlatEmbData.build(cfEmbeddings);
+            
+            // Flatten basis matrix for high-speed indexing: [occ * numComp + alpha]
+            this.flatBasisMatrix = new double[numComp * numComp];
+            for (int s = 0; s < numComp; s++) {
+                // Alpha 0 is the point function/constant (usually 1.0)
+                flatBasisMatrix[s * numComp + 0] = 1.0; 
+                for (int a = 1; a < numComp; a++) {
+                    flatBasisMatrix[s * numComp + a] = basisMatrix[s][a - 1];
+                }
+            }
         } else {
-            this.cfEmbeddings = null;
-            this.basisMatrix = null;
+            this.cfEmbeddings  = null;
+            this.basisMatrix   = null;
+            this.flatBasisMatrix = null;
+            this.siteToCfIndex = null;
+            this.flatEmbData   = null;
         }
 
         LOG.info(String.format("MCSGeometry built — L=%d, N=%d sites, numComp=%d", L, positions.size(), numComp));
@@ -168,6 +224,46 @@ public final class MCSGeometry {
 
     public List<List<Embeddings.Embedding>> cfEmbeddings() {
         return cfEmbeddings;
+    }
+
+    public Embeddings.CsrSiteToCfIndex getSiteToCfIndex() { return siteToCfIndex; }
+    public Embeddings.FlatEmbData getFlatEmbData() { return flatEmbData; }
+    public double[][] getBasisMatrix() { return basisMatrix; }
+    public double[] getFlatBasisMatrix() { return flatBasisMatrix; }
+    public CvCfBasis getBasis() { return basis; }
+    public int getNcf() { return ncf; }
+
+    /**
+     * Transforms an orthogonal CF state vector [uOrthNonPoint | uPoint | Empty]
+     * to the CVCF basis [vCvcfNonPoint | moleFractions].
+     * 
+     * @param correlationFunctions The full orthogonal state vector.
+     * @param composition          The mole fractions to append.
+     * @return The full-length CVCF basis state vector.
+     */
+    public double[] getCvcfCorrelationFunctions(double[] correlationFunctions, double[] composition) {
+        if (basis == null || basis.Tinv == null) {
+            return java.util.Arrays.copyOf(correlationFunctions, ncf + numComp);
+        }
+        
+        double[][] Tinv = basis.Tinv;
+        double[] vFull = new double[ncf + numComp];
+        
+        // 1. Transform non-point terms [0..ncf-1]
+        for (int i = 0; i < ncf; i++) {
+            double sum = 0.0;
+            for (int j = 0; j < Tinv[i].length && j < correlationFunctions.length; j++) {
+                sum += Tinv[i][j] * correlationFunctions[j];
+            }
+            vFull[i] = sum;
+        }
+        
+        // 2. Append mole fractions (compositions) [ncf..ncf+numComp-1]
+        if (composition != null) {
+            System.arraycopy(composition, 0, vFull, ncf, numComp);
+        }
+        
+        return vFull;
     }
 
     private static List<Vector3D> buildBCCPositions(int L) {

@@ -6,8 +6,42 @@ import java.util.Arrays;
 import java.util.Random;
 
 /**
- * Flat occupation array representing the atomic configuration of a periodic supercell.
- * Occupation encoding: 0=A, 1=B, 2=C, ...
+ * Encapsulates the atomic configuration of a periodic supercell and its orthogonal basis.
+ * 
+ * <p>
+ * This class serves as the fundamental state container for Monte Carlo simulations in the
+ * Cluster Expansion (CE) framework. It manages a flat occupation array where each site is 
+ * assigned a species index (0, 1, 2...).
+ * </p>
+ * 
+ * <h3>Key Responsibilities:</h3>
+ * <ul>
+ *   <li><b>State Management:</b> Stores and provides access to site-specific atomic occupations.</li>
+ *   <li><b>Canonical Initialization:</b> Provides exact-count randomization of the lattice 
+ *       to match a target global composition (atom-swapping / canonical ensemble).</li>
+ *   <li><b>Basis Evaluation:</b> Encapsulates the point-function basis (phi_alpha) 
+ *       used to map species indices to the numerical values required for Cluster Variation 
+ *       Correlation Function (CVCF) calculations.</li>
+ *   <li><b>Diagnostics:</b> Computes real-time composition fractions and species tallies.</li>
+ * </ul>
+ * 
+ * <h3>Data Representation:</h3>
+ * <ul>
+ *   <li><b>Occupation (occ):</b> An integer array of size N (total sites), where {@code occ[i]} 
+ *       represents the species at site {@code i}. Convention: 0=A, 1=B, 2=C, etc.</li>
+ *   <li><b>Orthogonal Basis:</b> An internal {@link Basis} mapping that translates a 
+ *       species index into a numerical value based on the chosen Cluster Expansion basis set.</li>
+ * </ul>
+ * 
+ * <h3>Performance Note:</h3>
+ * <p>
+ * This class is designed for high-performance Monte Carlo loops. It uses primitive integer 
+ * arrays to minimize memory overhead and provides direct access to the raw occupation array 
+ * for performance-critical energy update algorithms.
+ * </p>
+ * 
+ * @see org.ce.model.mcs.AlloyMC
+ * @see org.ce.model.mcs.MCSGeometry
  */
 public class LatticeConfig {
 
