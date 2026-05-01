@@ -11,12 +11,17 @@ import static org.ce.model.cluster.ClusterKeys.*;
  * CMatrixPipeline — Self-contained Java translation of the Mathematica
  * C-matrix generation pipeline.
  *
- * <p>Each Mathematica function is translated 1-to-1 as a Java method.
- * Symbolic algebra ({@code Expand}, {@code /. rules}, {@code CoefficientArrays})
- * is replaced by numerical polynomial maps ({@code Map<SiteOpProductKey, Double>}).
- * No logic has been added or removed relative to the Mathematica source.</p>
+ * <p>
+ * Each Mathematica function is translated 1-to-1 as a Java method.
+ * Symbolic algebra ({@code Expand}, {@code /. rules},
+ * {@code CoefficientArrays})
+ * is replaced by numerical polynomial maps
+ * ({@code Map<SiteOpProductKey, Double>}).
+ * No logic has been added or removed relative to the Mathematica source.
+ * </p>
  *
  * <h2>Mathematica functions → Java methods</h2>
+ * 
  * <pre>
  *   genSiteList          → {@link #buildSiteList(List)}
  *   genRMat              → {@link #buildRMatrix(int)}
@@ -31,10 +36,11 @@ import static org.ce.model.cluster.ClusterKeys.*;
  */
 public final class CMatrixPipeline {
 
-    private CMatrixPipeline() {}
+    private CMatrixPipeline() {
+    }
 
     // =====================================================================
-    //  Output container — equivalent to Return[{cmat, lcv, wcv}] in genCV
+    // Output container — equivalent to Return[{cmat, lcv, wcv}] in genCV
     // =====================================================================
 
     public static final class CMatrixData {
@@ -42,7 +48,9 @@ public final class CMatrixPipeline {
         public final List<List<double[][]>> cmat;
         /** lcv[t][j] = number of distinct CV rows for cluster type t, group j */
         public final int[][] lcv;
-        /** wcv[t][j] = weight array; wcv[t][j][v] = count of configs producing CV row v */
+        /**
+         * wcv[t][j] = weight array; wcv[t][j][v] = count of configs producing CV row v
+         */
         public final List<List<int[]>> wcv;
 
         // --- Structural metadata for Stage 4 reuse ---
@@ -55,16 +63,37 @@ public final class CMatrixPipeline {
         /** cfBasisIndices[col] = basis indices for each CF column */
         public final int[][] cfBasisIndices;
 
-        public List<List<double[][]>> getCmat() { return cmat; }
-        public int[][] getLcv() { return lcv; }
-        public List<List<int[]>> getWcv() { return wcv; }
-        public List<Position> getSiteList() { return siteList; }
-        public ClusterMath.PRules getPRules() { return pRules; }
-        public SubstituteRules getSubstituteRules() { return substituteRules; }
-        public int[][] getCfBasisIndices() { return cfBasisIndices; }
+        public List<List<double[][]>> getCmat() {
+            return cmat;
+        }
+
+        public int[][] getLcv() {
+            return lcv;
+        }
+
+        public List<List<int[]>> getWcv() {
+            return wcv;
+        }
+
+        public List<Position> getSiteList() {
+            return siteList;
+        }
+
+        public ClusterMath.PRules getPRules() {
+            return pRules;
+        }
+
+        public SubstituteRules getSubstituteRules() {
+            return substituteRules;
+        }
+
+        public int[][] getCfBasisIndices() {
+            return cfBasisIndices;
+        }
 
         /**
-         * Transforms all C-matrix blocks into a new basis using transformation matrix T.
+         * Transforms all C-matrix blocks into a new basis using transformation matrix
+         * T.
          * C_new = C_orth Â· T
          */
         public CMatrixData transform(double[][] T) {
@@ -84,9 +113,12 @@ public final class CMatrixPipeline {
          * equivalent row vector expressed in the Orthogonal CF basis.
          *
          * @param siteIndices List of physical site indices.
-         * @param config Sequence of elements/atoms corresponding strictly to siteIndices.
-         * @param cfColumnMap Pre-compiled column mapping from CFIndex to orthogonal column.
-         * @param totalCfs Total number of correlation functions (width of returned array is totalCfs + 1).
+         * @param config      Sequence of elements/atoms corresponding strictly to
+         *                    siteIndices.
+         * @param cfColumnMap Pre-compiled column mapping from CFIndex to orthogonal
+         *                    column.
+         * @param totalCfs    Total number of correlation functions (width of returned
+         *                    array is totalCfs + 1).
          * @return Orthogonal row vector describing the coefficients.
          */
         public double[] expandProbabilityExpression(
@@ -94,13 +126,12 @@ public final class CMatrixPipeline {
                 int[] config,
                 Map<org.ce.model.cluster.ClusterKeys.CFIndex, Integer> cfColumnMap,
                 int totalCfs) {
-            
+
             return CMatrixPipeline.expandConfiguration(
                     siteIndices, config,
                     this.pRules.getRMatrix(),
                     this.substituteRules.getRules(),
-                    cfColumnMap, totalCfs
-            );
+                    cfColumnMap, totalCfs);
         }
 
         CMatrixData(
@@ -112,8 +143,8 @@ public final class CMatrixPipeline {
                 SubstituteRules substituteRules,
                 int[][] cfBasisIndices) {
             this.cmat = cmat;
-            this.lcv  = lcv;
-            this.wcv  = wcv;
+            this.lcv = lcv;
+            this.wcv = wcv;
             this.siteList = siteList;
             this.pRules = pRules;
             this.substituteRules = substituteRules;
@@ -122,16 +153,16 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  MAIN ENTRY POINT — matches Mathematica script block line-for-line
+    // MAIN ENTRY POINT — matches Mathematica script block line-for-line
     //
-    //  maxClusSiteList    = genSiteList[maxClusCoord];
-    //  groupCfCoordList   = groupSubClus[maxClusCoord, cfData, basisSymbolList];
-    //  cfSiteOpList       = genCfSiteOpList[groupCfCoordList, maxClusSiteList];
-    //  substituteRules    = genSubstituteRules[cfSiteOpList, cfSymbol];
-    //  numSites           = Length[maxClusSiteList];
-    //  pRules             = genPRules[numSites, numComp, siteOcSymbol, siteOpSymbol];
-    //  cMatData           = genCV[maxClusSiteList, ordClusData, ordCFData,
-    //                             substituteRules, pRules, numComp, ...];
+    // maxClusSiteList = genSiteList[maxClusCoord];
+    // groupCfCoordList = groupSubClus[maxClusCoord, cfData, basisSymbolList];
+    // cfSiteOpList = genCfSiteOpList[groupCfCoordList, maxClusSiteList];
+    // substituteRules = genSubstituteRules[cfSiteOpList, cfSymbol];
+    // numSites = Length[maxClusSiteList];
+    // pRules = genPRules[numSites, numComp, siteOcSymbol, siteOpSymbol];
+    // cMatData = genCV[maxClusSiteList, ordClusData, ordCFData,
+    // substituteRules, pRules, numComp, ...];
     // =====================================================================
 
     public static CMatrixData run(
@@ -162,16 +193,14 @@ public final class CMatrixPipeline {
         // groupCfCoordList = groupSubClus[maxClusCoord, cfData, basisSymbolList]
         GroupedCFData groupedCF = cfResult.getGroupedCFData();
         List<List<List<List<Cluster>>>> cfOrbitList = groupedCF.getOrbitData();
-        List<List<List<List<Cluster>>>> groupCfCoordList =
-                groupSubClusters(maxClusters, cfOrbitList, basisSymbolList, sink);
+        List<List<List<List<Cluster>>>> groupCfCoordList = groupSubClusters(maxClusters, cfOrbitList, basisSymbolList,
+                sink);
 
         // cfSiteOpList = genCfSiteOpList[groupCfCoordList, maxClusSiteList]
-        List<List<List<List<List<SiteOp>>>>> cfSiteOpList =
-                buildCfSiteOpList(groupCfCoordList, siteList, sink);
+        List<List<List<List<List<SiteOp>>>>> cfSiteOpList = buildCfSiteOpList(groupCfCoordList, siteList, sink);
 
         // substituteRules = genSubstituteRules[cfSiteOpList, cfSymbol]
-        SubstituteRules substituteRules =
-                new SubstituteRules(buildSubstituteRules(cfSiteOpList, sink));
+        SubstituteRules substituteRules = new SubstituteRules(buildSubstituteRules(cfSiteOpList, sink));
         emit(sink, "[3] substituteRules -> " + substituteRules.getRules().size() + " rules");
 
         // uList / CF column map
@@ -185,8 +214,7 @@ public final class CMatrixPipeline {
         ClusterMath.PRules pRules = ClusterMath.PRules.build(siteList.size(), numElements);
 
         // cMatData = genCV[...]
-        List<List<Cluster>> ordClusCoordList =
-                clusterResult.getOrdClusterData().getCoordList();
+        List<List<Cluster>> ordClusCoordList = clusterResult.getOrdClusterData().getCoordList();
         CMatrixData result = generateCMatrix(
                 ordClusCoordList, siteList, rMat, substituteRules.getRules(),
                 cfColumnMap, totalCfs, numElements, sink);
@@ -203,13 +231,13 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  genSiteList[maxClusCoord]
+    // genSiteList[maxClusCoord]
     //
-    //  For[i, maxClusters]
-    //    For[j, sublattices]
-    //      For[k, sites]
-    //        If[!MemberQ[siteList, pos], siteList = Append[siteList, pos]]
-    //  Return[siteList]
+    // For[i, maxClusters]
+    // For[j, sublattices]
+    // For[k, sites]
+    // If[!MemberQ[siteList, pos], siteList = Append[siteList, pos]]
+    // Return[siteList]
     // =====================================================================
 
     static List<Position> buildSiteList(List<Cluster> maxClusters) {
@@ -228,12 +256,12 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  genRMat[numElements]
+    // genRMat[numElements]
     //
-    //  Even K: basis = {-K/2, ..., -1, 1, ..., K/2}
-    //  Odd  K: basis = {-(K-1)/2, ..., 0, ..., (K-1)/2}
-    //  matM[i][j] = If[i==0, 1, basis[[j]]^i]
-    //  RMat = Inverse[matM]
+    // Even K: basis = {-K/2, ..., -1, 1, ..., K/2}
+    // Odd K: basis = {-(K-1)/2, ..., 0, ..., (K-1)/2}
+    // matM[i][j] = If[i==0, 1, basis[[j]]^i]
+    // RMat = Inverse[matM]
     // =====================================================================
 
     static double[][] buildRMatrix(int numElements) {
@@ -241,18 +269,18 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  groupSubClus[maxClusCoord, cfData, basisSymbolList]
+    // groupSubClus[maxClusCoord, cfData, basisSymbolList]
     //
-    //  cfOrbitList = cfData[[3]];
-    //  For[i, cfOrbitList]                  (* cluster types *)
-    //    For[j, cfOrbitList[[i]]]            (* CF groups  *)
-    //      For[k, cfOrbitList[[i]][[j]]]      (* CFs in group *)
-    //        For[m, maxClusCoord]              (* maximal clusters *)
-    //          subClusCoordList = genSubClusCoord[maxClusCoord[[m]], basisSymbolList]
-    //          For[l, subClusCoordList]
-    //            If[isContained[cfOrbitList[[i]][[j]][[k]], subClusCoordList[[l]]],
-    //              Append[..., subClus]]
-    //  Return[classifiedSubClusList]
+    // cfOrbitList = cfData[[3]];
+    // For[i, cfOrbitList] (* cluster types *)
+    // For[j, cfOrbitList[[i]]] (* CF groups *)
+    // For[k, cfOrbitList[[i]][[j]]] (* CFs in group *)
+    // For[m, maxClusCoord] (* maximal clusters *)
+    // subClusCoordList = genSubClusCoord[maxClusCoord[[m]], basisSymbolList]
+    // For[l, subClusCoordList]
+    // If[isContained[cfOrbitList[[i]][[j]][[k]], subClusCoordList[[l]]],
+    // Append[..., subClus]]
+    // Return[classifiedSubClusList]
     // =====================================================================
 
     static List<List<List<List<Cluster>>>> groupSubClusters(
@@ -273,8 +301,8 @@ public final class CMatrixPipeline {
                     List<Cluster> matched = new ArrayList<>();
 
                     for (Cluster maxClus : maxClusters) {
-                        List<Cluster> subClusCoordList =
-                                ClusterCFIdentificationPipeline.genSubClusCoord(maxClus, basisSymbolList);
+                        List<Cluster> subClusCoordList = ClusterCFIdentificationPipeline.genSubClusCoord(maxClus,
+                                basisSymbolList);
                         for (Cluster subClus : subClusCoordList) {
                             if (ClusterMath.isContained(cfOrbit, subClus)) {
                                 matched.add(subClus);
@@ -295,21 +323,21 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  genCfSiteOpList[groupClusCoordList, siteList]
+    // genCfSiteOpList[groupClusCoordList, siteList]
     //
-    //  For[i=1, i<Length[groupClusCoordList], i++,   (* NOTE: strict < *)
-    //    For[j, groups]
-    //      For[k, cluster groups]
-    //        For[l, individual clusters in group]
-    //          siteOp = {};
-    //          For[n, sublattices]
-    //            For[m, sites]
-    //              siteOp = Append[siteOp,
-    //                tempClusCoord[[n]][[m]][[2]][
-    //                  Position[siteList, tempClusCoord[[n]][[m]][[1]]][[1]][[1]]
-    //                ]]
-    //          rules[[i]][[j]][[k]] = Append[..., siteOp]
-    //  Return[rules]
+    // For[i=1, i<Length[groupClusCoordList], i++, (* NOTE: strict < *)
+    // For[j, groups]
+    // For[k, cluster groups]
+    // For[l, individual clusters in group]
+    // siteOp = {};
+    // For[n, sublattices]
+    // For[m, sites]
+    // siteOp = Append[siteOp,
+    // tempClusCoord[[n]][[m]][[2]][
+    // Position[siteList, tempClusCoord[[n]][[m]][[1]]][[1]][[1]]
+    // ]]
+    // rules[[i]][[j]][[k]] = Append[..., siteOp]
+    // Return[rules]
     // =====================================================================
 
     static List<List<List<List<List<SiteOp>>>>> buildCfSiteOpList(
@@ -355,7 +383,7 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  genSubstituteRules[cfSiteOpList, cfSymbol]
+    // genSubstituteRules[cfSiteOpList, cfSymbol]
     // =====================================================================
 
     /**
@@ -394,7 +422,6 @@ public final class CMatrixPipeline {
                 for (int k = 0; k < cfSiteOpList.get(i).get(j).size(); k++) {
                     for (List<SiteOp> tempClusCoord : cfSiteOpList.get(i).get(j).get(k)) {
                         // siteOp = 1; For[n, siteOp = siteOp * tempClusCoord[[n]]]
-                        // → canonical SiteOpProductKey
                         SiteOpProductKey productKey = new SiteOpProductKey(tempClusCoord);
                         CFIndex cfIndex = new CFIndex(i, j, k);
                         rules.putIfAbsent(productKey, cfIndex);
@@ -408,8 +435,8 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  uList = Flatten[Table[..cfSymbol[i][j][k]..], 2]
-    //  Maps each CF triplet (t,j,k) to a flat column index.
+    // uList = Flatten[Table[..cfSymbol[i][j][k]..], 2]
+    // Maps each CF triplet (t,j,k) to a flat column index.
     // =====================================================================
 
     private static Map<CFIndex, Integer> buildCfColumnMap(int[][] lcf) {
@@ -426,12 +453,12 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  tranClus[clusCoord, maxClusSiteList]
+    // tranClus[clusCoord, maxClusSiteList]
     //
-    //  For[i, sublattices]
-    //    For[j, sites]
-    //      Position[maxClusSiteList, clusCoord[[i]][[j]][[1]]][[1]][[1]]
-    //  (Returns flat list after Flatten[..., 1] in genCV)
+    // For[i, sublattices]
+    // For[j, sites]
+    // Position[maxClusSiteList, clusCoord[[i]][[j]][[1]]][[1]][[1]]
+    // (Returns flat list after Flatten[..., 1] in genCV)
     // =====================================================================
 
     static List<Integer> translateCluster(Cluster cluster, List<Position> siteList) {
@@ -450,13 +477,14 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  genConfig[clusCoord, numElements]
-    //  All K^N element assignments for an N-site cluster.
+    // genConfig[clusCoord, numElements]
+    // All K^N element assignments for an N-site cluster.
     // =====================================================================
 
     static List<int[]> generateConfigurations(int numSites, int K) {
         int total = 1;
-        for (int i = 0; i < numSites; i++) total *= K;
+        for (int i = 0; i < numSites; i++)
+            total *= K;
         List<int[]> configs = new ArrayList<>(total);
         for (int i = 0; i < total; i++) {
             int[] cfg = new int[numSites];
@@ -471,14 +499,14 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  Numerical equivalent of:
-    //    tempCV = 1
-    //    For[l, tempCV = tempCV * siteOcSymbol[clusSiteList[[l]]][config[[l]]]]
-    //    tempCV = Expand[tempCV /. pRules] /. substituteRules
+    // Numerical equivalent of:
+    // tempCV = 1
+    // For[l, tempCV = tempCV * siteOcSymbol[clusSiteList[[l]]][config[[l]]]]
+    // tempCV = Expand[tempCV /. pRules] /. substituteRules
     //
-    //  Polynomial is Map<SiteOpProductKey, Double>, grown site-by-site using
-    //  R-matrix coefficients (= genPRules inline). After all sites, each
-    //  monomial key is looked up in substituteRules for its CF column.
+    // Polynomial is Map<SiteOpProductKey, Double>, grown site-by-site using
+    // R-matrix coefficients (= genPRules inline). After all sites, each
+    // monomial key is looked up in substituteRules for its CF column.
     // =====================================================================
 
     static double[] expandConfiguration(
@@ -495,17 +523,18 @@ public final class CMatrixPipeline {
 
         for (int s = 0; s < siteIndices.size(); s++) {
             int globalSite = siteIndices.get(s);
-            int element    = config[s];
+            int element = config[s];
             double[] R_row = rMat[element];
             Map<SiteOpProductKey, Double> nextPoly = new LinkedHashMap<>();
 
             for (Map.Entry<SiteOpProductKey, Double> term : poly.entrySet()) {
                 List<SiteOp> existingOps = term.getKey().getOps();
-                double existingCoeff     = term.getValue();
+                double existingCoeff = term.getValue();
 
                 for (int a = 0; a < K; a++) {
                     double c = R_row[a];
-                    if (Math.abs(c) < 1e-14) continue;
+                    if (Math.abs(c) < 1e-14)
+                        continue;
                     List<SiteOp> newOps = new ArrayList<>(existingOps);
                     if (a > 0) {
                         newOps.add(new SiteOp(globalSite, a));
@@ -518,14 +547,15 @@ public final class CMatrixPipeline {
         }
 
         // /. substituteRules + CoefficientArrays[cvList, uList]
-        double[] row = new double[totalCfs + 1];   // +1 for constant column
+        double[] row = new double[totalCfs + 1]; // +1 for constant column
         for (Map.Entry<SiteOpProductKey, Double> term : poly.entrySet()) {
             SiteOpProductKey key = term.getKey();
-            double coeff         = term.getValue();
-            if (Math.abs(coeff) < 1e-14) continue;
+            double coeff = term.getValue();
+            if (Math.abs(coeff) < 1e-14)
+                continue;
 
             if (key.getOps().isEmpty()) {
-                row[totalCfs] += coeff;          // constant term -> last column
+                row[totalCfs] += coeff; // constant term -> last column
             } else {
                 CFIndex cfIdx = substituteRules.get(key);
                 if (cfIdx == null) {
@@ -544,20 +574,20 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  genCV[maxClusSiteList, ordClusData, ordCFData, substituteRules,
-    //        pRules, numElements, ...]
+    // genCV[maxClusSiteList, ordClusData, ordCFData, substituteRules,
+    // pRules, numElements, ...]
     //
-    //  For[i=1, i<=Length[ordClusCoordList]-1, i++,   (* cluster types *)
-    //    For[j, ordClusCoordList[[i]]]                 (* clusters *)
-    //      clusSiteList = Flatten[tranClus[...], 1]
-    //      configList   = genConfig[..., numElements]
-    //      For[k, configList]
-    //        tempCV = product of occupation ops
-    //        tempCV = Expand[tempCV /. pRules] /. substituteRules
-    //      tallyCVList = Tally[tempCVList]
-    //      tempArray   = CoefficientArrays[cvList, uList]
-    //      crow        = Join[tempArray[[2]], Partition[tempArray[[1]],{1}], 2]
-    //  Return[{cmat, lcv, wcv}]
+    // For[i=1, i<=Length[ordClusCoordList]-1, i++, (* cluster types *)
+    // For[j, ordClusCoordList[[i]]] (* clusters *)
+    // clusSiteList = Flatten[tranClus[...], 1]
+    // configList = genConfig[..., numElements]
+    // For[k, configList]
+    // tempCV = product of occupation ops
+    // tempCV = Expand[tempCV /. pRules] /. substituteRules
+    // tallyCVList = Tally[tempCVList]
+    // tempArray = CoefficientArrays[cvList, uList]
+    // crow = Join[tempArray[[2]], Partition[tempArray[[1]],{1}], 2]
+    // Return[{cmat, lcv, wcv}]
     // =====================================================================
 
     private static CMatrixData generateCMatrix(
@@ -574,13 +604,13 @@ public final class CMatrixPipeline {
                 + totalCfs + " CFs, K=" + numElements);
 
         List<List<double[][]>> cmat = new ArrayList<>();
-        List<List<int[]>>      wcv  = new ArrayList<>();
+        List<List<int[]>> wcv = new ArrayList<>();
         int[][] lcv = new int[ordClusCoordList.size()][];
 
         for (int t = 0; t < ordClusCoordList.size(); t++) {
             List<Cluster> groups = ordClusCoordList.get(t);
             List<double[][]> cmatType = new ArrayList<>();
-            List<int[]>      wcvType  = new ArrayList<>();
+            List<int[]> wcvType = new ArrayList<>();
             lcv[t] = new int[groups.size()];
 
             for (int j = 0; j < groups.size(); j++) {
@@ -589,8 +619,8 @@ public final class CMatrixPipeline {
                 List<int[]> configs = generateConfigurations(siteIndices.size(), numElements);
 
                 // Expand all configs and tally
-                Map<RowKey, double[]> seenRows   = new LinkedHashMap<>();
-                Map<RowKey, Integer>  seenCounts = new LinkedHashMap<>();
+                Map<RowKey, double[]> seenRows = new LinkedHashMap<>();
+                Map<RowKey, Integer> seenCounts = new LinkedHashMap<>();
                 for (int[] config : configs) {
                     double[] row = expandConfiguration(
                             siteIndices, config, rMat,
@@ -603,11 +633,11 @@ public final class CMatrixPipeline {
                 // Build cmat block and wcv
                 lcv[t][j] = seenRows.size();
                 double[][] cmatBlock = new double[seenRows.size()][];
-                int[]      wcvBlock  = new int[seenRows.size()];
+                int[] wcvBlock = new int[seenRows.size()];
                 int idx = 0;
                 for (Map.Entry<RowKey, double[]> entry : seenRows.entrySet()) {
                     cmatBlock[idx] = entry.getValue();
-                    wcvBlock[idx]  = seenCounts.get(entry.getKey());
+                    wcvBlock[idx] = seenCounts.get(entry.getKey());
                     idx++;
                 }
 
@@ -627,7 +657,7 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  Tolerance-aware row key for Tally[tempCVList]
+    // Tolerance-aware row key for Tally[tempCVList]
     // =====================================================================
 
     private static final class RowKey {
@@ -652,7 +682,7 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  Inverse[matM] — Gaussian elimination with partial pivoting
+    // Inverse[matM] — Gaussian elimination with partial pivoting
     // =====================================================================
 
     private static double[][] invertMatrix(double[][] matrix) {
@@ -670,16 +700,20 @@ public final class CMatrixPipeline {
                     maxRow = row;
                 }
             }
-            double[] tmp = aug[col]; aug[col] = aug[maxRow]; aug[maxRow] = tmp;
+            double[] tmp = aug[col];
+            aug[col] = aug[maxRow];
+            aug[maxRow] = tmp;
 
             double pivot = aug[col][col];
             if (Math.abs(pivot) < 1e-15) {
                 throw new ArithmeticException("Singular matrix in R-matrix computation");
             }
-            for (int j = 0; j < 2 * n; j++) aug[col][j] /= pivot;
+            for (int j = 0; j < 2 * n; j++)
+                aug[col][j] /= pivot;
 
             for (int row = 0; row < n; row++) {
-                if (row == col) continue;
+                if (row == col)
+                    continue;
                 double factor = aug[row][col];
                 for (int j = 0; j < 2 * n; j++) {
                     aug[row][j] -= factor * aug[col][j];
@@ -695,19 +729,21 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  Position and symbol helpers
+    // Position and symbol helpers
     // =====================================================================
 
     private static int positionIndexOf(List<Position> siteList, Position pos) {
         for (int i = 0; i < siteList.size(); i++) {
-            if (siteList.get(i).equals(pos)) return i;
+            if (siteList.get(i).equals(pos))
+                return i;
         }
         return -1;
     }
 
     private static boolean containsPosition(List<Position> list, Position pos) {
         for (Position p : list) {
-            if (p.equals(pos)) return true;
+            if (p.equals(pos))
+                return true;
         }
         return false;
     }
@@ -720,11 +756,12 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  Result printing
+    // Result printing
     // =====================================================================
 
     private static void printResults(CMatrixData result, Consumer<String> sink) {
-        if (sink == null) return;
+        if (sink == null)
+            return;
 
         emit(sink, "\n[RESULT] lcv:");
         for (int t = 0; t < result.lcv.length; t++) {
@@ -783,17 +820,19 @@ public final class CMatrixPipeline {
     }
 
     // =====================================================================
-    //  CV Verification Logic (Self-Sufficient)
+    // CV Verification Logic (Self-Sufficient)
     // =====================================================================
 
     /**
      * Verifies the generated C-matrix by evaluating cluster variables at a
      * given composition under the disordered (random) state assumption.
      *
-     * <p>At equiatomic composition (x_i = 1/K), for a cluster of size N,
+     * <p>
+     * At equiatomic composition (x_i = 1/K), for a cluster of size N,
      * every configuration is equally likely with probability 1/(K^N).
      * This method verifies that the C-matrix correctly reproduces these
-     * statistical weights.</p>
+     * statistical weights.
+     * </p>
      *
      * @param moleFractions  mole fractions (length K, Σ = 1)
      * @param pipelineResult results from Stage 2 (provides random CFs)
@@ -841,7 +880,8 @@ public final class CMatrixPipeline {
                     if (isEquiatomic) {
                         double error = Math.abs(val - expected);
                         msg += String.format(" (Expected: %12.8f, Diff: %.2e)", expected, error);
-                        if (error > 1e-9) msg += " [!] DISCREPANCY";
+                        if (error > 1e-9)
+                            msg += " [!] DISCREPANCY";
                     }
                     emit(sink, msg);
                 }
@@ -851,12 +891,14 @@ public final class CMatrixPipeline {
     }
 
     /**
-     * Builds the full CF vector (Tier iii) for C-matrix multiplication in orthogonal basis.
-     * Length = ncf + K. 
-     * [0..ncf-1] = multi-site CFs, [ncf..ncf+K-2] = point CFs, [ncf+K-1] = constant 1.0.
+     * Builds the full CF vector (Tier iii) for C-matrix multiplication in
+     * orthogonal basis.
+     * Length = ncf + K.
+     * [0..ncf-1] = multi-site CFs, [ncf..ncf+K-2] = point CFs, [ncf+K-1] = constant
+     * 1.0.
      */
-    public static double[] buildFullCFVector(double[] u, double[] moleFractions, 
-                                            int numComponents, int[][] cfBasisIndices, int ncf) {
+    public static double[] buildFullCFVector(double[] u, double[] moleFractions,
+            int numComponents, int[][] cfBasisIndices, int ncf) {
         int K = numComponents;
         double[] uFull = new double[ncf + K];
         System.arraycopy(u, 0, uFull, 0, ncf);
@@ -864,7 +906,8 @@ public final class CMatrixPipeline {
         double[] basis = ClusterMath.buildBasis(K);
         for (int k = 0; k < K - 1; k++) {
             double pcf = 0;
-            for (int i = 0; i < K; i++) pcf += moleFractions[i] * Math.pow(basis[i], k + 1);
+            for (int i = 0; i < K; i++)
+                pcf += moleFractions[i] * Math.pow(basis[i], k + 1);
             int col = ncf + k;
             uFull[col] = pcf;
         }
@@ -918,6 +961,7 @@ public final class CMatrixPipeline {
     }
 
     private static void emit(Consumer<String> sink, String msg) {
-        if (sink != null) sink.accept(msg);
+        if (sink != null)
+            sink.accept(msg);
     }
 }

@@ -2,34 +2,29 @@
 
 Implementation of a high-performance Metropolis Monte Carlo engine for Cluster Expansion models in CEWorkbench.
 
-## Current Status: BLOCKED (Ternary Mapping)
+## Current Status: ACTIVE
 
-> [!CAUTION]
-> **Ternary Verification Discrepancy**
-> While the engine is 100% accurate for Binary systems (Nb-Ti), the Ternary system (Nb-Ti-V) exhibits a mapping error at the pure Nb endpoint.
-> - **Expected**: All CVCF non-point terms = 0.0 for pure Nb.
-> - **Actual**: `v3AB`, `v22AB`, and `v21AB` result in `-2.0`.
-> - **Impact**: Resulting mixing energy is physically incorrect (-2.4 MJ/mol).
+> [!NOTE]
+> **Ternary Mapping Resolved**
+> The previously identified -2.0 energy discrepancy in the Nb-Ti-V system has been resolved. The root cause was a basis function indexing mismatch between the engine's state vector population and the CVCF transformation matrix.
 
-## Root Cause Analysis
-The discrepancy indicates a mismatch between the **Orthogonal CF Vector (u)** measured from the lattice and the **Transformation Matrix (T^-1)** columns.
-- Possible Column Shift: The point functions or constant term indices in the transformation matrix may not align with the `[NonPoint | Point | Constant]` layout in `AlloyMC`.
-- Basis Inconsistency: `ClusterMath.buildBasis(3)` values `[1, 0, -1]` must be confirmed against the `CvCfBasis` derivation assumptions.
+## Key Resolutions
+- **Dynamic Basis Mapping**: Refactored `AlloyMC` to use `MCSGeometry.getCfBasisIndices()` metadata for point CF column assignments.
+- **Full Vector Transformation**: Updated `MCSGeometry` to transform the entire measured orthogonal vector ($T^{-1}u$) rather than hard-appending compositions.
+- **Symbolic Verification**: Integrated symbolic definitions ($p[A]*p[B]$) directly into the `CvCfBasis` and `AlloyMCTest` diagnostic suite.
 
-## Proposed Resolution Steps
+## Roadmap
+### 1. Finalize Hamiltonian Integration
+- Integrate the verified CVCF state vector into the `AlloyMC` energy calculator.
+- Verify mixing energy calculation for the Nb-Ti-V equiatomic disordered state.
 
-### 1. Diagnostic Mapping Trace
-Implement a detailed trace in `AlloyMC` to print the individual contributions of each orthogonal term to the problematic CVCF functions (`v3AB`, `v21AB`).
-- Identify which orthogonal column index is introducing the `-2.0` weight.
+### 2. Metropolis Sampling Loop
+- Implement the standard Metropolis-Hastings acceptance criterion.
+- Optimize site-swap logic for local energy updates.
 
-### 2. Standardize Basis Layout
-Ensure the `correlationFunctions` vector in `AlloyMC` strictly follows the `totalCfs` ordering defined by the `PipelineResult`:
-- Verify if `ncf` includes or excludes point orbits in the `Tinv` matrix derivation.
-
-### 3. Implement Robust Delta-E (After Fix)
-Once mapping is verified:
-- Implement `calculateDeltaE(int i, int j)` using `siteToCfIndex` CSR structure for $O(1)$ updates.
-- Implement `runSweep()` with local energy tracking.
+### 3. Verification & Benchmarking
+- Validate against reference CVM results for simple BCC alloys.
+- Benchmark site-swap performance for large supercells ($L > 20$).
 
 ## Verification Plan
 ### Automated Tests

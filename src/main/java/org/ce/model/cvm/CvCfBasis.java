@@ -38,11 +38,13 @@ public final class CvCfBasis {
     public final double[][] T;
     public final double[][] Tinv;
     public final CMatrixPipeline.CMatrixData cvcfCMatrixData;
+    public final List<String> cfDefinitions;
     private final Map<String, Integer> cfNameIndex;
 
     private CvCfBasis(String structurePhase, String model, int numComponents,
             List<String> cfNames, List<String> eciNames, int numNonPointCfs,
-            double[][] T, double[][] Tinv, CMatrixPipeline.CMatrixData cvcfCMatrixData) {
+            double[][] T, double[][] Tinv, CMatrixPipeline.CMatrixData cvcfCMatrixData,
+            List<String> cfDefinitions) {
         this.structurePhase = structurePhase;
         this.model = (model == null ? "" : model.toUpperCase());
         this.numComponents = numComponents;
@@ -52,6 +54,7 @@ public final class CvCfBasis {
         this.T = T;
         this.Tinv = Tinv;
         this.cvcfCMatrixData = cvcfCMatrixData;
+        this.cfDefinitions = cfDefinitions;
         Map<String, Integer> idx = new LinkedHashMap<>(cfNames.size() * 2);
         for (int i = 0; i < cfNames.size(); i++)
             idx.put(cfNames.get(i), i);
@@ -297,6 +300,35 @@ public final class CvCfBasis {
 
         public boolean isDiff() {
             return minusTerm != null;
+        }
+
+        @Override
+        public String toString() {
+            String plus = formatTerm(plusTerm);
+            if (minusTerm != null) {
+                return plus + " - " + formatTerm(minusTerm);
+            }
+            return plus;
+        }
+
+        private String formatTerm(int[] pairs) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < pairs.length; i += 2) {
+                if (i > 0)
+                    sb.append("*");
+                sb.append("p[").append(pairs[i]).append("][").append(atomSymbol(pairs[i + 1])).append("]");
+            }
+            return sb.toString();
+        }
+
+        private String atomSymbol(int atom) {
+            switch (atom) {
+                case 0: return "A";
+                case 1: return "B";
+                case 2: return "C";
+                case 3: return "D";
+                default: return String.valueOf(atom);
+            }
         }
     }
 
@@ -702,7 +734,7 @@ public final class CvCfBasis {
         emit(sink, "  Loaded " + def.cfNames.size() + " CVs for " + structurePhase + " K=" + numComponents);
 
         for (int i = 0; i < def.vSpecs.size(); i++) {
-            emit(sink, String.format("  v[%d] (%s) = %s", i, def.cfNames.get(i), formatVSpec(def.vSpecs.get(i))));
+            emit(sink, String.format("  v[%d] (%s) = %s", i, def.cfNames.get(i), def.vSpecs.get(i).toString()));
         }
 
         // ---------------------------------------------------------
@@ -798,28 +830,15 @@ public final class CvCfBasis {
             }
         }
 
+        List<String> cfDefinitions = new ArrayList<>();
+        for (VSpec spec : def.vSpecs) {
+            cfDefinitions.add(spec.toString());
+        }
+
         emit(sink, "  [Basis-Gen] ✓ Basis generation complete.");
 
         return new CvCfBasis(structurePhase, model, numComponents,
-                def.cfNames, eciNames, numNonPointCfs, T, Tinv, cvcfData);
-    }
-
-    private static String formatVSpec(VSpec spec) {
-        String plus = formatTerm(spec.plusTerm);
-        if (spec.isDiff()) {
-            return plus + " - " + formatTerm(spec.minusTerm);
-        }
-        return plus;
-    }
-
-    private static String formatTerm(int[] pairs) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < pairs.length; i += 2) {
-            if (i > 0)
-                sb.append("*");
-            sb.append("p[").append(pairs[i]).append("][").append(pairs[i + 1]).append("]");
-        }
-        return sb.toString();
+                def.cfNames, eciNames, numNonPointCfs, T, Tinv, cvcfData, cfDefinitions);
     }
 
     private static void emit(Consumer<String> sink, String msg) {
@@ -910,21 +929,6 @@ public final class CvCfBasis {
                 }
             } else {
                 M[i] = plusRow;
-            }
-
-            // Optional trace of the array coefficients
-            if (i < 3 || i > basisSize - 4) { // keep logs somewhat clipped
-                StringBuilder line = new StringBuilder();
-                line.append(String.format("  Row %2d -> ", i));
-                for (int j = 0; j < M[i].length; j++) {
-                    if (Math.abs(M[i][j]) > 1e-10) {
-                        line.append(String.format("[C%d=%.3f] ", j, M[i][j]));
-                    }
-                }
-                emit(sink, line.toString());
-            }
-            if (i == 3 && basisSize > 6) {
-                emit(sink, "  ... (rows clipped for brevity)");
             }
         }
         return M;

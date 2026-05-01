@@ -5,6 +5,7 @@ import org.ce.model.PhysicsConstants;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
 
+import java.util.List;
 import java.util.Random;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -24,15 +25,18 @@ public class AlloyMC {
     private final Random rng;
     private final double R; // Gas constant
     private final int L;    // Supercell dimension
+    private final int nSites;
     private final int numComp;
     private final int ncf;
 
     private final Embeddings.DeltaScratch scratch;
-    private double[] correlationFunctions; // v_cvcf (Correlation Functions in CVCF basis)
+    private double[] correlationFunctions;     // u (Orthogonal Basis)
+    private double[] cvcfCorrelationFunctions; // v (CVCF Basis)
 
     private double temperature = Double.NaN;
     private double[] composition;
     private double[] eciCvcf;
+    private int maxEmbPerCol;
     
     private long attempts = 0;
     private long accepted = 0;
@@ -56,16 +60,19 @@ public class AlloyMC {
         
         // 2. Initialize lattice configuration based on geometry
         this.numComp = session.numComponents();
-        this.config = new LatticeConfig(geo.nSites(), numComp);
+        this.nSites = geo.nSites();
+        this.config = new LatticeConfig(nSites, numComp);
         this.ncf = geo.getNcf();
 
         // 3. Pre-allocate scratch space for ΔE (O(1) allocation)
-        int totalEmb = Embeddings.totalCfEmbeddingCount(geo.cfEmbeddings());
-        this.scratch = new Embeddings.DeltaScratch(ncf, totalEmb);
+        this.maxEmbPerCol = Embeddings.maxEmbPerCfColumn(geo.cfEmbeddings());
+        int scratchSize = ncf * maxEmbPerCol;
+        this.scratch = new Embeddings.DeltaScratch(ncf, scratchSize);
         
         // 4. Initialize Correlation Functions state array
         // Layout: [uOrthNonPoint (ncf) | uPoint (numComp-1) | Empty (1)]
         this.correlationFunctions = new double[ncf + numComp];
+        this.cvcfCorrelationFunctions = new double[ncf + numComp];
 
         LOG.info(String.format("AlloyMC initialized: L=%d, sites=%d, ncf=%d", 
                 L, config.getN(), ncf));
@@ -131,25 +138,80 @@ public class AlloyMC {
 
         // 1. Initialise lattice occupation based on composition
         config.randomise(composition, rng);
+        updateCorrelationFunctions();
+        
+        System.out.println("\n--- Stage: Initial Randomisation ---");
+        System.out.println("Measured Orthogonal CFs (uOrth):");
+        for (int i = 0; i < correlationFunctions.length; i++) {
+             System.out.println(String.format("  Col %2d: %.4f", i, correlationFunctions[i]));
+        }
+        
+        System.out.println("\nRecovered CVCF Basis Vector (vFull):");
+        double[] cvcf = getCvcfCorrelationFunctions();
+        List<String> names = geo.getBasis().cfNames;
+        List<String> defs = geo.getBasis().cfDefinitions;
+        for (int i = 0; i < cvcf.length; i++) {
+            String name = (i < names.size()) ? names.get(i) : "?";
+            String def = (i < defs.size()) ? defs.get(i) : "";
+            System.out.println(String.format("  Col %2d [%-7s]: %-40s = %.4f", i, name, def, cvcf[i]));
+        }
 
         // 2. Initial state energy
         double currentEnergy = calculateTotalEnergy();
+        System.out.println("\n--- Stage: Initial Energy ---");
+        System.out.println(String.format("  Total Energy: %.6f", currentEnergy));
+        System.out.println(String.format("  Energy per site: %.6f", currentEnergy / getNSites()));
 
         // 3. Equilibration phase
+        System.out.println(String.format("\n--- Stage: Equilibration (%d sweeps) ---", nEquil));
         for (int s = 0; s < nEquil; s++) {
             currentEnergy += runSweep();
+            if (s % 10 == 0 || s == nEquil - 1) {
+                printState(s, currentEnergy);
+            }
         }
+        
+        // Final refresh after equilibration to reset any drift
+        updateCorrelationFunctions();
+        currentEnergy = calculateTotalEnergy(); 
+        System.out.println(String.format("  Energy after equilibration (refreshed): %.6f", currentEnergy));
 
         resetCounters();
 
         // 4. Averaging phase
+        System.out.println(String.format("\n--- Stage: Averaging (%d sweeps) ---", nAvg));
         for (int s = 0; s < nAvg; s++) {
             currentEnergy += runSweep();
+            
+            // Sweep Refresh: Full O(N) update for sampling accuracy
+            updateCorrelationFunctions();
             sampleProperties(currentEnergy);
+            
+            if (s % 10 == 0 || s == nAvg - 1) {
+                printState(s, currentEnergy);
+            }
         }
 
         LOG.info(String.format("AlloyMC run complete. Final energy: %.6f, Acceptance rate: %.2f%%", 
                 currentEnergy, getAcceptanceRate() * 100));
+    }
+
+    /**
+     * Prints the current simulation state including energy, acceptance rate, and CFs.
+     */
+    private void printState(int sweep, double energy) {
+        // Ensure CFs are fresh for printing
+        updateCorrelationFunctions();
+        
+        System.out.println(String.format("  Sweep %4d | Energy: %.6f | Acc: %.2f%%", 
+                sweep, energy, getAcceptanceRate() * 100));
+        
+        double[] cvcf = getCvcfCorrelationFunctions();
+        System.out.print("    CVCFs: ");
+        for (int i = 0; i < ncf; i++) {
+            System.out.print(String.format("%.4f ", cvcf[i]));
+        }
+        System.out.println();
     }
 
     /**
@@ -158,8 +220,7 @@ public class AlloyMC {
      */
     private double runSweep() {
         double sweepDeltaE = 0;
-        int N = config.getN();
-        for (int i = 0; i < N; i++) {
+        for (int i = 0; i < nSites; i++) {
             sweepDeltaE += attemptSwap();
         }
         return sweepDeltaE;
@@ -170,9 +231,8 @@ public class AlloyMC {
      * @return Change in energy if the move is accepted, 0.0 otherwise.
      */
     private double attemptSwap() {
-        int N = config.getN();
-        int i = rng.nextInt(N);
-        int j = rng.nextInt(N);
+        int i = rng.nextInt(nSites);
+        int j = rng.nextInt(nSites);
 
         int occI = config.getOccupation(i);
         int occJ = config.getOccupation(j);
@@ -206,13 +266,16 @@ public class AlloyMC {
         // 1. Update CFs to match the current configuration
         updateCorrelationFunctions();
         
-        // 2. Get the CVCF-basis CFs for dot product with ECIs (Delegated to Geometry)
-        double[] vFull = geo.getCvcfCorrelationFunctions(correlationFunctions, composition);
+        System.out.println("\n--- Energy Audit: Dot Product Calculation ---");
+        System.out.println(String.format("  %-6s | %-12s | %-12s | %-12s", "Col", "ECI", "CVCF", "Product"));
         
-        // 3. Compute Dot Product: Energy per site
+        // 2. Compute Dot Product: Energy per site using cached CVCFs
         double energyPerSite = 0.0;
         for (int l = 0; l < ncf && l < eciCvcf.length; l++) {
-            energyPerSite += eciCvcf[l] * vFull[l];
+            double term = eciCvcf[l] * cvcfCorrelationFunctions[l];
+            energyPerSite += term;
+            System.out.println(String.format("  Col %2d: %12.4f * %12.6f = %12.6f", 
+                    l, eciCvcf[l], cvcfCorrelationFunctions[l], term));
         }
         
         return energyPerSite * getNSites();
@@ -236,31 +299,157 @@ public class AlloyMC {
         // 2. Populate the state array: [uOrthNonPoint | uPoint | Empty]
         System.arraycopy(uOrthNonPoint, 0, correlationFunctions, 0, ncf);
         
-        // Point CFs: Average of basis functions over the lattice
+        // Point CFs: Average of basis functions over the lattice.
+        // We use the geometry's metadata (cfBasisIndices) to ensure the powers (k)
+        // are mapped to the correct columns in the state vector.
         double[] x = config.composition();
         double[] basisSeq = org.ce.model.cluster.ClusterMath.buildBasis(numComp);
-        for (int k = 1; k < numComp; k++) {
+        int[][] cfBasisIndices = geo.getCfBasisIndices();
+        for (int i = 0; i < numComp - 1; i++) {
+            int col = ncf + i;
+            int k = cfBasisIndices[col][0]; // Point CFs have single-index basis [k]
             double phiK = 0.0;
             for (int s = 0; s < numComp; s++) {
                 phiK += x[s] * Math.pow(basisSeq[s], k);
             }
-            correlationFunctions[ncf + k - 1] = phiK;
+            correlationFunctions[col] = phiK;
         }
         
         // Empty cluster is always 1.0
         correlationFunctions[ncf + numComp - 1] = 1.0;
+
+        // 3. Update CVCF cache
+        this.cvcfCorrelationFunctions = geo.getCvcfCorrelationFunctions(correlationFunctions, composition);
     }
     
     public double[] getCvcfCorrelationFunctions() {
-        return geo.getCvcfCorrelationFunctions(correlationFunctions, composition);
+        return cvcfCorrelationFunctions;
     }
 
     /**
      * Calculates the change in energy for swapping occupations at sites i and j.
+     * Uses a high-performance incremental update logic (O(1) complexity).
      */
     private double calculateDeltaE(int i, int j, int oldOccI, int oldOccJ) {
-        // TODO: Implement incremental update logic
-        return 0.0;
+        if (eciCvcf == null || eciCvcf.length == 0) return 0.0;
+        if (oldOccI == oldOccJ) return 0.0;
+
+        int[] occ = config.getRawOcc();
+        Embeddings.FlatEmbData flat = geo.getFlatEmbData();
+        double[] flatBasisMatrix = geo.getFlatBasisMatrix();
+        Embeddings.CsrSiteToCfIndex siteToCfIndex = geo.getSiteToCfIndex();
+        double[][] Tinv = geo.getBasis().Tinv;
+
+        int ac = 0;
+        int startI = siteToCfIndex.offsets[i], endI = siteToCfIndex.offsets[i + 1];
+        for (int idx = startI; idx < endI; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
+            if (!scratch.seen[key]) {
+                scratch.seen[key] = true;
+                scratch.affectedL[ac]  = l;
+                scratch.affectedEI[ac] = ei;
+                ac++;
+            }
+        }
+        int startJ = siteToCfIndex.offsets[j], endJ = siteToCfIndex.offsets[j + 1];
+        for (int idx = startJ; idx < endJ; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
+            if (!scratch.seen[key]) {
+                scratch.seen[key] = true;
+                scratch.affectedL[ac]  = l;
+                scratch.affectedEI[ac] = ei;
+                ac++;
+            }
+        }
+        scratch.affectedCount = ac;
+
+        // 1. Calculate old local products
+        for (int a = 0; a < ac; a++) {
+            int l   = scratch.affectedL[a];
+            int ei  = scratch.affectedEI[a];
+            int flatEmbIdx = flat.cfOffsets[l] + ei;
+            int sStart = flat.embSiteStart[flatEmbIdx];
+            int sEnd   = flat.embSiteStart[flatEmbIdx + 1];
+            double prod = 1.0;
+            for (int k = sStart; k < sEnd; k++)
+                prod *= flatBasisMatrix[occ[flat.siteData[k]] * numComp + flat.alphaData[k]];
+            scratch.oldSumDelta[l] += prod;
+        }
+
+        // 2. Simulate Swap
+        occ[i] = oldOccJ;
+        occ[j] = oldOccI;
+
+        // 3. Calculate new local products
+        for (int a = 0; a < ac; a++) {
+            int l   = scratch.affectedL[a];
+            int ei  = scratch.affectedEI[a];
+            int flatEmbIdx = flat.cfOffsets[l] + ei;
+            int sStart = flat.embSiteStart[flatEmbIdx];
+            int sEnd   = flat.embSiteStart[flatEmbIdx + 1];
+            double prod = 1.0;
+            for (int k = sStart; k < sEnd; k++)
+                prod *= flatBasisMatrix[occ[flat.siteData[k]] * numComp + flat.alphaData[k]];
+            scratch.newSumDelta[l] += prod;
+        }
+
+        // 4. Revert Swap (Metropolis will do it properly if accepted)
+        occ[i] = oldOccI;
+        occ[j] = oldOccJ;
+
+        // 5. Compute Orthogonal Change (du)
+        int cc = 0;
+        for (int a = 0; a < ac; a++) {
+            int l = scratch.affectedL[a];
+            if (!scratch.seenCol[l]) {
+                scratch.seenCol[l] = true;
+                scratch.affectedCols[cc++] = l;
+                double diff = scratch.newSumDelta[l] - scratch.oldSumDelta[l];
+                if (diff != 0.0)
+                    scratch.deltaUOrth[l] = diff / flat.cfEmbCount[l];
+            }
+        }
+        scratch.affectedColCount = cc;
+
+        // 6. Transform to CVCF basis and compute dE
+        double dE = 0.0;
+        if (Tinv != null) {
+            int tCols = Tinv[0].length;
+            for (int l = 0; l < ncf && l < Tinv.length; l++) {
+                double sum = 0.0;
+                for (int m = 0; m < ncf && m < tCols; m++)
+                    sum += Tinv[l][m] * scratch.deltaUOrth[m];
+                scratch.deltaVCvcf[l] = sum;
+            }
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaVCvcf[l];
+        } else {
+            // Binary Fallback
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaUOrth[l];
+        }
+        
+        // Final energy per supercell
+        dE *= nSites;
+
+        // 7. Cleanup scratch 'seen' flags
+        for (int a = 0; a < ac; a++)
+            scratch.seen[scratch.affectedL[a] * maxEmbPerCol + scratch.affectedEI[a]] = false;
+        for (int a = 0; a < cc; a++) {
+            int l = scratch.affectedCols[a];
+            scratch.seenCol[l]     = false;
+            scratch.oldSumDelta[l] = 0.0;
+            scratch.newSumDelta[l] = 0.0;
+            scratch.deltaUOrth[l]  = 0.0;
+            scratch.deltaVCvcf[l]  = 0.0;
+        }
+        scratch.affectedColCount = 0;
+
+        return dE;
     }
 
     /**

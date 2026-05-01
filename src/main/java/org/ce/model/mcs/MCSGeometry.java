@@ -76,6 +76,7 @@ public final class MCSGeometry {
     final Embeddings.FlatEmbData          flatEmbData;
     final double[][]                      basisMatrix;
     final double[]                        flatBasisMatrix;
+    final int[][]                         cfBasisIndices;
     final int                             L;
     final int                             numComp;
     final int                             ncf;
@@ -135,6 +136,7 @@ public final class MCSGeometry {
         CvCfBasis basisRef = CvCfBasis.generate(parentStructure, pr, matrixData, model, progressSink);
 
         this.clusterData = pr.getDisorderedClusterResult().getDisClusterData();
+        this.cfBasisIndices = matrixData.getCfBasisIndices();
         this.basis = basisRef;
 
         int tc = clusterData.getTc();
@@ -242,28 +244,8 @@ public final class MCSGeometry {
      * @return The full-length CVCF basis state vector.
      */
     public double[] getCvcfCorrelationFunctions(double[] correlationFunctions, double[] composition) {
-        if (basis == null || basis.Tinv == null) {
-            return java.util.Arrays.copyOf(correlationFunctions, ncf + numComp);
-        }
-        
         double[][] Tinv = basis.Tinv;
-        double[] vFull = new double[ncf + numComp];
-        
-        // 1. Transform non-point terms [0..ncf-1]
-        for (int i = 0; i < ncf; i++) {
-            double sum = 0.0;
-            for (int j = 0; j < Tinv[i].length && j < correlationFunctions.length; j++) {
-                sum += Tinv[i][j] * correlationFunctions[j];
-            }
-            vFull[i] = sum;
-        }
-        
-        // 2. Append mole fractions (compositions) [ncf..ncf+numComp-1]
-        if (composition != null) {
-            System.arraycopy(composition, 0, vFull, ncf, numComp);
-        }
-        
-        return vFull;
+        return org.ce.model.cluster.LinearAlgebra.multiply(Tinv, correlationFunctions);
     }
 
     private static List<Vector3D> buildBCCPositions(int L) {
@@ -277,4 +259,6 @@ public final class MCSGeometry {
                 }
         return pos;
     }
+
+    public int[][] getCfBasisIndices() { return cfBasisIndices; }
 }

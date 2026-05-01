@@ -216,5 +216,40 @@ public final class LinearAlgebra {
         }
         return C;
     }
+
+    /**
+     * Computes the matrix-vector product y = A Â· x.
+     */
+    public static double[] multiply(double[][] A, double[] x) {
+        int m = A.length;
+        int n = A[0].length;
+        if (x.length != n) {
+            throw new IllegalArgumentException("Vector length mismatch: " + n + " != " + x.length);
+        }
+        double[] y = new double[m];
+        for (int i = 0; i < m; i++) {
+            double sum = 0.0;
+            for (int j = 0; j < n; j++) {
+                sum += A[i][j] * x[j];
+            }
+            y[i] = sum;
+        }
+        return y;
+    }
+
+    /**
+     * Returns the transpose of a matrix.
+     */
+    public static double[][] transpose(double[][] A) {
+        int m = A.length;
+        int n = A[0].length;
+        double[][] AT = new double[n][m];
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < n; j++) {
+                AT[j][i] = A[i][j];
+            }
+        }
+        return AT;
+    }
 }
 
