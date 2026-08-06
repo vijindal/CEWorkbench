@@ -165,6 +165,16 @@ public final class CMatrixPipeline {
     // substituteRules, pRules, numComp, ...];
     // =====================================================================
 
+    /**
+     * @param maxClusters the ORDERED-PHASE maximal cluster(s) (matches
+     *                    Mathematica's {@code maxClusCoord}, NOT
+     *                    {@code disMaxClusCoord}). groupSubClusters matches
+     *                    subclusters of these against CF orbits that carry
+     *                    the ordered structure's sublattice partition — the
+     *                    disordered parent's maximal cluster generally has a
+     *                    different (coarser) sublattice shape and will not
+     *                    match.
+     */
     public static CMatrixData run(
             ClusterIdentificationResult clusterResult,
             CFIdentificationResult cfResult,
@@ -175,6 +185,15 @@ public final class CMatrixPipeline {
         emit(sink, "========================================================");
         emit(sink, "  C-MATRIX PIPELINE (Mathematica translation)");
         emit(sink, "========================================================");
+
+        if (numElements < 2) {
+            throw new ClusterIdentificationException("Stage 3",
+                    "numElements (numComponents) must be >= 2, got " + numElements + ".");
+        }
+        if (maxClusters == null || maxClusters.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 3",
+                    "maxClusters (ordered-phase maximal clusters) is null or empty.");
+        }
 
         // maxClusSiteList = genSiteList[maxClusCoord]
         List<Position> siteList = buildSiteList(maxClusters);
@@ -304,10 +323,29 @@ public final class CMatrixPipeline {
                         List<Cluster> subClusCoordList = ClusterCFIdentificationPipeline.genSubClusCoord(maxClus,
                                 basisSymbolList);
                         for (Cluster subClus : subClusCoordList) {
-                            if (ClusterMath.isContained(cfOrbit, subClus)) {
+                            // Use ClusterCFIdentificationPipeline.isContained (verified against
+                            // the Mathematica isTranslated reference), NOT ClusterMath.isContained
+                            // — the latter compares sites by positional index within each
+                            // sublattice instead of deduplicating (position,symbol) diffs across
+                            // all sites, so it spuriously returns false whenever site ordering
+                            // differs between the CF orbit's stored cluster and a generated
+                            // subcluster, even when they represent the same decorated cluster.
+                            if (ClusterCFIdentificationPipeline.isContained(cfOrbit, subClus)) {
                                 matched.add(subClus);
                             }
                         }
+                    }
+
+                    if (matched.isEmpty()) {
+                        throw new ClusterIdentificationException("Stage 3",
+                                "No subcluster of the disordered maximal clusters matches CF orbit type="
+                                        + i + " group=" + j + " index=" + k + " under the current symmetry. "
+                                        + "This means the ordered structure's correlation functions cannot be "
+                                        + "expressed in terms of the disordered parent's maximal-cluster "
+                                        + "subclusters — the two are geometrically incompatible, or the maximal "
+                                        + "cluster for the disordered parent is too small to contain this CF's "
+                                        + "orbit. Check that the disordered maximal-cluster file for this "
+                                        + "structure includes a cluster large enough to contain every ordered CF.");
                     }
 
                     groupLevel.add(matched);
@@ -816,6 +854,16 @@ public final class CMatrixPipeline {
                 }
             }
         }
+
+        for (int col = 0; col < result.length; col++) {
+            if (result[col] == null) {
+                throw new ClusterIdentificationException("Stage 3",
+                        "CF basis index missing for column " + col + " of " + result.length
+                                + " — totalCfs (from Stage 2 tcf) is inconsistent with the (t,j,k) entries "
+                                + "actually produced by groupSubClus/buildCfColumnMap. This indicates Stage 2 "
+                                + "and Stage 3 CF data are out of sync.");
+            }
+        }
         return result;
     }
 
@@ -900,6 +948,15 @@ public final class CMatrixPipeline {
     public static double[] buildFullCFVector(double[] u, double[] moleFractions,
             int numComponents, int[][] cfBasisIndices, int ncf) {
         int K = numComponents;
+        if (u.length < ncf) {
+            throw new ClusterIdentificationException("Stage 3",
+                    "buildFullCFVector: u.length=" + u.length + " is shorter than ncf=" + ncf + ".");
+        }
+        if (moleFractions.length != K) {
+            throw new ClusterIdentificationException("Stage 3",
+                    "buildFullCFVector: moleFractions.length=" + moleFractions.length
+                            + " does not match numComponents=" + K + ".");
+        }
         double[] uFull = new double[ncf + K];
         System.arraycopy(u, 0, uFull, 0, ncf);
 
@@ -922,6 +979,10 @@ public final class CMatrixPipeline {
      */
     public static double[] buildFullCVCFVector(double[] v, double[] x, int ncf) {
         int K = x.length;
+        if (v.length < ncf) {
+            throw new ClusterIdentificationException("Stage 3",
+                    "buildFullCVCFVector: v.length=" + v.length + " is shorter than ncf=" + ncf + ".");
+        }
         double[] vFull = new double[ncf + K];
         System.arraycopy(v, 0, vFull, 0, ncf);
         System.arraycopy(x, 0, vFull, ncf, K);
@@ -938,6 +999,22 @@ public final class CMatrixPipeline {
             int[][] lcv,
             int tcdis,
             int[] lc) {
+
+        if (cmat.size() != tcdis || lc.length != tcdis || lcv.length != tcdis) {
+            throw new ClusterIdentificationException("Stage 3",
+                    "evaluateCVs: dimension mismatch — tcdis=" + tcdis + ", cmat.size()=" + cmat.size()
+                            + ", lc.length=" + lc.length + ", lcv.length=" + lcv.length
+                            + ". These must all be equal; check that lc/lcv and cmat come from the same "
+                            + "PipelineResult/CMatrixData pair.");
+        }
+        for (int t = 0; t < tcdis; t++) {
+            if (cmat.get(t).size() != lc[t] || lcv[t].length != lc[t]) {
+                throw new ClusterIdentificationException("Stage 3",
+                        "evaluateCVs: at type t=" + t + ", lc[t]=" + lc[t] + " but cmat.get(t).size()="
+                                + cmat.get(t).size() + " and lcv[t].length=" + lcv[t].length
+                                + ". These must all be equal.");
+            }
+        }
 
         int width = uFull.length;
         double[][][] cv = new double[tcdis][][];

@@ -2,6 +2,7 @@ package org.ce.ui.gui;
 
 import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
 import org.ce.model.cluster.ClusterIdentificationRequest;
+import org.ce.model.cluster.StructurePhaseRegistry;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -36,19 +37,25 @@ public class DataPreparationPanel extends JPanel {
     private final Path inputsDir;
     private final Consumer<String> statusSink;
 
-    // Ordered phase (target) — determines system ID
+    // Ordered phase (target) — the only file the user selects; everything
+    // else (ordered symmetry, disordered structure+cluster, disordered
+    // symmetry) is derived from this via StructurePhaseRegistry.
     private final JComboBox<String> orderedClusterCombo;
-    private final JComboBox<String> orderedSymCombo;
 
-    // Disordered phase (parent/HSP) — determines ncf for Hamiltonian scaffold
-    private final JComboBox<String> disorderedClusterCombo;
-    private final JComboBox<String> disorderedSymCombo;
+    // Derived — read-only, shown for transparency, not user-editable.
+    private final JTextField orderedSymField = new JTextField();
+    private final JTextField disorderedClusterField = new JTextField();
+    private final JTextField disorderedSymField = new JTextField();
+    private final JLabel derivationWarningLabel = new JLabel(" ");
 
     private final JTextField elementsField  = new JTextField("Nb-Ti", 12);
     private final JSpinner numCompSpinner = new JSpinner(new SpinnerNumberModel(2, 2, 20, 1));
     private final JTextField systemIdField = new JTextField(24);
 
     private final JButton runBtn;
+
+    /** Holds the fully-resolved derivation, or null if resolution failed. */
+    private ClusterIdentificationRequest derived;
 
     public DataPreparationPanel(org.ce.CEWorkbenchContext appCtx,
             WorkbenchContext context,
@@ -60,19 +67,21 @@ public class DataPreparationPanel extends JPanel {
 
         setBackground(BG);
 
-        String[] clusFiles = scanInputsDir(inputsDir, "clus", ".txt", "clus/", false);
-        String[] symGroups = scanInputsDir(inputsDir, "sym", ".txt", "", true);
+        String[] clusFiles = scanInputsDir(inputsDir, "clus", ".txt", "", false);
 
         orderedClusterCombo = makeCombo(clusFiles);
-        orderedSymCombo = makeCombo(symGroups);
-        disorderedClusterCombo = makeCombo(clusFiles);
-        disorderedSymCombo = makeCombo(symGroups);
+
+        for (JTextField f : new JTextField[] { orderedSymField, disorderedClusterField, disorderedSymField }) {
+            f.setEditable(false);
+            f.setForeground(LABEL_FG);
+        }
+        derivationWarningLabel.setForeground(new Color(0xF48771)); // VS Code error orange
 
         systemIdField.setEditable(false);
         systemIdField.setFont(new Font(Font.MONOSPACED, Font.BOLD, 12));
         systemIdField.setForeground(SYS_ID_FG);
 
-        orderedClusterCombo.addActionListener(e -> refreshSystemId());
+        orderedClusterCombo.addActionListener(e -> refreshDerivedFields());
         numCompSpinner.addChangeListener(e -> refreshSystemId());
         // Keep numComp in sync with elements field
         elementsField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -84,13 +93,69 @@ public class DataPreparationPanel extends JPanel {
                 if (n >= 2) numCompSpinner.setValue(n);
             }
         });
-        refreshSystemId();
+        refreshDerivedFields();
 
         runBtn = new JButton("Run Identification");
 
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
         add(buildForm(), BorderLayout.NORTH);
+    }
+
+    // =========================================================================
+    // Derivation: ordered cluster file -> {ordered sym, disordered structure,
+    // disordered cluster, disordered sym}
+    //
+    // Delegates entirely to ClusterIdentificationRequest.Builder — the same
+    // model-layer code path the CLI uses — so the GUI's preview and the
+    // actual pipeline dispatch can never diverge.
+    // =========================================================================
+
+    /**
+     * Attempts to build a {@link ClusterIdentificationRequest} from a single
+     * ordered cluster-file selection, using {@link ClusterIdentificationRequest.Builder}'s
+     * derivation of the disordered parent (structure, model, cluster file,
+     * symmetry group) via {@link StructurePhaseRegistry}.
+     *
+     * @param orderedClusterSelection bare filename as shown in the dropdown
+     *        (e.g. {@code "BCC_B2-T.txt"}), not the {@code "clus/"}-prefixed
+     *        path {@link ClusterIdentificationRequest} expects.
+     * @return the built request, or null if derivation/validation failed
+     *         (a message is set on {@link #derivationWarningLabel} in that case).
+     */
+    private ClusterIdentificationRequest deriveFromOrderedCluster(String orderedClusterSelection) {
+        derivationWarningLabel.setText(" ");
+        try {
+            return ClusterIdentificationRequest.builder()
+                    .orderedClusterFile("clus/" + orderedClusterSelection)
+                    .numComponents((int) numCompSpinner.getValue())
+                    .build();
+        } catch (Exception e) {
+            derivationWarningLabel.setText(e.getMessage());
+            return null;
+        }
+    }
+
+    private void refreshDerivedFields() {
+        Object sel = orderedClusterCombo.getSelectedItem();
+        if (sel == null || sel.toString().isBlank()) {
+            derived = null;
+            orderedSymField.setText("");
+            disorderedClusterField.setText("");
+            disorderedSymField.setText("");
+            return;
+        }
+        derived = deriveFromOrderedCluster(sel.toString().trim());
+        if (derived != null) {
+            orderedSymField.setText(derived.getOrderedSymmetryGroup());
+            disorderedClusterField.setText(derived.getDisorderedClusterFile());
+            disorderedSymField.setText(derived.getDisorderedSymmetryGroup());
+        } else {
+            orderedSymField.setText("");
+            disorderedClusterField.setText("");
+            disorderedSymField.setText("");
+        }
+        refreshSystemId();
     }
 
     // =========================================================================
@@ -129,28 +194,11 @@ public class DataPreparationPanel extends JPanel {
     // =========================================================================
 
     private void refreshSystemId() {
-        Object sel = orderedClusterCombo.getSelectedItem();
-        if (sel == null || sel.toString().isBlank())
+        if (derived == null) {
+            systemIdField.setText("");
             return;
-        systemIdField.setText(generateSystemId(sel.toString(), (int) numCompSpinner.getValue()));
-    }
-
-    private static String generateSystemId(String clusterFile, int numComp) {
-        String base = clusterFile;
-        int slash = base.lastIndexOf('/');
-        if (slash >= 0)
-            base = base.substring(slash + 1);
-        if (base.toLowerCase().endsWith(".txt"))
-            base = base.substring(0, base.length() - 4);
-        base = base.replace('-', '_');
-
-        String suffix;
-        try {
-            suffix = org.ce.model.storage.Workspace.SystemId.ncompSuffix(numComp);
-        } catch (IllegalArgumentException e) {
-            suffix = numComp + "comp";
         }
-        return base + "_" + suffix;
+        systemIdField.setText(derived.getStructurePhase() + "_" + derived.getModel());
     }
 
     // =========================================================================
@@ -192,7 +240,7 @@ public class DataPreparationPanel extends JPanel {
 
         int row = 0;
 
-        // ── Ordered phase ──
+        // ── Ordered phase (the only user selection) ──
         JLabel ordLabel = new JLabel("── Ordered phase (target) ──");
         ordLabel.setForeground(ORD_HDR);
         ordLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
@@ -205,42 +253,33 @@ public class DataPreparationPanel extends JPanel {
         bc.gridy = row++;
         form.add(orderedClusterCombo, fc);
         JButton browseOrdClus = new JButton("Browse");
-        browseOrdClus.addActionListener(e -> browseFile(orderedClusterCombo, "clus", "clus/", false));
+        browseOrdClus.addActionListener(e -> browseFile(orderedClusterCombo, "clus", "", false));
         form.add(browseOrdClus, bc);
 
-        lc.gridy = row++;
-        form.add(makeLabel("Symmetry group:", LABEL_FG), lc);
-        fc.gridy = row;
-        bc.gridy = row++;
-        form.add(orderedSymCombo, fc);
-        JButton browseOrdSym = new JButton("Browse");
-        browseOrdSym.addActionListener(e -> browseFile(orderedSymCombo, "sym", "", true));
-        form.add(browseOrdSym, bc);
-
-        // ── Disordered (parent/HSP) phase ──
-        JLabel disLabel = new JLabel("── Disordered parent (HSP) ──");
-        disLabel.setForeground(DIS_HDR);
-        disLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        // ── Derived (read-only) ──
+        JLabel derivedLabel = new JLabel("── Derived automatically ──");
+        derivedLabel.setForeground(DIS_HDR);
+        derivedLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
         hc.gridy = row++;
-        form.add(disLabel, hc);
+        form.add(derivedLabel, hc);
 
         lc.gridy = row++;
-        form.add(makeLabel("Cluster file:", LABEL_FG), lc);
-        fc.gridy = row;
-        bc.gridy = row++;
-        form.add(disorderedClusterCombo, fc);
-        JButton browseDisClus = new JButton("Browse");
-        browseDisClus.addActionListener(e -> browseFile(disorderedClusterCombo, "clus", "clus/", false));
-        form.add(browseDisClus, bc);
+        form.add(makeLabel("Ordered symmetry group:", LABEL_FG), lc);
+        fc.gridy = row++;
+        form.add(orderedSymField, fc);
 
         lc.gridy = row++;
-        form.add(makeLabel("Symmetry group:", LABEL_FG), lc);
-        fc.gridy = row;
-        bc.gridy = row++;
-        form.add(disorderedSymCombo, fc);
-        JButton browseDisSym = new JButton("Browse");
-        browseDisSym.addActionListener(e -> browseFile(disorderedSymCombo, "sym", "", true));
-        form.add(browseDisSym, bc);
+        form.add(makeLabel("Disordered parent cluster file:", LABEL_FG), lc);
+        fc.gridy = row++;
+        form.add(disorderedClusterField, fc);
+
+        lc.gridy = row++;
+        form.add(makeLabel("Disordered parent symmetry group:", LABEL_FG), lc);
+        fc.gridy = row++;
+        form.add(disorderedSymField, fc);
+
+        hc.gridy = row++;
+        form.add(derivationWarningLabel, hc);
 
         // ── Shared ──
         lc.gridy = row++;
@@ -314,43 +353,31 @@ public class DataPreparationPanel extends JPanel {
 
     private void runIdentification() {
         Object ordClusSel = orderedClusterCombo.getSelectedItem();
-        Object ordSymSel = orderedSymCombo.getSelectedItem();
-        Object disClusSel = disorderedClusterCombo.getSelectedItem();
-        Object disSymSel = disorderedSymCombo.getSelectedItem();
-
-        if (ordClusSel == null || ordSymSel == null
-                || disClusSel == null || disSymSel == null)
+        if (ordClusSel == null || ordClusSel.toString().isBlank())
             return;
 
-        String ordClus = ordClusSel.toString().trim();
-        String ordSym = ordSymSel.toString().trim();
-        String disClus = disClusSel.toString().trim();
-        String disSym = disSymSel.toString().trim();
-        int numComp = (int) numCompSpinner.getValue();
+        // Re-derive (rather than trusting a possibly-stale `derived` field)
+        // so the user always gets an up-to-date check right before running.
+        ClusterIdentificationRequest config = deriveFromOrderedCluster(ordClusSel.toString().trim());
+        if (config == null) {
+            statusSink.accept("Cannot run: " + derivationWarningLabel.getText());
+            appCtx.log("Error: " + derivationWarningLabel.getText());
+            return;
+        }
+
         String systemId = systemIdField.getText().trim();
 
         appCtx.log("System ID      : " + systemId);
-        appCtx.log("Ordered cluster: " + ordClus);
-        appCtx.log("Ordered sym    : " + ordSym);
-        appCtx.log("Disordered clus: " + disClus + "  (parent — determines ncf)");
-        appCtx.log("Disordered sym : " + disSym);
-        appCtx.log("Components     : " + numComp);
+        appCtx.log("Ordered cluster: " + config.getOrderedClusterFile());
+        appCtx.log("Ordered sym    : " + config.getOrderedSymmetryGroup());
+        appCtx.log("Disordered clus: " + config.getDisorderedClusterFile());
+        appCtx.log("Disordered sym : " + config.getDisorderedSymmetryGroup());
+        appCtx.log("Components     : " + config.getNumComponents());
         appCtx.clearLog();
         statusSink.accept("Running cluster identification for " + systemId + "...");
 
-        // Parse structure and model from systemId before creating worker
-        String parsedStructure;
-        String parsedModel;
-        String[] parts = systemId.split("_");
-        if (parts.length >= 3) {
-            parsedStructure = parts[0] + "_" + parts[1];
-            parsedModel = parts[2];
-        } else {
-            parsedStructure = "BCC_A2";
-            parsedModel = "T";
-        }
-        final String resolvedStructure = parsedStructure;
-        final String resolvedModel = parsedModel;
+        final String resolvedStructure = config.getStructurePhase();
+        final String resolvedModel = config.getModel();
 
         runBtn.setEnabled(false);
 
@@ -358,18 +385,6 @@ public class DataPreparationPanel extends JPanel {
             @Override
             protected PipelineResult doInBackground() throws Exception {
                 publish("Stage 1-2: Cluster + CF identification...");
-
-                ClusterIdentificationRequest config = ClusterIdentificationRequest.builder()
-                        .orderedClusterFile(ordClus)
-                        .orderedSymmetryGroup(ordSym)
-                        .disorderedClusterFile(disClus)
-                        .disorderedSymmetryGroup(disSym)
-                        .transformationMatrix(new double[][] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } })
-                        .translationVector(new org.ce.model.cluster.ClusterPrimitives.Vector3D(0, 0, 0))
-                        .numComponents(numComp)
-                        .structurePhase(resolvedStructure)
-                        .model(resolvedModel)
-                        .build();
 
                 return org.ce.model.cluster.ClusterCFIdentificationPipeline.runFullWorkflow(config, this::publish);
             }

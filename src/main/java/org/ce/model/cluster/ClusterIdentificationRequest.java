@@ -2,6 +2,10 @@ package org.ce.model.cluster;
 
 import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.model.storage.InputLoader;
+import org.ce.model.storage.Workspace;
+
+import java.io.File;
+import java.nio.file.Path;
 
 /**
  * Configuration request for cluster and correlation function identification.
@@ -155,17 +159,34 @@ public class ClusterIdentificationRequest {
         }
 
         public ClusterIdentificationRequest build() {
-            // Auto-derive cluster and symmetry files if not set
-            if ((disorderedClusterFile == null || disorderedClusterFile.isBlank()) && structurePhase != null && model != null) {
+            // If the caller didn't set orderedClusterFile directly, derive it
+            // from structurePhase+model (the CLI/CECManagementWorkflow path).
+            // Either way, orderedClusterFile is now the single source of truth
+            // for the ordered structure/model — deriveDisorderedParent() below
+            // re-parses it fresh, so orderedSymmetryGroup is never computed
+            // from a stale/default structurePhase value.
+            if (orderedClusterFile == null || orderedClusterFile.isBlank()) {
+                if (structurePhase == null || model == null) {
+                    throw new IllegalArgumentException(
+                            "Must set either orderedClusterFile, or both structurePhase and model.");
+                }
                 String base = structurePhase.replace("_CVCF", "");
                 String mod = model.replace("_CVCF", "");
-                this.disorderedClusterFile = "clus/" + base + "-" + mod + ".txt";
-                this.orderedClusterFile = this.disorderedClusterFile;
+                this.orderedClusterFile = "clus/" + base + "-" + mod + ".txt";
             }
-            if ((disorderedSymmetryGroup == null || disorderedSymmetryGroup.isBlank()) && structurePhase != null) {
-                String base = structurePhase.replace("_CVCF", "");
-                this.disorderedSymmetryGroup = base + "-SG";
-                this.orderedSymmetryGroup = this.disorderedSymmetryGroup;
+
+            // Derive the ordered symmetry group, disordered parent (structure,
+            // model, cluster file, symmetry group) from orderedClusterFile via
+            // StructurePhaseRegistry — the single source of truth for which
+            // disordered structure an ordered structure belongs to. This is
+            // the ONLY place this derivation should happen; GUI and CLI both
+            // go through this Builder so they cannot diverge.
+            //
+            // Callers may still set disorderedClusterFile/disorderedSymmetryGroup
+            // explicitly (e.g. tests, advanced use) to bypass derivation.
+            if (disorderedClusterFile == null || disorderedClusterFile.isBlank()
+                    || disorderedSymmetryGroup == null || disorderedSymmetryGroup.isBlank()) {
+                deriveDisorderedParent();
             }
 
             validate();
@@ -174,6 +195,80 @@ public class ClusterIdentificationRequest {
                 extractTransformationFromSymmetryGroup();
             }
             return new ClusterIdentificationRequest(this);
+        }
+
+        /**
+         * Derives the disordered-parent cluster file and symmetry group from
+         * {@link #orderedClusterFile}, using {@link StructurePhaseRegistry} for
+         * the structure mapping. The disordered parent MUST use the same
+         * maximal-cluster model letter as the ordered phase (e.g. both "T" or
+         * both "TO") — the model selects which maximal clusters are used for
+         * identification, so substituting a different model would build
+         * cluster/CF data from the wrong maximal clusters entirely. This
+         * method never falls back to a different model; it fails clearly
+         * instead.
+         */
+        private void deriveDisorderedParent() {
+            if (orderedClusterFile == null || orderedClusterFile.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Cannot derive disordered parent: orderedClusterFile is not set. "
+                                + "Provide structurePhase+model, or set orderedClusterFile explicitly.");
+            }
+
+            String name = orderedClusterFile;
+            int slash = name.lastIndexOf('/');
+            if (slash >= 0)
+                name = name.substring(slash + 1);
+            if (name.toLowerCase().endsWith(".txt"))
+                name = name.substring(0, name.length() - 4);
+
+            int dash = name.lastIndexOf('-');
+            if (dash < 0) {
+                throw new IllegalArgumentException(
+                        "Cannot parse ordered cluster file '" + orderedClusterFile
+                                + "' as <structure>-<model>; expected e.g. BCC_B2-T.txt");
+            }
+            String orderedStructure = name.substring(0, dash);
+            String orderedModel = name.substring(dash + 1);
+
+            // Keep structurePhase/model consistent with the parsed ordered
+            // file regardless of whether the caller set them explicitly or
+            // only supplied orderedClusterFile.
+            this.structurePhase = orderedStructure;
+            this.model = orderedModel;
+
+            String disorderedStructure = StructurePhaseRegistry.parentOf(orderedStructure);
+
+            Path inputsDir = new Workspace().inputsDir();
+            File disorderedClusterHandle = inputsDir.resolve("clus")
+                    .resolve(disorderedStructure + "-" + orderedModel + ".txt").toFile();
+            if (!disorderedClusterHandle.exists()) {
+                throw new ClusterIdentificationException("Stage 0",
+                        "Disordered parent '" + disorderedStructure + "' has no '-" + orderedModel
+                                + "' maximal-cluster model file (looked for " + disorderedClusterHandle
+                                + "). The disordered parent must use the same cluster model as ordered structure '"
+                                + orderedStructure + "-" + orderedModel
+                                + "'. Add that file, or pick an ordered cluster file whose model the parent "
+                                + "structure already has.");
+            }
+
+            this.disorderedClusterFile = "clus/" + disorderedStructure + "-" + orderedModel + ".txt";
+            this.disorderedSymmetryGroup = disorderedStructure + "-SG";
+
+            if (this.orderedSymmetryGroup == null || this.orderedSymmetryGroup.isBlank()) {
+                this.orderedSymmetryGroup = orderedStructure + "-SG";
+            }
+
+            File orderedSymHandle = inputsDir.resolve("sym").resolve(orderedSymmetryGroup + ".txt").toFile();
+            if (!orderedSymHandle.exists()) {
+                throw new ClusterIdentificationException("Stage 0",
+                        "Missing symmetry file for ordered structure: " + orderedSymHandle);
+            }
+            File disorderedSymHandle = inputsDir.resolve("sym").resolve(disorderedSymmetryGroup + ".txt").toFile();
+            if (!disorderedSymHandle.exists()) {
+                throw new ClusterIdentificationException("Stage 0",
+                        "Missing symmetry file for disordered parent: " + disorderedSymHandle);
+            }
         }
 
         private void validate() {

@@ -5,21 +5,21 @@ import static org.ce.model.cluster.SpaceGroup.SymmetryOperation;
 import org.ce.model.cluster.Cluster;
 import static org.ce.model.cluster.ClusterPrimitives.*;
 import org.ce.model.cluster.SpaceGroup;
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Loads CVM input data (cluster geometry and symmetry) from classpath resources.
+ * Loads CVM input data (cluster geometry and symmetry) from the filesystem
+ * workspace ({@code Workspace.inputsDir()}), so that adding a new structure
+ * only requires dropping a file into {@code inputs/clus/} or {@code inputs/sym/}
+ * — no rebuild/repackage needed.
  *
- * <h2>Resource naming conventions</h2>
+ * <h2>File naming conventions</h2>
  * <ul>
- *   <li>Cluster files:    {@code clus/<name>.txt}  (e.g. {@code clus/BCC_A2-T.txt})</li>
- *   <li>Space-group files: {@code sym/<baseName>.txt} and {@code sym/<baseName>_mat.txt}</li>
+ *   <li>Cluster files:    {@code inputs/clus/<name>.txt}  (e.g. {@code clus/BCC_A2-T.txt})</li>
+ *   <li>Space-group files: {@code inputs/sym/<baseName>.txt}</li>
  * </ul>
  */
 public class InputLoader {
@@ -27,39 +27,33 @@ public class InputLoader {
     private InputLoader() {}
 
     // =========================================================================
-    // Public API
+    // Public API — resolves against the default filesystem Workspace
     // =========================================================================
 
     /**
-     * Parses a cluster file from the classpath.
+     * Parses a cluster file from the workspace filesystem.
      *
-     * @param path classpath-relative path (e.g. {@code "clus/BCC_A2-T.txt"})
+     * @param path inputs-dir-relative path (e.g. {@code "clus/BCC_A2-T.txt"})
      * @return list of parsed {@link Cluster} objects
      */
     public static List<Cluster> parseClusterFile(String path) {
-        try {
-            return ClusterParser.parseFromResources(path);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load cluster file: " + path, e);
-        }
+        return parseClusterFileFromPath(new Workspace().inputsDir(), path);
     }
 
     /**
-     * Parses a space-group resource pair and returns the full {@link SpaceGroup}.
+     * Parses a space-group file pair from the workspace filesystem and
+     * returns the full {@link SpaceGroup}.
      *
-     * @param baseName base name without path or extension (e.g. {@code "A2-SG"})
+     * @param baseName base name without path or extension (e.g. {@code "BCC_A2-SG"})
      * @return fully populated {@link SpaceGroup}
      */
     public static SpaceGroup parseSpaceGroup(String baseName) {
-        try {
-            return SpaceGroupParser.parseFromResources(baseName);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load space-group file: " + baseName, e);
-        }
+        return parseSpaceGroupFromPath(new Workspace().inputsDir(), baseName);
     }
 
     /**
-     * Parses a space-group resource pair and returns only the symmetry operations.
+     * Parses a space-group file from the workspace filesystem and returns
+     * only the symmetry operations.
      *
      * @param baseName base name without path or extension
      * @return list of {@link SymmetryOperation} objects
@@ -69,37 +63,38 @@ public class InputLoader {
     }
 
     // =========================================================================
-    // Filesystem-based API (for development/project-local workspace)
+    // Filesystem-based API — explicit inputsDir (for a non-default Workspace)
     // =========================================================================
 
     /**
-     * Parses a cluster file from the filesystem (development workspace).
+     * Parses a cluster file from the given inputs directory.
      *
-     * @param inputsDir base inputs directory path
-     * @param clusterFile relative path within inputs dir (e.g. "clus/A2-T.txt")
+     * @param inputsDir   base inputs directory path
+     * @param clusterFile relative path within inputs dir (e.g. "clus/BCC_A2-T.txt")
      * @return list of parsed {@link Cluster} objects
      */
     public static List<Cluster> parseClusterFileFromPath(Path inputsDir, String clusterFile) {
+        Path filePath = inputsDir.resolve(clusterFile);
         try {
-            Path filePath = inputsDir.resolve(clusterFile);
             return ClusterParser.parseFromPath(filePath);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load cluster file: " + clusterFile, e);
+            throw new RuntimeException("Failed to load cluster file: " + filePath, e);
         }
     }
 
     /**
-     * Parses a space-group from the filesystem (development workspace).
+     * Parses a space-group from the given inputs directory.
      *
      * @param inputsDir base inputs directory path
-     * @param baseName base name without path or extension (e.g. "A2-SG")
+     * @param baseName  base name without path or extension (e.g. "BCC_A2-SG")
      * @return fully populated {@link SpaceGroup}
      */
     public static SpaceGroup parseSpaceGroupFromPath(Path inputsDir, String baseName) {
         try {
             return SpaceGroupParser.parseFromPath(inputsDir, baseName);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load space-group file: " + baseName, e);
+            throw new RuntimeException(
+                    "Failed to load space-group file: " + inputsDir.resolve("sym").resolve(baseName + ".txt"), e);
         }
     }
 
@@ -130,24 +125,6 @@ public class InputLoader {
 
         private ClusterParser() {}
 
-        static List<Cluster> parseFromResources(String resourcePath) throws Exception {
-            String fullPath = resourcePath.startsWith("clus/") ? resourcePath : "clus/" + resourcePath;
-            InputStream is = ClusterParser.class
-                    .getClassLoader()
-                    .getResourceAsStream(fullPath);
-
-            if (is == null)
-                throw new RuntimeException("File not found: " + fullPath);
-
-            BufferedReader br = new BufferedReader(new InputStreamReader(is));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line.trim());
-            br.close();
-
-            return parseClusterContent(sb.toString());
-        }
-
         static List<Cluster> parseFromPath(Path filePath) throws Exception {
 
             if (!Files.exists(filePath))
@@ -158,6 +135,7 @@ public class InputLoader {
         }
 
         private static List<Cluster> parseClusterContent(String content) {
+            content = stripLeadingComment(content);
             // Remove outermost braces
             content = content.trim();
             content = content.substring(1, content.length() - 1);
@@ -208,10 +186,68 @@ public class InputLoader {
 
         private static Site parseSite(String block) {
             String[] tokens = block.split(",");
-            double x = Double.parseDouble(tokens[0]);
-            double y = Double.parseDouble(tokens[1]);
-            double z = Double.parseDouble(tokens[2]);
+            double x = parseMathematicaNumber(tokens[0]);
+            double y = parseMathematicaNumber(tokens[1]);
+            double z = parseMathematicaNumber(tokens[2]);
             return new Site(new Position(x, y, z), "s1");
+        }
+
+        /**
+         * Parses a Mathematica numeric literal, including the fraction forms
+         * used in some cluster-coordinate exports: {@code "1/3"}, {@code "-1/3"},
+         * {@code "-(1/3)"}. Plain decimals ({@code "0.5"}, {@code "-1"}) parse
+         * as before.
+         */
+        static double parseMathematicaNumber(String token) {
+            String t = token.trim();
+            boolean negated = false;
+            if (t.startsWith("-(") && t.endsWith(")")) {
+                negated = true;
+                t = t.substring(2, t.length() - 1);
+            }
+            int slash = t.indexOf('/');
+            double value;
+            if (slash >= 0) {
+                double num = Double.parseDouble(t.substring(0, slash).trim());
+                double den = Double.parseDouble(t.substring(slash + 1).trim());
+                value = num / den;
+            } else {
+                value = Double.parseDouble(t);
+            }
+            return negated ? -value : value;
+        }
+
+        /**
+         * Strips a leading Mathematica {@code (* ... *)} comment block (used
+         * by some plain-text notebook exports), including nested comments.
+         * Leaves the content untouched if it doesn't start with a comment.
+         */
+        static String stripLeadingComment(String content) {
+            String s = content.stripLeading();
+            while (s.startsWith("(*")) {
+                int depth = 0;
+                int i = 0;
+                int end = -1;
+                while (i < s.length() - 1) {
+                    if (s.charAt(i) == '(' && s.charAt(i + 1) == '*') {
+                        depth++;
+                        i += 2;
+                    } else if (s.charAt(i) == '*' && s.charAt(i + 1) == ')') {
+                        depth--;
+                        i += 2;
+                        if (depth == 0) {
+                            end = i;
+                            break;
+                        }
+                    } else {
+                        i++;
+                    }
+                }
+                if (end < 0)
+                    throw new RuntimeException("Unterminated (* comment *) block");
+                s = s.substring(end).stripLeading();
+            }
+            return s;
         }
 
         private static int findMatchingBrace(String s, int start) {
@@ -233,25 +269,6 @@ public class InputLoader {
 
         private SpaceGroupParser() {}
 
-        static SpaceGroup parseFromResources(String baseName) throws Exception {
-
-            // Single file contains both symmetry operations and transformation matrix
-            InputStream is = SpaceGroupParser.class
-                    .getClassLoader()
-                    .getResourceAsStream("sym/" + baseName + ".txt");
-
-            if (is == null)
-                throw new RuntimeException("File not found: " + baseName + ".txt");
-
-            BufferedReader br = new BufferedReader(new InputStreamReader(is));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line.trim());
-            br.close();
-
-            return parseSpaceGroupContent(baseName, sb.toString());
-        }
-
         static SpaceGroup parseFromPath(Path inputsDir, String baseName) throws Exception {
 
             Path symFile = inputsDir.resolve("sym").resolve(baseName + ".txt");
@@ -272,7 +289,7 @@ public class InputLoader {
 
             List<Double> numbers = new ArrayList<>();
             for (String t : tokens) {
-                if (!t.trim().isEmpty()) numbers.add(Double.parseDouble(t.trim()));
+                if (!t.trim().isEmpty()) numbers.add(ClusterParser.parseMathematicaNumber(t));
             }
 
             // --- Calculate number of symmetry operations ---

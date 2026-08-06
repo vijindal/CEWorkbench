@@ -467,14 +467,19 @@ public final class ClusterCFIdentificationPipeline {
          */
         public double[] computeRandomCFs(double[] moleFractions) {
             int K = moleFractions.length;
-            int pointCfCount = K - 1; // = nxcf for orthogonal basis
-            int fullLength = ncf + K; // = tcf + 1
+            int pointBasisCount = K - 1; // number of independent symmetric point-basis functions
+            int pointCfColumnCount = nxcf; // orthogonal point-CF columns — may exceed K-1 when
+                                            // an ordered structure's point orbit splits across
+                                            // sublattices (e.g. BCC_B2); at the random-state
+                                            // limit every sublattice shares the same composition,
+                                            // so each such column takes the same pointCF value.
+            int fullLength = ncf + pointCfColumnCount + 1; // non-point + point + empty cluster
 
             // Step 1: Compute K-1 point CFs from composition
             // pointCF[k] = ⟨σ^(k+1)⟩ = Σ_i x_i · basis_i^(k+1)
             double[] basis = ClusterMath.buildBasis(K);
-            double[] pointCF = new double[pointCfCount];
-            for (int k = 0; k < pointCfCount; k++) {
+            double[] pointCF = new double[pointBasisCount];
+            for (int k = 0; k < pointBasisCount; k++) {
                 for (int i = 0; i < K; i++) {
                     pointCF[k] += moleFractions[i] * Math.pow(basis[i], k + 1);
                 }
@@ -493,14 +498,14 @@ public final class ClusterCFIdentificationPipeline {
                 uFull[col] = val;
             }
 
-            // [ncf..ncf+K-2]: point CFs, placed using cfBasisIndices
-            for (int k = 0; k < pointCfCount; k++) {
+            // [ncf..ncf+pointCfColumnCount-1]: point CFs, placed using cfBasisIndices
+            for (int k = 0; k < pointCfColumnCount; k++) {
                 int col = ncf + k;
                 int power = cfBasisIndices[col][0]; // single decoration for point CF
                 uFull[col] = pointCF[power - 1];
             }
 
-            // [ncf+K-1]: empty cluster constant = 1.0
+            // [fullLength-1]: empty cluster constant = 1.0
             uFull[fullLength - 1] = 1.0;
 
             return uFull;
@@ -693,6 +698,9 @@ public final class ClusterCFIdentificationPipeline {
 
         emit(sink, "=== ClusterCFIdentificationPipeline: START ===");
 
+        validateStage0Inputs(disMaxClusCoord, disSymOpList, maxClusCoord, symOpList,
+                rotateMat, translateMat, numComp);
+
         // ---- Stage 1a: HSP clusters (binary basis) ----
         int numCompBin = 2;
         List<String> basisSymbolListBin = genBasisSymbolList(numCompBin);
@@ -710,6 +718,8 @@ public final class ClusterCFIdentificationPipeline {
         List<Cluster> disClusList = disClusData.getClusCoordList();
         List<Double> mhdisList = disClusData.getMultiplicities();
         List<List<Cluster>> disOrbitList = disClusData.getOrbitList();
+
+        validateStage1aResult(tcdis, mhdisList);
 
         double[] mhdis = new double[tcdis];
         for (int i = 0; i < tcdis; i++)
@@ -740,6 +750,8 @@ public final class ClusterCFIdentificationPipeline {
         // clusCoordList]
         ClassifiedData ordClusData = transClusCoordList(disClusData, phaseClusterData, transformedClusList);
 
+        validateStage1bClassification(ordClusData, tcdis);
+
         // lc = Map[Length, ordClusCoordList]
         int[] lc = new int[tcdis];
         for (int t = 0; t < tcdis; t++) {
@@ -754,6 +766,12 @@ public final class ClusterCFIdentificationPipeline {
         // mh = ordClusMList / mhdis
         double[][] mh = new double[tcdis][];
         for (int t = 0; t < tcdis; t++) {
+            if (mhdis[t] == 0.0) {
+                throw new ClusterIdentificationException("Stage 1b",
+                        "HSP cluster type " + t + " has zero multiplicity (mhdis[" + t
+                                + "]=0); cannot normalize ordered-phase multiplicities. "
+                                + "Check that the disordered symmetry group covers this cluster's orbit.");
+            }
             mh[t] = new double[lc[t]];
             for (int j = 0; j < lc[t]; j++) {
                 mh[t][j] = ordClusData.getMultiplicityList().get(t).get(j) / mhdis[t];
@@ -799,12 +817,24 @@ public final class ClusterCFIdentificationPipeline {
                 tcf += lcf[i][j];
 
         // nxcf = Sum[lcf[tcdis-1][j]] (last HSP type = point cluster type)
+        if (tcdis - 1 >= lcf.length) {
+            throw new ClusterIdentificationException("Stage 2b",
+                    "CF grouping produced " + lcf.length + " HSP-type rows but Stage 1a found tcdis=" + tcdis
+                            + " HSP cluster types; the point-cluster row (index " + (tcdis - 1)
+                            + ") is missing. This indicates disCFData/disClusData are out of sync — "
+                            + "check that the same disordered cluster file and symmetry group were used for both.");
+        }
         int nxcf = 0;
-        if (tcdis - 1 < lcf.length)
-            for (int j = 0; j < lcf[tcdis - 1].length; j++)
-                nxcf += lcf[tcdis - 1][j];
+        for (int j = 0; j < lcf[tcdis - 1].length; j++)
+            nxcf += lcf[tcdis - 1][j];
 
         int ncf = tcf - nxcf;
+
+        if (tcf == 0) {
+            throw new ClusterIdentificationException("Stage 2b",
+                    "No correlation functions were identified (tcf=0). "
+                            + "Check that maxClusCoord/disMaxClusCoord are non-empty and numComponents >= 2.");
+        }
 
         // ---- Derive CF basis indices from grouped CF data ----
         // For each CF column, extract the 1-based σ-power decorations
@@ -1219,6 +1249,13 @@ public final class ClusterCFIdentificationPipeline {
         }
 
         // STEP 3: Normalize multiplicities
+        if (pointM == 0) {
+            throw new ClusterIdentificationException("genClusCoordList",
+                    "No point (single-site) cluster orbit was found among " + tcCount
+                            + " enumerated cluster types; cannot normalize multiplicities. "
+                            + "Check that the maximal cluster list includes at least one point cluster "
+                            + "and that the symmetry group is non-empty.");
+        }
         List<Double> normalizedM = new ArrayList<>();
         for (int m : subClusMList) {
             normalizedM.add(m / pointM);
@@ -1301,6 +1338,14 @@ public final class ClusterCFIdentificationPipeline {
 
     public static double[] generateKikuchiBakerCoefficients(double[] mList, int[][] nijTable) {
         int n = mList.length;
+        for (int j = 0; j < n; j++) {
+            if (mList[j] == 0) {
+                throw new ClusterIdentificationException("Stage 1a",
+                        "Cluster multiplicity mList[" + j + "]=0; cannot compute Kikuchi-Baker coefficient "
+                                + "(division by zero). Check that the disordered symmetry group produces a "
+                                + "non-empty orbit for every enumerated cluster type.");
+            }
+        }
         double[] kb = new double[n];
         for (int j = 0; j < n; j++) {
             double tempSum = 0.0;
@@ -1518,7 +1563,20 @@ public final class ClusterCFIdentificationPipeline {
                     for (int s = 0; s < sites.size(); s++) {
                         String symbol = sites.get(s).getSymbol();
                         // Extract integer from symbol "s1" → 1, "s2" → 2, etc.
-                        basisIdx[s] = Integer.parseInt(symbol.substring(1));
+                        if (symbol == null || symbol.length() < 2 || symbol.charAt(0) != 's') {
+                            throw new ClusterIdentificationException("Stage 2b",
+                                    "CF site at column " + col + " has unexpected decoration symbol '" + symbol
+                                            + "' (expected format \"s<N>\"); cannot derive basis index. "
+                                            + "This indicates the cluster/basis symbol convention was not followed "
+                                            + "by the input cluster file or an upstream stage.");
+                        }
+                        try {
+                            basisIdx[s] = Integer.parseInt(symbol.substring(1));
+                        } catch (NumberFormatException e) {
+                            throw new ClusterIdentificationException("Stage 2b",
+                                    "CF site at column " + col + " has non-numeric decoration symbol '" + symbol
+                                            + "'; cannot derive basis index.", e);
+                        }
                     }
                     indices[col++] = basisIdx;
                 }
@@ -1734,6 +1792,103 @@ public final class ClusterCFIdentificationPipeline {
         return sizes;
     }
 
+    // =====================================================================
+    // Stage precondition validation
+    //
+    // Each check turns a would-be crash (division by zero, index out of
+    // bounds, NPE) or silently-wrong result (NaN propagation) into a
+    // ClusterIdentificationException with a diagnosable message.
+    // =====================================================================
+
+    private static void validateStage0Inputs(
+            List<Cluster> disMaxClusCoord, List<SymmetryOperation> disSymOpList,
+            List<Cluster> maxClusCoord, List<SymmetryOperation> symOpList,
+            double[][] rotateMat, double[] translateMat, int numComp) {
+
+        if (disMaxClusCoord == null || disMaxClusCoord.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "disMaxClusCoord (disordered maximal clusters) is null or empty; "
+                            + "check the disordered cluster file was parsed correctly.");
+        }
+        if (maxClusCoord == null || maxClusCoord.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "maxClusCoord (ordered-phase maximal clusters) is null or empty; "
+                            + "check the ordered-phase cluster file was parsed correctly.");
+        }
+        if (disSymOpList == null || disSymOpList.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "disSymOpList (disordered symmetry group) is null or empty; "
+                            + "check the disordered symmetry group file was parsed correctly.");
+        }
+        if (symOpList == null || symOpList.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "symOpList (ordered-phase symmetry group) is null or empty; "
+                            + "check the ordered-phase symmetry group file was parsed correctly.");
+        }
+        if (numComp < 2) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "numComp=" + numComp + " but at least 2 chemical components are required.");
+        }
+        if (rotateMat == null || rotateMat.length != 3) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "rotateMat is null or not a 3-row matrix (rows="
+                            + (rotateMat == null ? "null" : rotateMat.length)
+                            + "); check the symmetry group's transformation matrix.");
+        }
+        for (int r = 0; r < 3; r++) {
+            if (rotateMat[r] == null || rotateMat[r].length != 3) {
+                throw new ClusterIdentificationException("Stage 0",
+                        "rotateMat row " + r + " is null or not length 3; "
+                                + "check the symmetry group's transformation matrix.");
+            }
+        }
+        if (translateMat == null || translateMat.length != 3) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "translateMat is null or not length 3 (length="
+                            + (translateMat == null ? "null" : translateMat.length)
+                            + "); check the symmetry group's translation vector.");
+        }
+    }
+
+    private static void validateStage1aResult(int tcdis, List<Double> mhdisList) {
+        if (tcdis <= 0) {
+            throw new ClusterIdentificationException("Stage 1a",
+                    "No HSP cluster types were identified (tcdis=" + tcdis + "). "
+                            + "Check that disMaxClusCoord and the disordered symmetry group are consistent "
+                            + "(the symmetry group must be valid for the given cluster geometry).");
+        }
+        for (int i = 0; i < mhdisList.size(); i++) {
+            if (mhdisList.get(i) == null || mhdisList.get(i) == 0.0) {
+                throw new ClusterIdentificationException("Stage 1a",
+                        "HSP cluster type " + i + " has multiplicity " + mhdisList.get(i)
+                                + "; downstream normalization would divide by zero.");
+            }
+        }
+    }
+
+    private static void validateStage1bClassification(ClassifiedData ordClusData, int tcdis) {
+        if (ordClusData.getCoordList().size() != tcdis) {
+            throw new ClusterIdentificationException("Stage 1b",
+                    "Classified ordered-cluster data has " + ordClusData.getCoordList().size()
+                            + " HSP-type bins but Stage 1a produced tcdis=" + tcdis
+                            + "; disClusData and phaseClusterData are out of sync.");
+        }
+        boolean anyMatched = false;
+        for (List<Cluster> bin : ordClusData.getCoordList()) {
+            if (!bin.isEmpty()) {
+                anyMatched = true;
+                break;
+            }
+        }
+        if (!anyMatched) {
+            throw new ClusterIdentificationException("Stage 1b",
+                    "No ordered-phase clusters classified into any HSP type. "
+                            + "Check the transformation matrix/vector mapping the ordered phase into the "
+                            + "disordered (HSP) reference frame — a wrong rotateMat/translateMat is the "
+                            + "most common cause.");
+        }
+    }
+
     private static void emit(Consumer<String> sink, String message) {
         if (sink != null) {
             sink.accept(message);
@@ -1768,6 +1923,27 @@ public final class ClusterCFIdentificationPipeline {
         SpaceGroup orderedSpaceGroup = org.ce.model.storage.InputLoader
                 .parseSpaceGroup(config.getOrderedSymmetryGroup());
 
+        if (disorderedClusters.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "Disordered cluster file '" + config.getDisorderedClusterFile()
+                            + "' parsed to zero clusters.");
+        }
+        if (orderedClusters.isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "Ordered-phase cluster file '" + config.getOrderedClusterFile()
+                            + "' parsed to zero clusters.");
+        }
+        if (disorderedSpaceGroup.getOperations() == null || disorderedSpaceGroup.getOperations().isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "Disordered symmetry group '" + config.getDisorderedSymmetryGroup()
+                            + "' parsed to zero operations.");
+        }
+        if (orderedSpaceGroup.getOperations() == null || orderedSpaceGroup.getOperations().isEmpty()) {
+            throw new ClusterIdentificationException("Stage 0",
+                    "Ordered-phase symmetry group '" + config.getOrderedSymmetryGroup()
+                            + "' parsed to zero operations.");
+        }
+
         // 2. Stage 1 & 2: Cluster + CF Identification
         emit(progressSink, "\n[STAGE 1/2]: Running Identification Pipeline...");
         PipelineResult partialResult = run(
@@ -1783,28 +1959,69 @@ public final class ClusterCFIdentificationPipeline {
                 progressSink);
 
         // 3. Stage 3: C-Matrix foundation
+        //
+        // maxClusters here MUST be the ordered-phase maximal cluster(s)
+        // (orderedClusters), not the disordered parent's. groupSubClusters
+        // (Stage 3a) matches genSubClusCoord(maxClusters[m], basis) against
+        // cfOrbitList entries that carry the ORDERED structure's sublattice
+        // partition (inherited via groupCFData -> ordCFData -> genOrbit
+        // under the ordered space group in Stage 2). Passing the disordered
+        // maximal cluster here mismatches the sublattice shape (e.g. A2's
+        // single-sublattice maximal cluster vs B2's two-sublattice CF
+        // orbits) and isContained/isTranslated then never finds a match,
+        // since both require the two clusters being compared to have the
+        // same per-sublattice site counts.
         emit(progressSink, "\n[STAGE 3]: Running C-Matrix Pipeline...");
         CMatrixPipeline.CMatrixData matrixData = CMatrixPipeline.run(
                 partialResult.toClusterIdentificationResult(),
                 partialResult.toCFIdentificationResult(),
-                disorderedClusters,
+                orderedClusters,
                 numComponents,
                 progressSink);
 
-        // 4. Stage 4: CVCF Transformation
-        emit(progressSink, "\n[STAGE 4]: Basis Transformation...");
+        // 4. Stage 4: CVCF Transformation — best-effort. CvCfBasis only has a
+        // hardcoded registry entry for a handful of (parent structure, model,
+        // numComponents) combinations. Stages 0-3 are structure-agnostic and
+        // always complete; Stage 4 is skipped (not failed) when unsupported,
+        // so callers that only need cluster/CF identification (e.g. type1a)
+        // still get a full, usable result. Anything that actually requires
+        // the CVCF basis (CVM calculation, ModelSession build for CVM) will
+        // hit the missing-basis error at that point instead, which is the
+        // natural place for it.
         String parentStructure = resolveParentStructure(structurePhase);
-        org.ce.model.cvm.CvCfBasis cvcfBasis = org.ce.model.cvm.CvCfBasis.generate(
-                parentStructure,
-                partialResult,
-                matrixData,
-                model,
-                progressSink);
+        String cvcfLookupStructure = org.ce.model.cvm.CvCfBasis.isSupported(structurePhase, model, numComponents)
+                ? structurePhase
+                : parentStructure;
+        List<String> uNames = null;
+        List<String> vNames = null;
+        List<String> eoNames = null;
+        List<String> eNames = null;
+        double[] vRandEqui = null;
 
-        // Final bundle
-        double[] equiX = new double[numComponents];
-        java.util.Arrays.fill(equiX, 1.0 / numComponents);
-        double[] vRandEqui = cvcfBasis.computeRandomCvcfCFs(equiX, partialResult);
+        if (org.ce.model.cvm.CvCfBasis.isSupported(cvcfLookupStructure, model, numComponents)) {
+            emit(progressSink, "\n[STAGE 4]: Basis Transformation...");
+            org.ce.model.cvm.CvCfBasis cvcfBasis = org.ce.model.cvm.CvCfBasis.generate(
+                    cvcfLookupStructure,
+                    partialResult,
+                    matrixData,
+                    model,
+                    progressSink);
+
+            double[] equiX = new double[numComponents];
+            java.util.Arrays.fill(equiX, 1.0 / numComponents);
+            vRandEqui = cvcfBasis.computeRandomCvcfCFs(equiX, partialResult);
+
+            uNames = partialResult.toCFIdentificationResult().getUNames();
+            vNames = cvcfBasis.cfNames;
+            eoNames = partialResult.toCFIdentificationResult().getEONames();
+            eNames = cvcfBasis.eciNames;
+        } else {
+            emit(progressSink, "\n[STAGE 4]: SKIPPED — no CVCF basis registered for parent structure '"
+                    + parentStructure + "', model '" + model + "', " + numComponents + " components. "
+                    + org.ce.model.cvm.CvCfBasis.supportedSummary()
+                    + ". Cluster/CF identification (Stages 0-3) completed normally; CVM calculation is "
+                    + "unavailable for this system until a CvCfBasis registration is added.");
+        }
 
         PipelineResult finalResult = new PipelineResult(
                 partialResult.getDisClusData(),
@@ -1819,10 +2036,10 @@ public final class ClusterCFIdentificationPipeline {
                 partialResult.getNcf(),
                 partialResult.getCfBasisIndices(), numComponents,
                 matrixData,
-                partialResult.toCFIdentificationResult().getUNames(),
-                cvcfBasis.cfNames,
-                partialResult.toCFIdentificationResult().getEONames(),
-                cvcfBasis.eciNames,
+                uNames,
+                vNames,
+                eoNames,
+                eNames,
                 vRandEqui);
 
         LOG.info("ClusterCFIdentificationPipeline.runFullWorkflow — EXIT");
@@ -1831,16 +2048,10 @@ public final class ClusterCFIdentificationPipeline {
 
     /**
      * Resolves the parent disordered structure for a given phase structure.
-     * (e.g. BCC_B2 -> BCC_A2).
+     * (e.g. BCC_B2 -> BCC_A2). Delegates to {@link StructurePhaseRegistry},
+     * the single source of truth for this mapping.
      */
     public static String resolveParentStructure(String structure) {
-        if (structure == null)
-            return null;
-        String base = structure.replace("_CVCF", "");
-        if (base.equals("BCC_B2"))
-            return "BCC_A2";
-        if (base.equals("FCC_L12"))
-            return "FCC_A1";
-        return base;
+        return StructurePhaseRegistry.parentOf(structure);
     }
 }

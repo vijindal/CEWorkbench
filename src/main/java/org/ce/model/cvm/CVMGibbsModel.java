@@ -247,15 +247,7 @@ public class CVMGibbsModel {
     }
 
     private String resolveParentStructure(String structure) {
-        if (structure == null)
-            return null;
-        // Strip _CVCF if present (internal convention matching original Request logic)
-        String base = structure.replace("_CVCF", "");
-        if (base.equals("BCC_B2"))
-            return "BCC_A2";
-        if (base.equals("FCC_L12"))
-            return "FCC_A1";
-        return base;
+        return org.ce.model.cluster.StructurePhaseRegistry.parentOf(structure);
     }
 
     private String resolveClusterFile(String structure, String model) {
