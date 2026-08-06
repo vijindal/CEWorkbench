@@ -339,4 +339,4 @@ All persistent data is stored under `~/CEWorkbench/`:
 
 ## License
 
-[Add your license here]
+MIT — see [LICENSE](LICENSE).
