@@ -93,12 +93,22 @@ public class CECEvaluator {
         for (int i = 0; i < basis.numNonPointCfs; i++) {
             String name = basis.cfNames.get(i).toLowerCase();
             map.put(name, i);
-            
+
             // Normalize "v" basis functions to also accept "e" Hamiltonian terms
             if (name.startsWith("v")) {
                 map.put("e" + name.substring(1), i);
             } else if (name.startsWith("e")) {
                 map.put("v" + name.substring(1), i);
+            }
+
+            // Pair-type terms (v21PQ / v22PQ) also accept the published CVCF-paper
+            // notation e2PQ1 / e2PQ2 (Jindal & Lele, Calphad 89 (2025) 102825, Table 17),
+            // where the neighbor-shell digit trails the species letters instead of
+            // leading them.
+            if (name.length() > 3 && name.startsWith("v2") && (name.charAt(2) == '1' || name.charAt(2) == '2')) {
+                char shell = name.charAt(2);
+                String species = name.substring(3);
+                map.put("e2" + species + shell, i);
             }
         }
         return map;

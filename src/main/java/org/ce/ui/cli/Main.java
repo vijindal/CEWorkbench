@@ -56,7 +56,9 @@ public class Main {
         if (args.length > 0 && args[0].equals("calc_min")) {
             if (args.length < 6) {
                 System.err.println(
-                        "Usage: calc_min <elements> <structure> <model> <temp> <comp1> [<comp2> ...] [prop (G|H|S)] [--verbose]");
+                        "Usage: calc_min <elements> <structure> <model> <temp> <x2> [<x3> ...] [prop (G|H|S)] [--verbose]\n" +
+                        "  where <x2>..<xK> are the mole fractions of elements 2..K (in <elements> order);\n" +
+                        "  x1 is derived as 1 - sum(x2..xK). E.g. for Nb-Ti (K=2), pass only xTi.");
                 System.exit(1);
             }
             String elements  = args[1];
@@ -77,15 +79,12 @@ public class Main {
                 compEndIndex--;
             }
 
-            double[] composition;
-            if (compEndIndex == 6) {
-                double comp = Double.parseDouble(args[5]);
-                composition = new double[]{1 - comp, comp};
-            } else {
-                composition = new double[compEndIndex - 5];
-                for (int i = 5; i < compEndIndex; i++) composition[i - 5] = Double.parseDouble(args[i]);
-            }
-            runCalcMin(appCtx, elements, structure, model, temp, composition, requestedProp);
+            // Independent mole fractions only (x2, x3, ..., xK) — same convention as the
+            // GUI's compSpinners (DynamicCalculationPanel.buildRequest): x1 is derived
+            // downstream by CalculationService.deriveComposition, never here.
+            double[] xIndep = new double[compEndIndex - 5];
+            for (int i = 5; i < compEndIndex; i++) xIndep[i - 5] = Double.parseDouble(args[i]);
+            runCalcMin(appCtx, elements, structure, model, temp, xIndep, requestedProp);
             return;
         }
 
@@ -230,7 +229,7 @@ public class Main {
      */
     private static void runCalcMin(CEWorkbenchContext appCtx,
                                    String elements, String structure, String model,
-                                   double temp, double[] composition, Property requestedProp) {
+                                   double temp, double[] xIndep, Property requestedProp) {
         try {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
@@ -241,15 +240,22 @@ public class Main {
             jobSpecs.set(Parameter.T_END,   temp);
             jobSpecs.set(Parameter.T_STEP,  0.0);
 
-            // X_STARTS holds the independent fractions (x2, x3, ...) — x1 is derived as 1-sum
-            double[] xIndep = java.util.Arrays.copyOfRange(composition, 1, composition.length);
+            // xIndep = independent fractions (x2, x3, ...) — x1 is derived downstream by
+            // CalculationService.deriveComposition, same convention as the GUI.
             jobSpecs.set(Parameter.X_STARTS, xIndep);
             jobSpecs.set(Parameter.X_ENDS,   xIndep);
             jobSpecs.set(Parameter.X_STEPS,  new double[xIndep.length]);
 
             System.out.println("System: " + modelSpecs);
             System.out.println();
-            printResult(service.execute(modelSpecs, jobSpecs, sink, null));
+            Consumer<org.ce.model.ProgressEvent> eventSink = verbose ? ev -> {
+                if (ev instanceof org.ce.model.ProgressEvent.CvmIteration it) {
+                    System.out.printf("  [ITER %d] G=%.6f H=%.6f S=%.6f gradNorm=%.6e cfs=%s%n",
+                            it.iteration, it.gibbsEnergy, it.enthalpy, it.entropy, it.gradientNorm,
+                            java.util.Arrays.toString(it.cfs));
+                }
+            } : null;
+            printResult(service.execute(modelSpecs, jobSpecs, sink, eventSink));
 
         } catch (Exception e) {
             if (verbose) e.printStackTrace();

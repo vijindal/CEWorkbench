@@ -252,7 +252,7 @@ public class CVMGibbsModel {
 
     private String resolveClusterFile(String structure, String model) {
         String mod = model != null ? model.replace("_CVCF", "") : "";
-        return structure + "-" + mod + ".txt";
+        return "clus/" + structure + "-" + mod + ".txt";
     }
 
     private String resolveSymmetryGroup(String structure) {
