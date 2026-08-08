@@ -73,6 +73,30 @@ public final class CvCfBasis {
         return "Supported combinations: " + String.join(", ", REGISTRY.keySet());
     }
 
+    /**
+     * Canonical names of the non-point CFs for a registered combination — i.e. exactly
+     * the ECI terms a Hamiltonian must supply, in basis order.
+     *
+     * <p>Point CFs (mole fractions, and any order parameter such as B2's {@code eta})
+     * trail the list and carry no ECI, so they are excluded.</p>
+     *
+     * <p>Exposed for API capability discovery, so external callers can ask which ECI
+     * names a system expects instead of hard-coding them.</p>
+     *
+     * @throws IllegalArgumentException if the combination is not registered
+     */
+    public static List<String> getNonPointCfNames(String structurePhase, String model, int numComponents) {
+        Definition def = REGISTRY.get(structurePhase + "_" + model.toUpperCase() + "_" + numComponents);
+        if (def == null)
+            throw new IllegalArgumentException("Unregistered CVCF combination. " + supportedSummary());
+        return List.copyOf(def.cfNames.subList(0, def.cfNames.size() - def.numPointCfs));
+    }
+
+    /** Registry keys of all supported {structure}_{MODEL}_{ncomp} combinations. */
+    public static List<String> supportedKeys() {
+        return List.copyOf(REGISTRY.keySet());
+    }
+
     public int indexOfCf(String name) {
         return cfNameIndex.getOrDefault(name, -1);
     }

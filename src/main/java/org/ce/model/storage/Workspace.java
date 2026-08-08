@@ -1,6 +1,8 @@
 package org.ce.model.storage;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Defines all filesystem locations used by CE Workbench.
@@ -43,9 +45,28 @@ public class Workspace {
         this.root = root;
     }
 
-    /** Creates a workspace at the project-local location if it exists, else uses default. */
+    /**
+     * Creates a workspace, resolving the root in this order:
+     * <ol>
+     *   <li>the {@code CEWORKBENCH_DATA} environment variable, or the
+     *       {@code ceworkbench.data} system property, if set;</li>
+     *   <li>{@code ./data/CEWorkbench} relative to the working directory, if it exists;</li>
+     *   <li>{@code ~/CEWorkbench}.</li>
+     * </ol>
+     *
+     * <p>The explicit override matters for callers launched from another directory
+     * (e.g. an external program driving the JSON API), where the project-local path
+     * would not resolve.</p>
+     */
     public Workspace() {
-        this(java.nio.file.Files.exists(PROJECT_LOCAL_ROOT) ? PROJECT_LOCAL_ROOT : DEFAULT_ROOT);
+        this(resolveDefaultRoot());
+    }
+
+    private static Path resolveDefaultRoot() {
+        String explicit = System.getProperty("ceworkbench.data");
+        if (explicit == null || explicit.isBlank()) explicit = System.getenv("CEWORKBENCH_DATA");
+        if (explicit != null && !explicit.isBlank()) return Path.of(explicit.trim());
+        return java.nio.file.Files.exists(PROJECT_LOCAL_ROOT) ? PROJECT_LOCAL_ROOT : DEFAULT_ROOT;
     }
 
     /** Root workspace directory. */
@@ -117,8 +138,33 @@ public class Workspace {
                    model != null && !model.isBlank();
         }
 
+        /** Canonical element order, index 0 = dependent species by convention. Never empty. */
+        public List<String> elementList() {
+            String[] parts = elements.trim().split("-");
+            List<String> out = new ArrayList<>(parts.length);
+            for (String p : parts) {
+                String t = p.trim();
+                if (!t.isEmpty()) out.add(t);
+            }
+            if (out.isEmpty())
+                throw new IllegalArgumentException("No elements parsed from: '" + elements + "'");
+            return List.copyOf(out);
+        }
+
+        public int numComponents() {
+            return elementList().size();
+        }
+
+        /** Case-insensitive lookup; -1 if the element is not part of this system. */
+        public int indexOf(String element) {
+            List<String> list = elementList();
+            for (int i = 0; i < list.size(); i++)
+                if (list.get(i).equalsIgnoreCase(element)) return i;
+            return -1;
+        }
+
         private String ncompSuffix() {
-            return ncompSuffix(elements.split("-").length);
+            return ncompSuffix(elementList().size());
         }
 
         /**

@@ -1,13 +1,10 @@
 package org.ce.model;
 
-import org.ce.model.cluster.ClusterCFIdentificationPipeline;
-import org.ce.model.cluster.ClusterCFIdentificationPipeline.PipelineResult;
-import org.ce.model.cluster.ClusterIdentificationRequest;
-import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.storage.Workspace.SystemId;
 import org.ce.model.storage.DataStore;
 
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -24,6 +21,12 @@ import java.util.logging.Logger;
  * redundant disk I/O and computation per calculation call.</p>
  */
 public final class ModelSession {
+
+    /**
+     * Value of {@link #resolvedHamiltonianId} when the ECIs were supplied by the
+     * caller rather than loaded from the Hamiltonian store.
+     */
+    public static final String INLINE_HAMILTONIAN_ID = "<inline>";
 
     /** Engine type for a calculation session. CVM always uses the CVCF basis. */
     public enum EngineConfig {
@@ -73,7 +76,12 @@ public final class ModelSession {
 
     /** Number of chemical components derived from {@code systemId.elements}. */
     public int numComponents() {
-        return systemId.elements().split("-").length;
+        return systemId.numComponents();
+    }
+
+    /** Canonical element order for this system; see {@link SystemId#elementList()}. */
+    public List<String> elements() {
+        return systemId.elementList();
     }
 
     /** Short human-readable label, e.g. {@code "Nb-Ti / BCC_A2 / T [CVM]"}. */
@@ -130,6 +138,45 @@ public final class ModelSession {
             emit(progressSink, "  [Session] Stage 1c: Loading Hamiltonian...");
             CECEntry cecEntry = hamiltonianStore.load(resolvedId);
 
+            return assemble(systemId, engineConfig, cecEntry, resolvedId, progressSink);
+        }
+
+        /**
+         * Builds a {@link ModelSession} from a caller-supplied {@link CECEntry},
+         * bypassing the Hamiltonian store entirely.
+         *
+         * <p>Used by the JSON API when an external caller (e.g. a fitting tool)
+         * supplies its own ECIs rather than referencing the stored CEC database.
+         * The ECIs must already be in the CVCF basis — no transformation is applied.</p>
+         *
+         * <p>Note: sessions built this way must <em>not</em> be routed through
+         * {@code CalculationService.getOrBuildSession}, whose cache is keyed only on
+         * (systemId, engineConfig) and would collide with a stored-Hamiltonian session
+         * for the same system.</p>
+         */
+        public ModelSession build(
+                SystemId systemId,
+                EngineConfig engineConfig,
+                CECEntry providedEntry,
+                Consumer<String> progressSink) throws Exception {
+
+            if (providedEntry == null)
+                throw new IllegalArgumentException("providedEntry must not be null");
+
+            emit(progressSink, "\n[Workflow] Stage 1: Loading Specifications...");
+            emit(progressSink, "  [Session] Using caller-supplied Hamiltonian (store bypassed)");
+
+            return assemble(systemId, engineConfig, providedEntry, INLINE_HAMILTONIAN_ID, progressSink);
+        }
+
+        /** Shared validation + construction for both the stored and inline paths. */
+        private ModelSession assemble(
+                SystemId systemId,
+                EngineConfig engineConfig,
+                CECEntry cecEntry,
+                String resolvedId,
+                Consumer<String> progressSink) {
+
             // Validate CEC: term count must be > 0
             int termCount = cecEntry.cecTerms == null ? 0 : cecEntry.cecTerms.length;
             if (termCount <= 0) {
@@ -140,7 +187,9 @@ public final class ModelSession {
                 term.validate();
             }
 
-            emit(progressSink, "  [Session] ✓ Hamiltonian loaded (" + cecEntry.ncf + " terms)");
+            // Report the actual term count, not the declared `ncf` — an inline entry
+            // may omit `ncf` (an int, defaulting to 0) and would otherwise report "0 terms".
+            emit(progressSink, "  [Session] ✓ Hamiltonian loaded (" + termCount + " terms)");
 
             emit(progressSink, "  [Session] ✓ Session ready — " + systemId.elements()
                     + " / " + systemId.structure() + " / " + systemId.model());

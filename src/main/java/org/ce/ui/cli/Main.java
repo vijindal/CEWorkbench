@@ -9,12 +9,17 @@ import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.ThermodynamicResult;
 import org.ce.calculation.CalculationDescriptor.*;
 import org.ce.calculation.CalculationResult;
+import org.ce.calculation.Conditions;
+import org.ce.calculation.ConditionsScan;
 import org.ce.calculation.QuantityDescriptor;
+import org.ce.calculation.Range;
 import org.ce.calculation.ResultFormatter;
 import org.ce.calculation.workflow.CalculationService;
 import org.ce.model.cluster.ClusterIdentificationRequest;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -52,13 +57,22 @@ public class Main {
             return;
         }
 
+        // ── api ──────────────────────────────────────────────────────────────
+        // JSON request on stdin -> JSON response on stdout. Diagnostics go to
+        // stderr so the payload stays machine-parseable.
+        if (args.length > 0 && args[0].equals("api")) {
+            System.exit(ApiCommand.run(appCtx, System.in));
+            return;
+        }
+
         // ── calc_min ─────────────────────────────────────────────────────────
         if (args.length > 0 && args[0].equals("calc_min")) {
             if (args.length < 6) {
                 System.err.println(
-                        "Usage: calc_min <elements> <structure> <model> <temp> <x2> [<x3> ...] [prop (G|H|S)] [--verbose]\n" +
-                        "  where <x2>..<xK> are the mole fractions of elements 2..K (in <elements> order);\n" +
-                        "  x1 is derived as 1 - sum(x2..xK). E.g. for Nb-Ti (K=2), pass only xTi.");
+                        "Usage: calc_min <elements> <structure> <model> <temp> <El>=<x> [<El>=<x> ...] [G|H|S] [--verbose]\n" +
+                        "  e.g.  calc_min Nb-Ti BCC_A2 T 1000 Ti=0.5\n" +
+                        "  e.g.  calc_min Nb-Ti-V-Zr BCC_A2 T 1273 Ti=0.25 V=0.25 Zr=0.25 S\n" +
+                        "  Any element may be omitted; its fraction is derived as 1 - sum(given).");
                 System.exit(1);
             }
             String elements  = args[1];
@@ -79,12 +93,19 @@ public class Main {
                 compEndIndex--;
             }
 
-            // Independent mole fractions only (x2, x3, ..., xK) — same convention as the
-            // GUI's compSpinners (DynamicCalculationPanel.buildRequest): x1 is derived
-            // downstream by CalculationService.deriveComposition, never here.
-            double[] xIndep = new double[compEndIndex - 5];
-            for (int i = 5; i < compEndIndex; i++) xIndep[i - 5] = Double.parseDouble(args[i]);
-            runCalcMin(appCtx, elements, structure, model, temp, xIndep, requestedProp);
+            Map<String, Double> comp = new LinkedHashMap<>();
+            for (int i = 5; i < compEndIndex; i++) {
+                Map.Entry<String, Range> tok = parseCompToken(args[i]);
+                if (tok == null) {
+                    System.err.println(
+                            "Error: positional mole fractions are no longer supported.\n" +
+                            "  Old: calc_min Nb-Ti-V BCC_A2 T 1000 0.3 0.4\n" +
+                            "  New: calc_min Nb-Ti-V BCC_A2 T 1000 Ti=0.3 V=0.4");
+                    System.exit(1);
+                }
+                comp.put(tok.getKey(), tok.getValue().start());
+            }
+            runCalcMin(appCtx, elements, structure, model, temp, comp, requestedProp);
             return;
         }
 
@@ -162,26 +183,27 @@ public class Main {
             if (mode.equals("type2") || mode.equals("all")) {
                 if (verbose) System.out.println("\n=== TYPE-2: Thermodynamic Calculation (CVM) ===\n");
 
-                double[] composition = new double[numComponents];
+                // Equiatomic composition: 1/K for elements 2..K, element 1 derived.
+                List<String> elemList = system.elementList();
+                Map<String, Double> comp = new LinkedHashMap<>();
                 double x = 1.0 / numComponents;
-                for (int i = 0; i < numComponents; i++) composition[i] = x;
+                for (int i = 1; i < elemList.size(); i++) comp.put(elemList.get(i), x);
 
                 double tStart = 1000.0, tEnd = 1000.0, tStep = 100.0;
 
                 ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
-                JobSpecifications jobSpecs = new JobSpecifications(Property.GIBBS_ENERGY, Mode.ANALYSIS);
-                jobSpecs.set(Parameter.COMPOSITION, composition);
-                jobSpecs.set(Parameter.T_START, tStart);
-                jobSpecs.set(Parameter.T_END, tEnd);
-                jobSpecs.set(Parameter.T_STEP, tStep);
+                ModelSession session = service.getOrBuildSession(modelSpecs, sink);
+                ConditionsScan scan = new ConditionsScan(new Range(tStart, tEnd, tStep), toRanges(comp));
 
                 if (verbose) {
                     System.out.println("System      : " + modelSpecs);
-                    System.out.println("Composition : " + java.util.Arrays.toString(composition));
+                    System.out.println("Composition : " + comp);
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
                 }
 
-                printResult(service.execute(modelSpecs, jobSpecs, sink, null));
+                List<ThermodynamicResult> results =
+                        service.calculateScan(session, scan, Property.GIBBS_ENERGY, sink, null);
+                printResult(new CalculationResult.Grid(List.of(results)));
             }
 
         } catch (Exception e) {
@@ -229,22 +251,14 @@ public class Main {
      */
     private static void runCalcMin(CEWorkbenchContext appCtx,
                                    String elements, String structure, String model,
-                                   double temp, double[] xIndep, Property requestedProp) {
+                                   double temp, Map<String, Double> composition, Property requestedProp) {
         try {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
             ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
-            JobSpecifications jobSpecs = new JobSpecifications(requestedProp, Mode.ANALYSIS);
-            jobSpecs.set(Parameter.T_START, temp);
-            jobSpecs.set(Parameter.T_END,   temp);
-            jobSpecs.set(Parameter.T_STEP,  0.0);
-
-            // xIndep = independent fractions (x2, x3, ...) — x1 is derived downstream by
-            // CalculationService.deriveComposition, same convention as the GUI.
-            jobSpecs.set(Parameter.X_STARTS, xIndep);
-            jobSpecs.set(Parameter.X_ENDS,   xIndep);
-            jobSpecs.set(Parameter.X_STEPS,  new double[xIndep.length]);
+            ModelSession session = service.getOrBuildSession(modelSpecs, sink);
+            Conditions conditions = new Conditions(temp, composition);
 
             System.out.println("System: " + modelSpecs);
             System.out.println();
@@ -255,12 +269,40 @@ public class Main {
                             java.util.Arrays.toString(it.cfs));
                 }
             } : null;
-            printResult(service.execute(modelSpecs, jobSpecs, sink, eventSink));
+            ThermodynamicResult result = service.calculate(session, conditions, requestedProp, sink, eventSink);
+            printResult(new CalculationResult.Single(result));
 
         } catch (Exception e) {
             if (verbose) e.printStackTrace();
             else System.err.println("Error: " + e.getMessage());
         }
+    }
+
+    /** Parses "Ti=0.3" or "Ti=0.1:0.9:0.1". Returns null if not a composition token. */
+    private static Map.Entry<String, Range> parseCompToken(String tok) {
+        int eq = tok.indexOf('=');
+        if (eq <= 0) return null;
+        String sym = tok.substring(0, eq).trim();
+        String val = tok.substring(eq + 1).trim();
+        String[] parts = val.split(":");
+        try {
+            return switch (parts.length) {
+                case 1 -> Map.entry(sym, Range.fixed(Double.parseDouble(parts[0])));
+                case 3 -> Map.entry(sym, new Range(Double.parseDouble(parts[0]),
+                                                    Double.parseDouble(parts[1]),
+                                                    Double.parseDouble(parts[2])));
+                default -> throw new IllegalArgumentException(
+                        "Bad composition token '" + tok + "'. Use El=x or El=start:end:step");
+            };
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Non-numeric mole fraction in '" + tok + "'");
+        }
+    }
+
+    private static Map<String, Range> toRanges(Map<String, Double> fixed) {
+        Map<String, Range> out = new LinkedHashMap<>();
+        for (var e : fixed.entrySet()) out.put(e.getKey(), Range.fixed(e.getValue()));
+        return out;
     }
 
     // =========================================================================

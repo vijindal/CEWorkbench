@@ -3,6 +3,12 @@
 .gradle-user/
 build/
 
+# Eclipse/IDE compiled output
+bin/
+
+# Captured console output from local runs
+comparison_full.txt
+
 # IDE
 .idea/
 *.iml

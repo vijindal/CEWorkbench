@@ -2,6 +2,8 @@ package org.ce.calculation.workflow;
 
 import org.ce.calculation.CalculationDescriptor.*;
 import org.ce.calculation.CalculationResult;
+import org.ce.calculation.Conditions;
+import org.ce.calculation.ConditionsScan;
 import org.ce.calculation.workflow.thermo.ThermodynamicWorkflow;
 import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
@@ -10,13 +12,18 @@ import org.ce.model.ThermodynamicResult;
 import org.ce.model.storage.Workspace.SystemId;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * Central service for thermodynamic calculations and parameter scans.
- * Absorbed orchestration logic previously in ScanWorkflows.
+ *
+ * <p>{@link #calculate} / {@link #calculateScan} are the single named entry point —
+ * the one call CLI, GUI, and any external Java caller all route through, mirroring
+ * pycalphad's {@code equilibrium(dbf, comps, phases, conditions)}. {@link #execute}
+ * remains as the metadata-driven entry point used by the GUI's dynamic form
+ * ({@link Registry}); it delegates to {@link #calculateScan} internally, so there is
+ * exactly one calculation code path underneath both.</p>
  */
 public class CalculationService {
 
@@ -29,6 +36,41 @@ public class CalculationService {
         this.thermoWorkflow = thermoWorkflow;
     }
 
+    /** Algorithm parameters for the MCS engine. Not physical conditions — CVM callers never need these. */
+    public record McsParams(int L, int nEquil, int nAvg) {
+        public static final McsParams DEFAULT = new McsParams(4, 1000, 2000);
+    }
+
+    /** Single calculation point — the named entry point external callers use directly. */
+    public ThermodynamicResult calculate(ModelSession session, Conditions conditions, Property property,
+            McsParams mcsParams, Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
+        double[] x = conditions.resolveComposition(session.elements());
+        return thermoWorkflow.runCalculation(session, new ThermodynamicWorkflow.Request(
+                conditions.temperature(), x, property, textSink, eventSink,
+                mcsParams.L(), mcsParams.nEquil(), mcsParams.nAvg(), null));
+    }
+
+    public ThermodynamicResult calculate(ModelSession session, Conditions conditions, Property property,
+            Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
+        return calculate(session, conditions, property, McsParams.DEFAULT, textSink, eventSink);
+    }
+
+    /** Conditions scan — one call, returns every point. */
+    public List<ThermodynamicResult> calculateScan(ModelSession session, ConditionsScan scan, Property property,
+            McsParams mcsParams, Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
+        scan.validateAgainst(session.elements()); // fail-fast before running anything
+        List<ThermodynamicResult> out = new ArrayList<>();
+        for (int i = 0; i < scan.pointCount(); i++) {
+            out.add(calculate(session, scan.pointAt(i), property, mcsParams, textSink, eventSink));
+        }
+        return out;
+    }
+
+    public List<ThermodynamicResult> calculateScan(ModelSession session, ConditionsScan scan, Property property,
+            Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
+        return calculateScan(session, scan, property, McsParams.DEFAULT, textSink, eventSink);
+    }
+
     public CalculationResult execute(ModelSpecifications modelSpecs, JobSpecifications jobSpecs,
                                     Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
 
@@ -39,17 +81,12 @@ public class CalculationService {
             textSink.accept(String.format("    > Job:   %s in %s mode",
                     jobSpecs.getProperty().displayName, jobSpecs.getMode().displayName));
 
-            if (jobSpecs.getMode() == Mode.ANALYSIS) {
-                textSink.accept(String.format("      - T: %s to %s (step %s)",
-                        (Double) jobSpecs.getOrDefault(Parameter.T_START),
-                        (Double) jobSpecs.getOrDefault(Parameter.T_END),
-                        (Double) jobSpecs.getOrDefault(Parameter.T_STEP)));
-                textSink.accept(String.format("      - x: %s to %s",
-                        Arrays.toString((double[]) jobSpecs.getOrDefault(Parameter.X_STARTS)),
-                        Arrays.toString((double[]) jobSpecs.getOrDefault(Parameter.X_ENDS))));
-            } else {
-                textSink.accept(String.format("      - T: %s", (Double) jobSpecs.getOrDefault(Parameter.TEMPERATURE)));
-                textSink.accept(String.format("      - x: %s", Arrays.toString((double[]) jobSpecs.getOrDefault(Parameter.COMPOSITION))));
+            ConditionsScan scanPreview = jobSpecs.get(Parameter.CONDITIONS_SCAN)
+                    .map(ConditionsScan.class::cast)
+                    .orElse(null);
+            if (scanPreview != null) {
+                textSink.accept(String.format("      - T: %s", scanPreview.temperature()));
+                textSink.accept(String.format("      - x: %s", scanPreview.composition()));
             }
 
             if (modelSpecs.engineConfig().isMcs()) {
@@ -63,83 +100,35 @@ public class CalculationService {
 
         return switch (jobSpecs.getMode()) {
             case ANALYSIS -> runAnalysis(session, jobSpecs, textSink, eventSink);
-            case FINITE_SIZE_SCALING -> new CalculationResult.Single(runFiniteSizeScan(session, jobSpecs, textSink, eventSink));
         };
     }
 
     private CalculationResult.Grid runAnalysis(ModelSession session, JobSpecifications jobSpecs,
                                               Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
-        
-        double tStart = jobSpecs.getOrDefault(Parameter.T_START);
-        double tEnd   = jobSpecs.getOrDefault(Parameter.T_END);
-        double tStep  = jobSpecs.getOrDefault(Parameter.T_STEP);
-        double[] xStarts = jobSpecs.getOrDefault(Parameter.X_STARTS);
-        double[] xEnds   = jobSpecs.getOrDefault(Parameter.X_ENDS);
-        double[] xSteps  = jobSpecs.getOrDefault(Parameter.X_STEPS);
 
-        // Grid scan logic (formerly ScanWorkflows.scan)
-        boolean tVaries = Math.abs(tStart - tEnd) > 1e-6;
-        Varying v1 = tVaries ? new Varying("T", true, -1, tStart, tEnd, tStep)
-                             : new Varying("T", true, -1, tStart, tStart, 0.0);
-        
-        double[] baseIndepComp = (xStarts != null) ? xStarts.clone() : new double[session.numComponents() - 1];
-        Varying v2 = new Varying("X2", false, 0, baseIndepComp[0], baseIndepComp[0], 0.0);
-        if (xStarts != null && xEnds != null && xSteps != null) {
-            for (int i = 0; i < xStarts.length; i++) {
-                 if (Math.abs(xStarts[i] - xEnds[i]) > 1e-6) {
-                     v2 = new Varying("X" + (i + 2), false, i, xStarts[i], xEnds[i], xSteps[i]);
-                     break;
-                 }
-            }
-        }
+        ConditionsScan scan = jobSpecs.get(Parameter.CONDITIONS_SCAN)
+                .map(ConditionsScan.class::cast)
+                .orElseGet(() -> {
+                    Conditions c = jobSpecs.get(Parameter.COMPOSITION)
+                            .map(Conditions.class::cast)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "No conditions specified (neither COMPOSITION nor CONDITIONS_SCAN set)."));
+                    return ConditionsScan.fixedAt(c);
+                });
 
+        McsParams mcsParams = new McsParams(
+                jobSpecs.getOrDefault(Parameter.MCS_L),
+                jobSpecs.getOrDefault(Parameter.MCS_NEQUIL),
+                jobSpecs.getOrDefault(Parameter.MCS_NAVG));
+
+        List<ThermodynamicResult> points =
+                calculateScan(session, scan, jobSpecs.getProperty(), mcsParams, textSink, eventSink);
+
+        // Grid is 1-D today (single varying axis); wrap as a single row.
         List<List<ThermodynamicResult>> grid = new ArrayList<>();
-        for (double val1 = v1.start(); v1.step() > 0 ? val1 <= v1.end() + 1e-9 : val1 >= v1.end() - 1e-9; val1 += (v1.step() != 0 ? v1.step() : 1.0)) {
-            List<ThermodynamicResult> row = new ArrayList<>();
-            for (double val2 = v2.start(); v2.step() > 0 ? val2 <= v2.end() + 1e-9 : val2 >= v2.end() - 1e-9; val2 += (v2.step() != 0 ? v2.step() : 1.0)) {
-                
-                double T = tVaries ? val1 : tStart;
-                double[] xIndep = baseIndepComp.clone();
-                if (!v1.isTemp() && v1.compIndex() >= 0) xIndep[v1.compIndex()] = val1;
-                if (!v2.isTemp() && v2.compIndex() >= 0) xIndep[v2.compIndex()] = val2;
-
-                row.add(thermoWorkflow.runCalculation(session, new ThermodynamicWorkflow.Request(
-                        T, deriveComposition(xIndep, session), jobSpecs.getProperty(), textSink, eventSink,
-                        jobSpecs.getOrDefault(Parameter.MCS_L), jobSpecs.getOrDefault(Parameter.MCS_NEQUIL),
-                        jobSpecs.getOrDefault(Parameter.MCS_NAVG), null)));
-                if (v2.step() == 0) break;
-            }
-            grid.add(row);
-            if (v1.step() == 0) break;
-        }
+        grid.add(points);
         return new CalculationResult.Grid(grid);
     }
-
-    private ThermodynamicResult runFiniteSizeScan(ModelSession session, JobSpecifications jobSpecs,
-                                                 Consumer<String> textSink, Consumer<ProgressEvent> eventSink) throws Exception {
-        int[] Ls = {12, 16, 24};
-        ThermodynamicResult last = null;
-        for (int L : Ls) {
-            last = thermoWorkflow.runCalculation(session, new ThermodynamicWorkflow.Request(
-                jobSpecs.getOrDefault(Parameter.TEMPERATURE), jobSpecs.getOrDefault(Parameter.COMPOSITION),
-                jobSpecs.getProperty(), textSink, eventSink, L, jobSpecs.getOrDefault(Parameter.MCS_NEQUIL),
-                jobSpecs.getOrDefault(Parameter.MCS_NAVG), null));
-        }
-        return last;
-    }
-
-    private double[] deriveComposition(double[] xIndep, ModelSession session) {
-        double[] full = new double[session.numComponents()];
-        double sum = 0;
-        for (int i = 0; i < xIndep.length; i++) {
-            full[i + 1] = xIndep[i];
-            sum += xIndep[i];
-        }
-        full[0] = 1.0 - sum;
-        return full;
-    }
-
-    private record Varying(String label, boolean isTemp, int compIndex, double start, double end, double step) {}
 
     public ModelSession getOrBuildSession(ModelSpecifications modelSpecs, Consumer<String> textSink) throws Exception {
         SystemId systemId = new SystemId(modelSpecs.elements(), modelSpecs.structure(), modelSpecs.modelName());

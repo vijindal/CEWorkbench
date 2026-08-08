@@ -6,7 +6,9 @@ import org.ce.model.ModelSession;
 import org.ce.model.mcs.McsSuggester;
 import org.ce.model.storage.Workspace.SystemId;
 import org.ce.calculation.CalculationDescriptor.*;
+import org.ce.calculation.ConditionsScan;
 import org.ce.calculation.QuantityDescriptor;
+import org.ce.calculation.Range;
 import org.ce.calculation.workflow.CalculationService;
 
 import javax.swing.*;
@@ -14,6 +16,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -93,6 +96,15 @@ public class DynamicCalculationPanel extends JPanel {
         elementsCombo.addActionListener(e -> pushSystemToContext());
         structureCombo.addActionListener(e -> pushSystemToContext());
         modelCombo.addActionListener(e -> pushSystemToContext());
+
+        // Elements combo can change independently of the session (before rebuild) —
+        // keep the composition form's element list from going stale.
+        editorDoc(elementsCombo).addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e)  { rebuildParameterForm(); }
+            public void removeUpdate(DocumentEvent e)  { rebuildParameterForm(); }
+            public void changedUpdate(DocumentEvent e) { rebuildParameterForm(); }
+        });
+        elementsCombo.addActionListener(e -> rebuildParameterForm());
 
         // Engine change invalidates session status dot and rebuilds property options
         engineCombo.addActionListener(e -> onSessionChanged(null));
@@ -229,6 +241,17 @@ public class DynamicCalculationPanel extends JPanel {
         setEditorText(modelCombo,     sys.model());
     }
 
+    /** Single source of truth for the current system identity: prefers the live
+     *  elements-combo text, falling back to the active session if the combo is blank. */
+    private SystemId currentSystemId() {
+        String el = editorText(elementsCombo);
+        if (el.isBlank()) {
+            ModelSession s = context.getActiveSession();
+            if (s != null) el = s.systemId.elements();
+        }
+        return new SystemId(el, editorText(structureCombo), editorText(modelCombo));
+    }
+
     // =========================================================================
     // Session observer
     // =========================================================================
@@ -303,23 +326,17 @@ public class DynamicCalculationPanel extends JPanel {
             Parameter p = requirements.get(i);
             gbc.gridy = row++;
 
-            if (p == Parameter.T_START && i + 2 < requirements.size() &&
-                requirements.get(i+1) == Parameter.T_END && requirements.get(i+2) == Parameter.T_STEP) {
+            if (p == Parameter.CONDITIONS_SCAN) {
 
                 parameterForm.add(createRangeRow("T (Temperature)", Parameter.T_START, Parameter.T_END, Parameter.T_STEP), gbc);
-                i += 3;
-            } else if (p == Parameter.X_STARTS && i + 2 < requirements.size() &&
-                       requirements.get(i+1) == Parameter.X_ENDS && requirements.get(i+2) == Parameter.X_STEPS) {
+                gbc.gridy = row++;
 
-                String elemStr = (session != null)
-                        ? session.systemId.elements()
-                        : editorText(elementsCombo);
-                String[] elements = elemStr.split("-");
-                for (int n = 1; n < elements.length; n++) {
-                    parameterForm.add(createCompRangeRow(elements[n]), gbc);
-                    if (n < elements.length - 1) gbc.gridy = row++;
+                List<String> elements = currentSystemId().elementList();
+                for (String elem : elements.subList(1, elements.size())) {
+                    parameterForm.add(createCompRangeRow(elem), gbc);
+                    if (!elem.equals(elements.get(elements.size() - 1))) gbc.gridy = row++;
                 }
-                i += 3;
+                i++;
             } else if (p == Parameter.MCS_L && i + 2 < requirements.size() &&
                        requirements.get(i+1) == Parameter.MCS_NEQUIL && requirements.get(i+2) == Parameter.MCS_NAVG) {
 
@@ -377,22 +394,23 @@ public class DynamicCalculationPanel extends JPanel {
         });
 
         if (!compSpinners.isEmpty()) {
-            double[] starts = new double[compSpinners.size()];
-            double[] ends   = new double[compSpinners.size()];
-            double[] steps  = new double[compSpinners.size()];
+            Range tRange = new Range(
+                    (Double) ((JSpinner) parameterFields.get(Parameter.T_START)).getValue(),
+                    (Double) ((JSpinner) parameterFields.get(Parameter.T_END)).getValue(),
+                    (Double) ((JSpinner) parameterFields.get(Parameter.T_STEP)).getValue());
 
-            String[] elements = el.split("-");
-            for (int n = 1; n < elements.length; n++) {
-                JSpinner[] spinners = compSpinners.get(elements[n]);
-                if (spinners != null) {
-                    starts[n-1] = (Double) spinners[0].getValue();
-                    ends[n-1]   = (Double) spinners[1].getValue();
-                    steps[n-1]  = (Double) spinners[2].getValue();
+            Map<String, Range> ranges = new LinkedHashMap<>();
+            List<String> elems = currentSystemId().elementList();
+            for (String sym : elems.subList(1, elems.size())) {
+                JSpinner[] sp = compSpinners.get(sym);
+                if (sp == null) {
+                    logSink.accept("Error: composition input missing for '" + sym
+                            + "'. Re-select the property to rebuild the form.");
+                    return;
                 }
+                ranges.put(sym, new Range((Double) sp[0].getValue(), (Double) sp[1].getValue(), (Double) sp[2].getValue()));
             }
-            specs.set(Parameter.X_STARTS, starts);
-            specs.set(Parameter.X_ENDS,   ends);
-            specs.set(Parameter.X_STEPS,  steps);
+            specs.set(Parameter.CONDITIONS_SCAN, new ConditionsScan(tRange, ranges));
         }
 
         buildingSession = true;

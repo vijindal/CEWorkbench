@@ -87,11 +87,30 @@ public class CECEvaluator {
         return eci;
     }
 
-    /** Builds a case-insensitive map containing canonical names and e/v aliases. */
-    private static Map<String, Integer> buildLookupMap(CvCfBasis basis) {
-        Map<String, Integer> map = new HashMap<>(basis.numNonPointCfs * 3);
-        for (int i = 0; i < basis.numNonPointCfs; i++) {
-            String name = basis.cfNames.get(i).toLowerCase();
+    /**
+     * Builds a case-insensitive map containing canonical names and e/v aliases.
+     *
+     * <p>Public so that validation code (e.g. the JSON API's strict ECI check) can
+     * resolve names through <em>exactly</em> the same rules this evaluator uses.
+     * A second, divergent copy of the matching logic would let a name validate but
+     * fail to map — silently zeroing that interaction.</p>
+     */
+    public static Map<String, Integer> buildLookupMap(CvCfBasis basis) {
+        return buildAliasMap(basis.cfNames.subList(0, basis.numNonPointCfs));
+    }
+
+    /**
+     * Builds the alias map from a bare list of non-point CF names, so callers that
+     * have only the names (e.g. pre-flight API validation, before a basis has been
+     * generated) resolve identically to a full-basis evaluation.
+     *
+     * <p>This is the single definition of the accepted-spelling rules; both
+     * {@link #buildLookupMap} and validators route through it.</p>
+     */
+    public static Map<String, Integer> buildAliasMap(List<String> nonPointCfNames) {
+        Map<String, Integer> map = new HashMap<>(nonPointCfNames.size() * 3);
+        for (int i = 0; i < nonPointCfNames.size(); i++) {
+            String name = nonPointCfNames.get(i).toLowerCase();
             map.put(name, i);
 
             // Normalize "v" basis functions to also accept "e" Hamiltonian terms
@@ -114,8 +133,14 @@ public class CECEvaluator {
         return map;
     }
 
-    /** Resolves a CEC term name to a basis index using the map or legacy fallbacks. */
-    private static Integer resolveIndex(String name, Map<String, Integer> lookup, int maxTcf) {
+    /**
+     * Resolves a CEC term name to a basis index using the map or legacy fallbacks.
+     * Returns {@code null} when the name matches nothing in the basis.
+     *
+     * <p>Public for the same reason as {@link #buildLookupMap} — validators must
+     * resolve names identically to the evaluator.</p>
+     */
+    public static Integer resolveIndex(String name, Map<String, Integer> lookup, int maxTcf) {
         String key = name.toLowerCase();
         
         // 1. Map-based lookup (Handles Case-insensitive, Direct, and E/V aliases)

@@ -40,11 +40,10 @@ Opens the VS Code-style dark workbench. Use the activity bar on the left to swit
 ./gradlew run --args="type1b Nb-Ti BCC_A2 T"
 ./gradlew run --args="type2  Nb-Ti BCC_A2 T"
 
-# Single-point CVM with minimisation
-./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 0.5"
-
-# Evaluate at fixed correlation functions (no minimisation)
-./gradlew run --args="calc_fixed Nb-Ti BCC_A2 T 1000 0.5 0.5 0.1 0.2 0.3"
+# Single-point CVM with minimisation — composition as <El>=<x> pairs.
+# Any one element may be omitted; its fraction is derived as 1 - sum(given).
+./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 Ti=0.5"
+./gradlew run --args="calc_min Nb-Ti-V-Zr BCC_A2 T 1273 Ti=0.25 V=0.25 Zr=0.25 S"
 
 # View loaded Hamiltonian
 ./gradlew run --args="view Nb-Ti BCC_A2 T"
@@ -62,7 +61,6 @@ Opens the VS Code-style dark workbench. Use the activity bar on the left to swit
 | `type2` | Thermodynamic calculation (temperature scan) |
 | `all` | Runs type1a → type1b → type2 in sequence |
 | `calc_min` | Single-point CVM with Newton–Raphson minimisation |
-| `calc_fixed` | Evaluate G/H/S at a user-supplied CF vector |
 | `view` | Print Hamiltonian ECI table to stdout |
 
 ### Build
@@ -70,6 +68,200 @@ Opens the VS Code-style dark workbench. Use the activity bar on the left to swit
 ```bash
 ./gradlew build
 ```
+
+---
+
+## Using as a library
+
+`CalculationService.calculate` / `calculateScan` are the public API — the same
+entry point the CLI and GUI use internally. Composition is specified by element
+name (never by array position), following pycalphad's `conditions` convention.
+Any one element may be omitted; its mole fraction is derived so the composition
+sums to 1.
+
+```java
+CEWorkbenchContext ctx = new CEWorkbenchContext();
+CalculationService service = ctx.getCalculationService();
+
+// Build the session once per (elements, structure, model, engine) identity.
+ModelSpecifications specs =
+        new ModelSpecifications("Nb-Ti", "BCC_A2", "T", EngineConfig.CVM);
+ModelSession session = service.getOrBuildSession(specs, null);
+
+// Single point — Nb is derived as 1 - 0.5.
+ThermodynamicResult r = service.calculate(
+        session,
+        new Conditions(1000.0, Map.of("Ti", 0.5)),
+        Property.GIBBS_ENERGY,
+        null, null);
+System.out.println(r.gibbsEnergy);
+
+// Temperature scan (at most one axis — T or one element — may vary).
+List<ThermodynamicResult> scan = service.calculateScan(
+        session,
+        new ConditionsScan(new Range(800, 1200, 100), Map.of("Ti", Range.fixed(0.5))),
+        Property.GIBBS_ENERGY,
+        null, null);
+```
+
+For MCS, pass a `CalculationService.McsParams(L, nEquil, nAvg)` as the fourth
+argument; CVM callers can omit it.
+
+---
+
+## Calling from other languages — the JSON API
+
+Non-JVM callers (Python, MATLAB, shell) use the `api` subcommand: one JSON
+request on stdin, one JSON response on stdout. Diagnostics go to **stderr**, so
+the payload is always machine-parseable.
+
+```bash
+./gradlew installDist                       # once — builds the launcher
+build/install/CEWorkbench/bin/CEWorkbench api < request.json
+```
+
+Exit code is 0 on success, 1 on error (a JSON error object is still written, so
+the reason is always machine-readable).
+
+### Discovering what a system expects
+
+```json
+{"describe": {"elements":"Nb-Ti","structure":"BCC_A2","model":"T","engine":"CVM"}}
+```
+```json
+{"ok":true, "supported":true, "ncf":4,
+ "expectedEciNames":["v4AB","v3AB","v22AB","v21AB"],
+ "calculations":["GIBBS_ENERGY","ENTHALPY","ENTROPY"],
+ "notImplemented":["PHASE_EQUILIBRIUM"]}
+```
+
+Query this rather than hard-coding ECI names — it is the reliable guard against
+supplying names that don't match the basis.
+
+### Running a calculation
+
+```json
+{
+  "system":      {"elements":"Nb-Ti","structure":"BCC_A2","model":"T","engine":"CVM"},
+  "calculation": "GIBBS_ENERGY",
+  "conditions":  {"temperature":1000, "composition":{"Ti":0.5}}
+}
+```
+
+`conditions.temperature` and each composition entry accept either a number or a
+`{"start":…,"end":…,"step":…}` range; at most one axis may vary per request.
+Composition follows the same rule as everywhere else — name your elements, omit
+at most one, and it is derived.
+
+**Supplying your own ECIs.** Omit `"hamiltonian"` to use the stored CEC
+database, or include it to pass ECIs directly:
+
+```json
+"hamiltonian": {
+  "basis": "CVCF", "units": "J/mol",
+  "cecTerms": [
+    {"name":"e4AB","a":0.0,"b":0.0},   {"name":"e3AB","a":0.0,"b":0.0},
+    {"name":"e22AB","a":3120.0,"b":0.0},{"name":"e21AB","a":6240.0,"b":0.0}
+  ]
+}
+```
+
+ECIs must **already be in the CVCF basis, in J/mol** — no basis transformation
+or unit conversion is applied. `basis` and `units` are declared explicitly and
+anything else is rejected, so a mismatch fails loudly instead of silently
+producing wrong energies. Each term is `a + b·T`.
+
+> **Names are validated strictly.** Every supplied name must resolve against the
+> basis, and every basis CF must be supplied. An unmatched name would otherwise
+> leave that interaction at 0.0 and still return a plausible-looking number, so
+> the API refuses to compute:
+>
+> ```json
+> {"ok":false,"error":"ECI_VALIDATION_FAILED",
+>  "unmatched":["e21XX"], "unmapped":["v21AB"],
+>  "expected":["v4AB","v3AB","v22AB","v21AB"]}
+> ```
+>
+> Accepted spellings per name: canonical `v…`, the `e…` alias, the published
+> `e2<species><shell>` pair notation, and `CF_<index>`.
+
+### Python example
+
+```python
+import json, os, subprocess
+
+# Use an absolute path; on Windows the launcher is the .bat variant.
+CEW_HOME = os.path.abspath("build/install/CEWorkbench")
+EXE = os.path.join(CEW_HOME, "bin",
+                   "CEWorkbench.bat" if os.name == "nt" else "CEWorkbench")
+
+def call(request):
+    p = subprocess.run([EXE, "api"], input=json.dumps(request),
+                       capture_output=True, text=True)
+    resp = json.loads(p.stdout)          # stderr holds logs; stdout is pure JSON
+    if not resp.get("ok"):
+        raise RuntimeError(f"{resp['error']}: {resp.get('message','')}")
+    return resp
+
+# Ask which ECIs this system needs
+names = call({"describe": {"elements":"Nb-Ti","structure":"BCC_A2",
+                           "model":"T","engine":"CVM"}})["expectedEciNames"]
+
+# Compute with your own ECIs (CVCF basis, J/mol)
+resp = call({
+    "system":      {"elements":"Nb-Ti","structure":"BCC_A2","model":"T","engine":"CVM"},
+    "hamiltonian": {"basis":"CVCF","units":"J/mol","cecTerms":[
+                        {"name":"e4AB","a":0.0},   {"name":"e3AB","a":0.0},
+                        {"name":"e22AB","a":3120.0},{"name":"e21AB","a":6240.0}]},
+    "calculation": "GIBBS_ENERGY",
+    "conditions":  {"temperature":{"start":800,"end":1200,"step":100},
+                    "composition":{"Ti":0.5}},
+})
+
+for pt in resp["points"]:
+    print(pt["temperature"], pt["gibbsEnergy"])
+```
+
+Each response point carries `temperature`, `composition` (element → fraction),
+the available quantities, `correlationFunctions` keyed by CF name, `sro` (below),
+and `converged`. Quantities an engine doesn't produce are **omitted** rather than
+emitted as `NaN`, which is not valid JSON.
+
+> **Always check `converged`.** The CVM minimizer can hit its iteration limit and
+> still return plausible-looking numbers. When `converged` is `false` the point
+> also carries `iterations` and `finalGradientNorm`; treat the values as invalid.
+
+### Short-range order
+
+CVM points include Cowley-Warren SRO parameters (Jindal &amp; Lele, *Calphad* 89
+(2025) 102825, Eq. 40), computed from the converged cluster probabilities:
+
+```
+α_PR = 1 − p_PR / (x_P x_R)      α < 0 ordering · α = 0 random · α > 0 clustering
+```
+
+```json
+"sro": {
+  "1NN": {"Mo-Nb": {"alpha": -0.05088, "probability": 0.11617, "random": 0.11111},
+          "Mo-Ta": {"alpha": -0.05541, "probability": 0.11791, "random": 0.11111}},
+  "2NN": { ... }
+}
+```
+
+`1NN` and `2NN` are the first- and second-nearest-neighbour shells. All species
+pairs are reported, like-pairs included.
+
+### Workspace data
+
+CEWorkbench needs its `inputs/` data (cluster and symmetry files). When running
+from another directory, point it at the data folder explicitly:
+
+```bash
+export CEWORKBENCH_DATA=/path/to/CEWorkbench/data/CEWorkbench
+```
+
+Otherwise it looks for `./data/CEWorkbench` relative to the working directory,
+then `~/CEWorkbench`.
 
 ---
 
@@ -328,7 +520,7 @@ All persistent data is stored under `~/CEWorkbench/`:
 - Hamiltonian scaffold, load, edit, save workflow
 - Modern VS Code-style GUI — Metadata-driven `DynamicCalculationPanel`, Activity Bar, Explorer, Output panel
 - Bidirectional system identity sync across all GUI panels via `WorkbenchContext`
-- CLI with all modes: `type1a`, `type1b`, `type2`, `all`, `calc_min`, `calc_fixed`, `view`
+- CLI with all modes: `type1a`, `type1b`, `type2`, `all`, `calc_min`, `view`
 
 **Planned:**
 - Additional symmetry groups and crystal structures

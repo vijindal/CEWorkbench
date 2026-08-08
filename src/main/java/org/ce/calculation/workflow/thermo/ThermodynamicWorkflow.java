@@ -7,11 +7,15 @@ import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.cvm.CVMGibbsModel;
+import org.ce.model.cvm.SroCalculator;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCSGeometry;
 import org.ce.model.mcs.MetropolisMC.MCResult;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -63,7 +67,7 @@ public class ThermodynamicWorkflow {
     }
 
     public ThermodynamicResult runCalculation(ModelSession session, Request request) throws Exception {
-        validateInputs(request.temperature, request.composition);
+        validateInputs(session, request.temperature, request.composition);
 
         emit(request.progressSink, String.format(
                 "\nCALCULATION START [%s] — T=%.1f K, x=%s (%s)",
@@ -77,11 +81,14 @@ public class ThermodynamicWorkflow {
         return result;
     }
 
-    private void validateInputs(double T, double[] x) {
+    private void validateInputs(ModelSession session, double T, double[] x) {
         if (T < 0)
             throw new IllegalArgumentException("Temperature cannot be negative: " + T);
         if (x == null || x.length == 0)
             throw new IllegalArgumentException("Composition array missing");
+        if (x.length != session.numComponents())
+            throw new IllegalArgumentException(
+                    "Composition length " + x.length + " != numComponents " + session.numComponents());
         double sum = 0;
         for (double val : x)
             sum += val;
@@ -105,16 +112,30 @@ public class ThermodynamicWorkflow {
         double[] x = request.composition;
 
         // Extract result via procedural bridge logic (formerly ThermodynamicMethods)
-        model.getEquilibriumState(T, x, 1e-5, request.progressSink(), request.eventSink(), request.property());
+        CVMGibbsModel.EquilibriumResult eq = model.getEquilibriumState(
+                T, x, 1e-5, request.progressSink(), request.eventSink(), request.property());
+
+        if (!eq.converged) {
+            emit(request.progressSink, String.format(
+                    "  [WARNING] CVM minimization did NOT converge at T=%.1f K, x=%s "
+                    + "(%d iterations, final ||grad G||=%.3e). Results are unreliable.",
+                    T, Arrays.toString(x), eq.iterations, eq.finalGradientNorm));
+            LOG.warning(String.format("CVM non-convergence at T=%.1f K, x=%s: %d iters, gradNorm=%.3e",
+                    T, Arrays.toString(x), eq.iterations, eq.finalGradientNorm));
+        }
 
         double g = Double.NaN, h = Double.NaN, s = Double.NaN;
         switch (request.property) {
-            case GIBBS_ENERGY -> g = model.calG();
+            case GIBBS_ENERGY -> {
+                g = model.calG();
+                h = model.calH();
+                s = model.calS();
+            }
             case ENTHALPY -> h = model.calH();
             case ENTROPY -> s = model.calS();
         }
 
-        return new ThermodynamicResult(
+        ThermodynamicResult result = new ThermodynamicResult(
                 T, x, g, h, s,
                 Double.NaN, // stdEnthalpy
                 Double.NaN, // heatCapacity
@@ -122,6 +143,31 @@ public class ThermodynamicWorkflow {
                 null, // avgCFs
                 null, // stdCFs
                 request.property());
+
+        return result
+                .withConvergence(eq.converged, eq.iterations, eq.finalGradientNorm)
+                .withSro(computeSro(model, x, request.progressSink));
+    }
+
+    /**
+     * Cowley-Warren SRO parameters from the converged cluster variables
+     * (Jindal &amp; Lele 2025, Eq. 40). Returns null if the CV layout doesn't match
+     * what {@link SroCalculator} can interpret — SRO is supplementary, so an
+     * unsupported geometry must not fail the whole calculation.
+     */
+    private Map<String, List<SroCalculator.PairSro>> computeSro(
+            CVMGibbsModel model, double[] x, Consumer<String> sink) {
+        try {
+            double[] u = Arrays.copyOf(model.calCfs(), model.getNcf());
+            double[][][] cv = model.evaluateClusterVariables(u, x);
+            Map<String, List<SroCalculator.PairSro>> out = new LinkedHashMap<>();
+            out.put("1NN", SroCalculator.pairSro(cv, x, SroCalculator.T_PAIR_1NN));
+            out.put("2NN", SroCalculator.pairSro(cv, x, SroCalculator.T_PAIR_2NN));
+            return out;
+        } catch (RuntimeException e) {
+            emit(sink, "  [SRO] not computed: " + e.getMessage());
+            return null;
+        }
     }
 
     // ── MCS Engine ────────────────────────────────────────────────────────────

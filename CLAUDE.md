@@ -25,7 +25,7 @@ Three types of work:
 ./gradlew run --args="all Nb-Ti BCC_A2 T"
 
 # CLI — single-point CVM calculation
-./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 0.5 --verbose"
+./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 Ti=0.5 --verbose"
 
 # CLI — temperature scan
 ./gradlew run --args="type2 Nb-Ti BCC_A2 T --verbose"

@@ -1,6 +1,8 @@
 package org.ce.ui.gui;
 
 import org.ce.calculation.CalculationDescriptor.Parameter;
+import org.ce.calculation.Conditions;
+import org.ce.calculation.ConditionsScan;
 
 import javax.swing.*;
 import java.awt.*;
@@ -37,6 +39,12 @@ public final class ParameterFieldFactory {
                 field.setText(formatArray((double[]) value));
             }
             return field;
+        }
+
+        if (parameter.type == Conditions.class || parameter.type == ConditionsScan.class) {
+            throw new UnsupportedOperationException(
+                    "Parameter '" + parameter.name + "' (" + parameter.type.getSimpleName()
+                    + ") has no generic editor; it is built by DynamicCalculationPanel.createCompRangeRow.");
         }
 
         return new JTextField(value != null ? value.toString() : "");

@@ -31,8 +31,7 @@ public final class CalculationDescriptor {
 
     /** The dimensionality or "shape" of the calculation. */
     public enum Mode {
-        ANALYSIS("Analysis"),
-        FINITE_SIZE_SCALING("Finite-Size Scaling (FSS)");
+        ANALYSIS("Analysis");
 
         public final String displayName;
         Mode(String displayName) { this.displayName = displayName; }
@@ -40,18 +39,18 @@ public final class CalculationDescriptor {
 
     /** Defines a single input requirement for a calculation. */
     public static final class Parameter {
-        public static final Parameter TEMPERATURE = new Parameter("Temperature", Double.class, 1000.0);
-        public static final Parameter COMPOSITION = new Parameter("Composition", double[].class, null);
+        /** Single-point conditions (temperature + composition). See {@link org.ce.calculation.Conditions}. */
+        public static final Parameter COMPOSITION = new Parameter("Composition", org.ce.calculation.Conditions.class, null);
+        /** Conditions scan (temperature range and/or one composition axis). See {@link org.ce.calculation.ConditionsScan}. */
+        public static final Parameter CONDITIONS_SCAN = new Parameter("Conditions Scan", org.ce.calculation.ConditionsScan.class, null);
+
+        // GUI spinner-editor templates only — never read as job parameters directly.
         public static final Parameter T_START      = new Parameter("T Start", Double.class, 1000.0);
         public static final Parameter T_END        = new Parameter("T End", Double.class, 1000.0);
         public static final Parameter T_STEP       = new Parameter("T Step", Double.class, 100.0);
         public static final Parameter X_START      = new Parameter("X Start", Double.class, 0.5);
         public static final Parameter X_END        = new Parameter("X End", Double.class, 0.5);
         public static final Parameter X_STEP       = new Parameter("X Step", Double.class, 0.1);
-
-        public static final Parameter X_STARTS     = new Parameter("X Starts", double[].class, null);
-        public static final Parameter X_ENDS       = new Parameter("X Ends", double[].class, null);
-        public static final Parameter X_STEPS      = new Parameter("X Steps", double[].class, null);
 
         public static final Parameter MCS_L        = new Parameter("Lattice Size L", Integer.class, 4);
         public static final Parameter MCS_NEQUIL   = new Parameter("Equil. Sweeps", Integer.class, 100);
@@ -88,13 +87,27 @@ public final class CalculationDescriptor {
             this.mode = Objects.requireNonNull(mode);
         }
 
-        public void set(Parameter param, Object value) { parameters.put(param, value); }
+        public void set(Parameter param, Object value) {
+            if (value != null && !param.type.isInstance(value))
+                throw new IllegalArgumentException(
+                        "Parameter '" + param.name + "' expects " + param.type.getSimpleName()
+                        + ", got " + value.getClass().getSimpleName());
+            parameters.put(param, value);
+        }
 
         @SuppressWarnings("unchecked")
         public <T> Optional<T> get(Parameter param) { return Optional.ofNullable((T) parameters.get(param)); }
 
         @SuppressWarnings("unchecked")
         public <T> T getOrDefault(Parameter param) { return (T) parameters.getOrDefault(param, param.defaultValue); }
+
+        /** Like {@link #getOrDefault} but throws if neither an explicit value nor a default is present. */
+        @SuppressWarnings("unchecked")
+        public <T> T require(Parameter param, Class<T> type) {
+            Object v = parameters.getOrDefault(param, param.defaultValue);
+            if (v == null) throw new IllegalStateException("Required parameter '" + param.name + "' not set");
+            return type.cast(v);
+        }
 
         public Property getProperty() { return property; }
         public Mode getMode() { return mode; }
@@ -112,7 +125,6 @@ public final class CalculationDescriptor {
         }
 
         public static List<Mode> getAvailableModes(Property property, EngineConfig engine) {
-            if (property == Property.HEAT_CAPACITY) return Arrays.asList(Mode.FINITE_SIZE_SCALING);
             return Arrays.asList(Mode.ANALYSIS);
         }
 
@@ -120,15 +132,11 @@ public final class CalculationDescriptor {
             List<Parameter> requirements = new ArrayList<>();
             switch (mode) {
                 case ANALYSIS:
-                    requirements.addAll(Arrays.asList(Parameter.T_START, Parameter.T_END, Parameter.T_STEP,
-                                       Parameter.X_STARTS, Parameter.X_ENDS, Parameter.X_STEPS));
-                    break;
-                case FINITE_SIZE_SCALING:
-                    requirements.addAll(Arrays.asList(Parameter.TEMPERATURE, Parameter.COMPOSITION));
+                    requirements.add(Parameter.CONDITIONS_SCAN);
                     break;
             }
             if (engine.isMcs()) {
-                if (mode != Mode.FINITE_SIZE_SCALING) requirements.add(Parameter.MCS_L);
+                requirements.add(Parameter.MCS_L);
                 requirements.addAll(Arrays.asList(Parameter.MCS_NEQUIL, Parameter.MCS_NAVG));
             }
             return requirements;

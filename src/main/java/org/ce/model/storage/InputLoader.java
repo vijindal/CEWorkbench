@@ -78,7 +78,12 @@ public class InputLoader {
         try {
             return ClusterParser.parseFromPath(filePath);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load cluster file: " + filePath, e);
+            String hint = java.nio.file.Files.exists(filePath) ? ""
+                    : "\n  The file does not exist. If you are running from outside the project"
+                    + " directory, point CEWorkbench at its data folder with the CEWORKBENCH_DATA"
+                    + " environment variable (or -Dceworkbench.data=...), e.g."
+                    + " CEWORKBENCH_DATA=/path/to/CEWorkbench/data/CEWorkbench";
+            throw new RuntimeException("Failed to load cluster file: " + filePath + hint, e);
         }
     }
 
