@@ -1,0 +1,276 @@
+# API Reference
+
+Calling the CE Thermodynamics Workbench from your own code.
+
+Two interfaces, same engine underneath:
+
+- **[Java API](#java-api)** — in-process calls from any JVM language.
+- **[JSON API](#json-api)** — one JSON request in, one JSON response out, for
+  Python, MATLAB, shell, or anything else.
+
+The CLI and GUI both route through the same entry point, so results are
+identical regardless of how you call it.
+
+For running calculations interactively, see [USER_GUIDE.md](USER_GUIDE.md).
+
+---
+
+## Conventions
+
+These apply to both interfaces.
+
+**Composition is named, never positional.** You give `element → mole fraction`
+pairs. Any one element may be omitted and is derived so the total is 1. Omitting
+two or more is an error.
+
+**One varying axis per scan.** Either temperature or one element's fraction may
+sweep — not both. Multi-dimensional grids require repeated calls.
+
+**ECIs are matched by name and validated strictly.** A name that doesn't resolve
+against the basis is rejected outright rather than silently contributing zero.
+Incomplete coverage is likewise rejected.
+
+**ECIs must already be in the CVCF basis, in J/mol.** No basis transformation or
+unit conversion is performed. Each term is evaluated as `a + b·T`.
+
+**Check `converged`.** The CVM minimizer can hit its iteration limit and still
+return plausible-looking numbers.
+
+---
+
+## Java API
+
+`CalculationService.calculate` / `calculateScan` are the public entry points.
+
+```java
+CEWorkbenchContext ctx = new CEWorkbenchContext();
+CalculationService service = ctx.getCalculationService();
+
+// Build the session once per (elements, structure, model, engine) identity.
+ModelSpecifications specs =
+        new ModelSpecifications("Nb-Ti", "BCC_A2", "T", EngineConfig.CVM);
+ModelSession session = service.getOrBuildSession(specs, null);
+
+// Single point — Nb derived as 1 - 0.5.
+ThermodynamicResult r = service.calculate(
+        session,
+        new Conditions(1000.0, Map.of("Ti", 0.5)),
+        Property.GIBBS_ENERGY,
+        null, null);
+
+System.out.println(r.gibbsEnergy);   // -3480.5209063901
+if (Boolean.FALSE.equals(r.converged)) { /* do not trust r */ }
+
+// Temperature scan.
+List<ThermodynamicResult> scan = service.calculateScan(
+        session,
+        new ConditionsScan(new Range(800, 1200, 100), Map.of("Ti", Range.fixed(0.5))),
+        Property.GIBBS_ENERGY,
+        null, null);
+```
+
+The two trailing arguments are optional progress sinks:
+`Consumer<String>` for log lines and `Consumer<ProgressEvent>` for structured
+events. Pass `null` to ignore them.
+
+For Monte Carlo, supply algorithm parameters explicitly:
+
+```java
+service.calculate(session, conditions, Property.ENTHALPY,
+                  new CalculationService.McsParams(8, 1000, 2000), null, null);
+```
+
+`McsParams` holds supercell size `L` and sweep counts — algorithm settings, not
+physical conditions, which is why they are separate from `Conditions`.
+
+### Result fields
+
+| Field | Notes |
+|---|---|
+| `gibbsEnergy`, `enthalpy`, `entropy` | J/mol, J/mol, J/(mol·K). `NaN` when the engine doesn't produce it |
+| `optimizedCFs` | Equilibrium correlation functions (CVM) |
+| `avgCFs`, `stdCFs` | Sampled correlation functions (MCS) |
+| `sro` | Cowley-Warren parameters by shell — see [below](#short-range-order) |
+| `converged`, `iterations`, `finalGradientNorm` | Minimizer status; `null` for MCS |
+
+### Using it as a dependency
+
+During development the simplest route for another Gradle project is a composite
+build — no publishing step, and changes are picked up immediately:
+
+```groovy
+// settings.gradle
+includeBuild('../CEWorkbench')
+```
+
+---
+
+## JSON API
+
+For non-JVM callers. One JSON request on stdin, one JSON response on stdout.
+Diagnostics go to **stderr**, so stdout is always machine-parseable.
+
+```bash
+./gradlew installDist                                    # once — builds the launcher
+build/install/CEWorkbench/bin/CEWorkbench api < request.json
+```
+
+Exit code is 0 on success, 1 on error. A JSON error object is written either
+way, so the reason is always readable.
+
+> Set `CEWORKBENCH_DATA` to your `data/CEWorkbench` directory when invoking from
+> another working directory, or the workbench won't find its inputs.
+
+### Discovering what a system expects
+
+```json
+{"describe": {"elements":"Nb-Ti","structure":"BCC_A2","model":"T","engine":"CVM"}}
+```
+```json
+{"ok":true, "supported":true, "ncf":4,
+ "expectedEciNames":["v4AB","v3AB","v22AB","v21AB"],
+ "calculations":["GIBBS_ENERGY","ENTHALPY","ENTROPY"],
+ "notImplemented":["PHASE_EQUILIBRIUM"]}
+```
+
+Query this instead of hard-coding ECI names — it is the reliable guard against
+supplying names that don't match the basis.
+
+### Running a calculation
+
+```json
+{
+  "system":      {"elements":"Nb-Ti","structure":"BCC_A2","model":"T","engine":"CVM"},
+  "calculation": "GIBBS_ENERGY",
+  "conditions":  {"temperature":1000, "composition":{"Ti":0.5}}
+}
+```
+
+`conditions.temperature` and each composition entry accept either a number or a
+`{"start":…,"end":…,"step":…}` range; at most one may vary per request.
+
+`system.model` must be the bare model name (`"T"`), not `"T_CVCF"` — the suffix
+is applied internally to the stored Hamiltonian ID.
+
+### Supplying your own ECIs
+
+Omit `"hamiltonian"` to use the stored ECI database, or include it to pass
+values directly:
+
+```json
+"hamiltonian": {
+  "basis": "CVCF", "units": "J/mol",
+  "cecTerms": [
+    {"name":"e4AB","a":0.0,"b":0.0},    {"name":"e3AB","a":0.0,"b":0.0},
+    {"name":"e22AB","a":3120.0,"b":0.0},{"name":"e21AB","a":6240.0,"b":0.0}
+  ]
+}
+```
+
+`basis` and `units` are declared explicitly and anything other than
+`CVCF` / `J/mol` is rejected, so a mismatch fails loudly instead of silently
+producing wrong energies.
+
+Accepted spellings per term: canonical `v…`, the `e…` alias, the published
+`e2<species><shell>` pair notation, and `CF_<index>`.
+
+### Response
+
+```json
+{"ok": true,
+ "system": {"elements":["Nb","Ti"],"structure":"BCC_A2","model":"T","engine":"CVM"},
+ "hamiltonianSource": "inline",
+ "calculation": "GIBBS_ENERGY",
+ "points": [{
+   "temperature": 1000.0,
+   "converged": true,
+   "composition": {"Nb":0.5, "Ti":0.5},
+   "gibbsEnergy": -3480.5209063901,
+   "enthalpy": 2214.3770000563,
+   "entropy": 5.6948979064,
+   "correlationFunctions": {"v4AB":0.0536, "v3AB":0.0, "v22AB":0.2392, "v21AB":0.2353},
+   "sro": { "1NN": {...}, "2NN": {...} }
+ }]}
+```
+
+Quantities an engine doesn't produce are **omitted**, never emitted as `NaN`
+(which isn't valid JSON). When `converged` is `false` the point also carries
+`iterations` and `finalGradientNorm`.
+
+### Short-range order
+
+CVM points include Cowley-Warren parameters, computed from the converged cluster
+probabilities:
+
+```
+α_PR = 1 − p_PR / (x_P x_R)      α < 0 ordering · α = 0 random · α > 0 clustering
+```
+
+```json
+"sro": {
+  "1NN": {"Mo-Nb": {"alpha": -0.05088, "probability": 0.11617, "random": 0.11111},
+          "Mo-Ta": {"alpha": -0.05541, "probability": 0.11791, "random": 0.11111}},
+  "2NN": { ... }
+}
+```
+
+All species pairs are reported, like-pairs included.
+
+### Errors
+
+```json
+{"ok":false,"error":"ECI_VALIDATION_FAILED",
+ "message":"...",
+ "unmatched":["e21XX"], "unmapped":["v21AB"],
+ "expected":["v4AB","v3AB","v22AB","v21AB"]}
+```
+
+| `error` | Cause |
+|---|---|
+| `INVALID_SYSTEM` | Missing or malformed elements/structure/model/engine |
+| `UNSUPPORTED_SYSTEM` | No CVCF basis registered for that structure + component count |
+| `MISSING_CONDITIONS` / `INVALID_CONDITIONS` | Absent, malformed, or multi-axis conditions |
+| `UNSUPPORTED_BASIS` / `UNSUPPORTED_UNITS` | `hamiltonian.basis`/`units` not `CVCF`/`J/mol` |
+| `INVALID_HAMILTONIAN` | Malformed `cecTerms` |
+| `ECI_VALIDATION_FAILED` | Names don't map cleanly onto the basis |
+| `NOT_IMPLEMENTED` | Calculation not available for this engine |
+| `INTERNAL_ERROR` | Anything else; `message` carries the detail |
+
+### Python example
+
+```python
+import json, os, subprocess
+
+CEW_HOME = os.path.abspath("build/install/CEWorkbench")
+EXE = os.path.join(CEW_HOME, "bin",
+                   "CEWorkbench.bat" if os.name == "nt" else "CEWorkbench")
+
+def call(request):
+    p = subprocess.run([EXE, "api"], input=json.dumps(request),
+                       capture_output=True, text=True)
+    resp = json.loads(p.stdout)          # stderr holds logs; stdout is pure JSON
+    if not resp.get("ok"):
+        raise RuntimeError(f"{resp['error']}: {resp.get('message','')}")
+    return resp
+
+# Ask which ECIs this system needs
+names = call({"describe": {"elements":"Nb-Ti","structure":"BCC_A2",
+                           "model":"T","engine":"CVM"}})["expectedEciNames"]
+
+# Compute with your own ECIs (CVCF basis, J/mol)
+resp = call({
+    "system":      {"elements":"Nb-Ti","structure":"BCC_A2","model":"T","engine":"CVM"},
+    "hamiltonian": {"basis":"CVCF","units":"J/mol","cecTerms":[
+                        {"name":"e4AB","a":0.0},    {"name":"e3AB","a":0.0},
+                        {"name":"e22AB","a":3120.0},{"name":"e21AB","a":6240.0}]},
+    "calculation": "GIBBS_ENERGY",
+    "conditions":  {"temperature":{"start":800,"end":1200,"step":100},
+                    "composition":{"Ti":0.5}},
+})
+
+for pt in resp["points"]:
+    if not pt.get("converged", True):
+        print(f"  warning: T={pt['temperature']} did not converge")
+        continue
+    print(pt["temperature"], pt["gibbsEnergy"])
+```
