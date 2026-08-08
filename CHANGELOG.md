@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/) — dated entries summarize milestones rather than individual commits, since this project doesn't cut versioned releases.
 
-See `CLAUDE.md` for the pipeline architecture and session contract, `ARCHITECTURE.md` for the layer contracts, `README.md` for project overview.
+See `CLAUDE.md` for the architecture, layer contracts, and session/API contracts; `README.md` for project overview and API usage.
 
 ---
 
@@ -118,136 +118,30 @@ Verification plan:
 
 ### 3. MCS Pipeline Refactor
 
-Aligning the MCS (Monte Carlo Sampling) calculation pipeline with the strict three-layer contract (`ui` → `calculation` → `model`). Two phases, in dependency order — Phase 1 is a prerequisite for Phase 2's ownership/queueing work.
+Aligning the MCS calculation pipeline with the strict three-layer contract
+(`ui` → `calculation` → `model`).
 
-**Status: PLANNED — neither phase implemented yet**
+**Status: Phase 1 ACHIEVED (by a different route than planned); Phase 2 still open**
 
-**Phase 1: Move model building into the model layer** (`MCSRunner` accepts `ModelSession`)
+**Phase 1 — model building belongs to the model layer.** The original plan was to add
+`MCSRunner.Builder.session(ModelSession, double)`. That builder no longer exists; the
+same goal was reached with a static factory instead:
 
-*Context:* the calculation layer should pass model specifications to the model layer, which takes full responsibility for building the model (cluster algebra, CEC reading, initial config, ECI evaluation and transform). Steps 2 and 3 (Hamiltonian evaluation, ECI transform) should happen together with Step 4 (initialization) inside the model layer — not scattered across `ThermodynamicWorkflow` and `MCSRunner`.
-
-*Current problem:*
-- `ThermodynamicWorkflow.runMcs()` does Step 2 (`CECEvaluator.evaluate` → `eci[]`) and validates the C-matrix before handing off to `MCSRunner` — model-layer concerns leaked into the calculation layer.
-- `MCSRunner.Builder` requires the caller to decompose `ModelSession` into 6 raw fields (`clusterData`, `eci`, `basis`, `matrixData`, `lcf`, `numComp`) — the session was already available.
-- `MCSRunner.run()` does Step 3 (ECI transform via `Tinv`) — fine, stays there.
-
-*Target:*
-- `ThermodynamicWorkflow.runMcs()` becomes a thin dispatcher — passes `ModelSession` directly.
-- `MCSRunner.Builder` gains `session(ModelSession, double temperature)` — extracts all model fields internally, performs `CECEvaluator.evaluate()`, validates the C-matrix, builds ECIs.
-- Steps 2, 3, 4 all visible and sequenced inside the model layer.
-
-Layer responsibilities after the change:
-```
-UI Layer
-  → ModelSpecifications (elements, structure, model, engine)
-  → CalculationSpecifications (T, x, L, nEquil, nAvg)
-  → CalculationService.execute()
-
-Calculation Layer (ThermodynamicWorkflow.runMcs)
-  → retrieves pre-built ModelSession                (unchanged)
-  → wires progress callbacks                        (unchanged)
-  → calls MCSRunner.builder().session(session, T)   ← NEW: passes session directly
-  → calls builder.build().run()                     (unchanged)
-  → runs MCSStatisticsProcessor on MCResult          (unchanged)
-
-Model Layer (MCSRunner.Builder)
-  Step 2: CECEvaluator.evaluate(session.cecEntry, T, session.cvcfBasis) → eci (CVCF basis)
-  Step 2b: validate C-matrix dimensions            ← moved from ThermodynamicWorkflow
-  Step 3: ECI transform via Tinv (stays in MCSRunner.run() as today)
-  Step 4: build lattice, embeddings, LatticeConfig (stays in MCSRunner.run() as today)
+```java
+MCSGeometry geo = MCSGeometry.build(session, L, sink);          // geometry, cached per (session, L)
+MCSRunner runner = MCSRunner.forTemperature(geo, session, T, sink);  // ECI eval + transform
 ```
 
-Precise changes:
+`ThermodynamicWorkflow.runMcs` now passes the `ModelSession` straight through and no
+longer decomposes it into raw fields or calls `CECEvaluator` itself — which is what
+Phase 1 was for. No further work needed here; the detailed builder specification that
+used to occupy this section has been removed as obsolete.
 
-1. `MCSRunner.Builder` — add `session()` method, remove `eci()` requirement.
+*Known gap:* `MCSStatisticsProcessor` (calculation layer, τ_int / block averaging /
+jackknife Cv) exists but is **not** wired into `runMcs`. MCS results currently carry
+`Double.NaN` for `stdEnthalpy` and `heatCapacity`. Wiring it up is unfinished Phase-1
+adjacent work.
 
-   New import in `MCSRunner.java`:
-   ```java
-   import org.ce.model.ModelSession;
-   import org.ce.model.hamiltonian.CECEvaluator;
-   import org.ce.model.PhysicsConstants;
-   ```
-
-   New field in `Builder`:
-   ```java
-   private ModelSession session = null;   // set by session() convenience method
-   ```
-
-   New `Builder` method:
-   ```java
-   public Builder session(ModelSession s, double temperature) {
-       this.session = s;
-       this.T       = temperature;
-       return this;
-   }
-   ```
-
-   Modified `build()` in `Builder` — add block that auto-fills from session if provided:
-   ```java
-   public MCSRunner build() {
-       if (session != null) {
-           // Step 2: Evaluate Hamiltonian — ECI in CVCF basis at temperature T
-           var matData = session.clusterData.getMatrixData();
-           int cmatCols = /* extract from matData */;
-           if (cmatCols != session.cvcfBasis.totalCfs())
-               throw new IllegalStateException("C-matrix dimension mismatch ...");
-           this.eci       = CECEvaluator.evaluate(session.cecEntry, T, session.cvcfBasis, "MCS");
-           // Fill remaining fields from session
-           this.clusterData = session.clusterData.getDisorderedClusterResult().getDisClusterData();
-           this.numComp     = session.numComponents();
-           this.basis       = session.cvcfBasis;
-           this.matrixData  = matData;
-           this.lcf         = session.clusterData.getLcf();
-           if (R <= 0) this.R = PhysicsConstants.R_GAS;
-       }
-       // existing validation follows unchanged
-       if (clusterData == null) throw new IllegalStateException("clusterData required");
-       if (eci == null)         throw new IllegalStateException("eci required");
-       if (T <= 0)              throw new IllegalStateException("T must be > 0");
-       ...
-   }
-   ```
-
-2. `ThermodynamicWorkflow.runMcs()` — remove Steps 2 & 3, use `session()` builder method.
-
-   Remove from `runMcs()`:
-   - `CECEvaluator.evaluate(...)` call (Step 2 — moves to `MCSRunner.Builder.build()`)
-   - C-matrix dimension validation block (Step 2b — moves to `MCSRunner.Builder.build()`)
-   - All 13 individual `.clusterData()`, `.eci()`, `.numComp()`, `.basis()`, `.matrixData()`, `.lcf()` builder calls
-
-   Replace with:
-   ```java
-   MCSRunner.Builder builder = MCSRunner.builder()
-       .session(session, request.temperature)   // model building now in model layer
-       .composition(request.composition)
-       .nEquil(nEquil)
-       .nAvg(nAvg)
-       .L(L)
-       .seed(System.currentTimeMillis())
-       .cancellationCheck(Thread.currentThread()::isInterrupted);
-   ```
-
-   Remove import from `ThermodynamicWorkflow.java`:
-   ```java
-   // remove:  import org.ce.model.hamiltonian.CECEvaluator;
-   // remove:  import org.ce.model.cluster.ClusterCFIdentificationPipeline.ClusCoordListData;
-   ```
-
-3. No other file changes — `ModelSession`, `MetropolisMC`, `CalculationService`, `ThermodynamicRequest`, `LocalEnergyCalcTest` all unchanged.
-
-Critical files:
-- [MCSRunner.java](src/main/java/org/ce/model/mcs/MCSRunner.java) — Builder gains `session()` + `build()` fills fields from session
-- [ThermodynamicWorkflow.java](src/main/java/org/ce/calculation/workflow/thermo/ThermodynamicWorkflow.java) — `runMcs()` simplified to ~10 builder lines
-- [ModelSession.java](src/main/java/org/ce/model/ModelSession.java) — read-only, no changes
-- [MetropolisMC.java](src/main/java/org/ce/model/mcs/MetropolisMC.java) — no changes
-- [LocalEnergyCalcTest.java](src/test/java/org/ce/model/mcs/LocalEnergyCalcTest.java) — no changes
-
-Verification:
-```bash
-./gradlew compileJava compileTestJava   # must BUILD SUCCESSFUL
-./gradlew test                          # LocalEnergyCalcTest must pass (3 tests)
-./gradlew run --args="calc_min Nb-Ti BCC_A2 T 1000 0.5 --verbose"
-```
 
 **Phase 2: Ownership, queueing, and result streaming**
 
