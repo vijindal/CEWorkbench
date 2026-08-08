@@ -43,6 +43,23 @@ public class Main {
     public static void main(String[] args) {
         java.util.List<String> argList = new java.util.ArrayList<>(java.util.Arrays.asList(args));
         verbose = argList.remove("--verbose") || argList.remove("-v");
+        EngineConfig engine = EngineConfig.CVM;
+        int engineFlagIdx = argList.indexOf("--engine");
+        if (engineFlagIdx >= 0) {
+            if (engineFlagIdx + 1 >= argList.size()) {
+                System.err.println("--engine requires a value: CVM or MCS");
+                System.exit(1);
+            }
+            String engineName = argList.get(engineFlagIdx + 1).toUpperCase();
+            try {
+                engine = EngineConfig.valueOf(engineName);
+            } catch (IllegalArgumentException e) {
+                System.err.println("Unknown --engine '" + engineName + "'. Use CVM or MCS.");
+                System.exit(1);
+            }
+            argList.remove(engineFlagIdx + 1);
+            argList.remove(engineFlagIdx);
+        }
         args = argList.toArray(new String[0]);
 
         setupLogging();
@@ -70,8 +87,10 @@ public class Main {
             if (args.length < 6) {
                 System.err.println(
                         "Usage: calc_min <elements> <structure> <model> <temp> <El>=<x> [<El>=<x> ...] [G|H|S] [--verbose]\n" +
+                        "                 [--engine MCS] [L=<n>] [nEquil=<n>] [nAvg=<n>]\n" +
                         "  e.g.  calc_min Nb-Ti BCC_A2 T 1000 Ti=0.5\n" +
                         "  e.g.  calc_min Nb-Ti-V-Zr BCC_A2 T 1273 Ti=0.25 V=0.25 Zr=0.25 S\n" +
+                        "  e.g.  calc_min Nb-Ti BCC_A2 T 1000 Ti=0.5 --engine MCS L=8 nEquil=1000 nAvg=2000\n" +
                         "  Any element may be omitted; its fraction is derived as 1 - sum(given).");
                 System.exit(1);
             }
@@ -81,7 +100,7 @@ public class Main {
             double temp      = Double.parseDouble(args[4]);
 
             String lastArg = args[args.length - 1];
-            Property requestedProp = Property.GIBBS_ENERGY;
+            Property requestedProp = engine.isMcs() ? Property.ENTHALPY : Property.GIBBS_ENERGY;
             int compEndIndex = args.length;
 
             if (lastArg.equalsIgnoreCase("G") || lastArg.equalsIgnoreCase("H") || lastArg.equalsIgnoreCase("S")) {
@@ -94,8 +113,17 @@ public class Main {
             }
 
             Map<String, Double> comp = new LinkedHashMap<>();
+            CalculationService.McsParams mcsParams = CalculationService.McsParams.DEFAULT;
+            int mcsL = mcsParams.L(), mcsNEquil = mcsParams.nEquil(), mcsNAvg = mcsParams.nAvg();
             for (int i = 5; i < compEndIndex; i++) {
-                Map.Entry<String, Range> tok = parseCompToken(args[i]);
+                String tokRaw = args[i];
+                String key = tokRaw.contains("=") ? tokRaw.substring(0, tokRaw.indexOf('=')).trim() : "";
+                String val = tokRaw.contains("=") ? tokRaw.substring(tokRaw.indexOf('=') + 1).trim() : "";
+                if (key.equalsIgnoreCase("L")) { mcsL = Integer.parseInt(val); continue; }
+                if (key.equalsIgnoreCase("nEquil")) { mcsNEquil = Integer.parseInt(val); continue; }
+                if (key.equalsIgnoreCase("nAvg")) { mcsNAvg = Integer.parseInt(val); continue; }
+
+                Map.Entry<String, Range> tok = parseCompToken(tokRaw);
                 if (tok == null) {
                     System.err.println(
                             "Error: positional mole fractions are no longer supported.\n" +
@@ -105,7 +133,8 @@ public class Main {
                 }
                 comp.put(tok.getKey(), tok.getValue().start());
             }
-            runCalcMin(appCtx, elements, structure, model, temp, comp, requestedProp);
+            runCalcMin(appCtx, elements, structure, model, temp, comp, requestedProp,
+                    engine, new CalculationService.McsParams(mcsL, mcsNEquil, mcsNAvg));
             return;
         }
 
@@ -119,7 +148,7 @@ public class Main {
                 && !mode.equals("type2") && !mode.equals("all")
                 && !mode.equals("view")) {
             System.err.println("Unknown mode: " + mode);
-            System.err.println("Usage: <mode> [elements] [structure] [model] [--verbose]");
+            System.err.println("Usage: <mode> [elements] [structure] [model] [--verbose] [--engine CVM|MCS]");
             System.err.println("  mode: type1a | type1b | type2 | all | calc_min | view");
             System.exit(1);
         }
@@ -179,9 +208,9 @@ public class Main {
                 }
             }
 
-            // ── TYPE-2: Thermodynamic Calculation (CVM temperature scan) ──────
+            // ── TYPE-2: Thermodynamic Calculation (temperature scan) ─────────
             if (mode.equals("type2") || mode.equals("all")) {
-                if (verbose) System.out.println("\n=== TYPE-2: Thermodynamic Calculation (CVM) ===\n");
+                if (verbose) System.out.println("\n=== TYPE-2: Thermodynamic Calculation (" + engine + ") ===\n");
 
                 // Equiatomic composition: 1/K for elements 2..K, element 1 derived.
                 List<String> elemList = system.elementList();
@@ -191,7 +220,7 @@ public class Main {
 
                 double tStart = 1000.0, tEnd = 1000.0, tStep = 100.0;
 
-                ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
+                ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, engine);
                 ModelSession session = service.getOrBuildSession(modelSpecs, sink);
                 ConditionsScan scan = new ConditionsScan(new Range(tStart, tEnd, tStep), toRanges(comp));
 
@@ -199,10 +228,17 @@ public class Main {
                     System.out.println("System      : " + modelSpecs);
                     System.out.println("Composition : " + comp);
                     System.out.println("T range     : " + tStart + " K to " + tEnd + " K, step " + tStep + " K\n");
+                    if (engine.isMcs()) {
+                        System.out.println(String.format("MCS params  : L=%d, nEquil=%d, nAvg=%d\n",
+                                CalculationService.McsParams.DEFAULT.L(),
+                                CalculationService.McsParams.DEFAULT.nEquil(),
+                                CalculationService.McsParams.DEFAULT.nAvg()));
+                    }
                 }
 
-                List<ThermodynamicResult> results =
-                        service.calculateScan(session, scan, Property.GIBBS_ENERGY, sink, null);
+                Property scanProperty = engine.isMcs() ? Property.ENTHALPY : Property.GIBBS_ENERGY;
+                List<ThermodynamicResult> results = service.calculateScan(
+                        session, scan, scanProperty, CalculationService.McsParams.DEFAULT, sink, null);
                 printResult(new CalculationResult.Grid(List.of(results)));
             }
 
@@ -251,16 +287,21 @@ public class Main {
      */
     private static void runCalcMin(CEWorkbenchContext appCtx,
                                    String elements, String structure, String model,
-                                   double temp, Map<String, Double> composition, Property requestedProp) {
+                                   double temp, Map<String, Double> composition, Property requestedProp,
+                                   EngineConfig engine, CalculationService.McsParams mcsParams) {
         try {
             CalculationService service = appCtx.getCalculationService();
             Consumer<String> sink = verbose ? System.out::println : null;
 
-            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, EngineConfig.CVM);
+            ModelSpecifications modelSpecs = new ModelSpecifications(elements, structure, model, engine);
             ModelSession session = service.getOrBuildSession(modelSpecs, sink);
             Conditions conditions = new Conditions(temp, composition);
 
             System.out.println("System: " + modelSpecs);
+            if (engine.isMcs()) {
+                System.out.println(String.format("MCS params: L=%d, nEquil=%d, nAvg=%d",
+                        mcsParams.L(), mcsParams.nEquil(), mcsParams.nAvg()));
+            }
             System.out.println();
             Consumer<org.ce.model.ProgressEvent> eventSink = verbose ? ev -> {
                 if (ev instanceof org.ce.model.ProgressEvent.CvmIteration it) {
@@ -269,7 +310,8 @@ public class Main {
                             java.util.Arrays.toString(it.cfs));
                 }
             } : null;
-            ThermodynamicResult result = service.calculate(session, conditions, requestedProp, sink, eventSink);
+            ThermodynamicResult result =
+                    service.calculate(session, conditions, requestedProp, mcsParams, sink, eventSink);
             printResult(new CalculationResult.Single(result));
 
         } catch (Exception e) {

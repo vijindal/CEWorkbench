@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.ce.CEWorkbenchContext;
 import org.ce.calculation.CalculationDescriptor.ModelSpecifications;
 import org.ce.calculation.CalculationDescriptor.Property;
+import org.ce.calculation.CalculationDescriptor.Registry;
 import org.ce.calculation.ConditionsScan;
 import org.ce.calculation.EciValidator;
 import org.ce.calculation.QuantityDescriptor;
@@ -135,11 +136,13 @@ public final class ApiCommand {
         return out;
     }
 
-    /** Properties this build can actually compute for the given engine. */
+    /**
+     * Properties this build can actually compute for the given engine. Delegates to
+     * {@link Registry#getAvailableProperties} so the API and GUI never carry two
+     * independently-maintained lists that can drift out of sync.
+     */
     private static List<Property> implementedProperties(EngineConfig engine) {
-        return engine.isCvm()
-                ? List.of(Property.GIBBS_ENERGY, Property.ENTHALPY, Property.ENTROPY)
-                : List.of(Property.ENTHALPY, Property.CORRELATION_FUNCTIONS);
+        return Registry.getAvailableProperties(engine);
     }
 
     // =========================================================================
@@ -171,6 +174,9 @@ public final class ApiCommand {
         // ── Conditions ────────────────────────────────────────────────────────
         ConditionsScan scan = parseConditions(req.get("conditions"));
 
+        // ── MCS algorithm parameters (ignored for CVM) ───────────────────────
+        CalculationService.McsParams mcsParams = parseMcsParams(req.get("mcsParams"));
+
         // ── Session (inline ECIs or stored database) ──────────────────────────
         CalculationService service = appCtx.getCalculationService();
         ModelSpecifications specs =
@@ -191,7 +197,7 @@ public final class ApiCommand {
 
         // ── Run ───────────────────────────────────────────────────────────────
         List<ThermodynamicResult> points =
-                service.calculateScan(session, scan, property, null, null);
+                service.calculateScan(session, scan, property, mcsParams, null, null);
 
         // ── Response ──────────────────────────────────────────────────────────
         ObjectNode out = OUT.createObjectNode();
@@ -305,6 +311,27 @@ public final class ApiCommand {
         } catch (IllegalArgumentException e) {
             throw new ApiError("INVALID_CONDITIONS", e.getMessage());
         }
+    }
+
+    /**
+     * Parses the optional {@code "mcsParams": {"L":.., "nEquil":.., "nAvg":..}} block.
+     * Absent or ignored (CVM engine) requests fall back to {@link CalculationService.McsParams#DEFAULT}.
+     * Any field omitted within the object also falls back to its own default.
+     */
+    private static CalculationService.McsParams parseMcsParams(JsonNode n) throws ApiError {
+        if (n == null || n.isNull()) return CalculationService.McsParams.DEFAULT;
+        if (!n.isObject())
+            throw new ApiError("INVALID_CONDITIONS", "mcsParams must be an object with L, nEquil, nAvg.");
+
+        int L      = n.hasNonNull("L")      ? n.get("L").asInt()      : CalculationService.McsParams.DEFAULT.L();
+        int nEquil = n.hasNonNull("nEquil") ? n.get("nEquil").asInt() : CalculationService.McsParams.DEFAULT.nEquil();
+        int nAvg   = n.hasNonNull("nAvg")   ? n.get("nAvg").asInt()   : CalculationService.McsParams.DEFAULT.nAvg();
+
+        if (L < 1) throw new ApiError("INVALID_CONDITIONS", "mcsParams.L must be >= 1 (got " + L + ").");
+        if (nEquil < 0) throw new ApiError("INVALID_CONDITIONS", "mcsParams.nEquil must be >= 0 (got " + nEquil + ").");
+        if (nAvg < 1) throw new ApiError("INVALID_CONDITIONS", "mcsParams.nAvg must be >= 1 (got " + nAvg + ").");
+
+        return new CalculationService.McsParams(L, nEquil, nAvg);
     }
 
     /** Accepts a scalar (fixed) or {"start":..,"end":..,"step":..} object. */

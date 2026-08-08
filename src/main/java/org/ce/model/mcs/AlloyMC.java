@@ -41,6 +41,13 @@ public class AlloyMC {
     private long attempts = 0;
     private long accepted = 0;
 
+    // --- Averaging Accumulators ---
+    private double   sumEnergy = 0;
+    private double   sumEnergySq = 0;
+    private double[] sumCvcf;
+    private double[] sumCvcfSq;
+    private int      nSamples = 0;
+
     /**
      * Initializes the MC engine and builds the expensive geometry.
      *
@@ -166,8 +173,8 @@ public class AlloyMC {
         System.out.println(String.format("\n--- Stage: Equilibration (%d sweeps) ---", nEquil));
         for (int s = 0; s < nEquil; s++) {
             currentEnergy += runSweep();
-            if (s % 10 == 0 || s == nEquil - 1) {
-                printState(s, currentEnergy);
+            if (s % 100 == 0 || s == nEquil - 1) {
+                printState(s, currentEnergy / nSites);
             }
         }
         
@@ -180,15 +187,18 @@ public class AlloyMC {
 
         // 4. Averaging phase
         System.out.println(String.format("\n--- Stage: Averaging (%d sweeps) ---", nAvg));
+        int sampleInterval = 20;
         for (int s = 0; s < nAvg; s++) {
             currentEnergy += runSweep();
             
-            // Sweep Refresh: Full O(N) update for sampling accuracy
-            updateCorrelationFunctions();
-            sampleProperties(currentEnergy);
+            // Sub-sample to avoid expensive full O(N) updates every sweep
+            if (s % sampleInterval == 0 || s == nAvg - 1) {
+                updateCorrelationFunctions();
+                sampleProperties(currentEnergy);
+            }
             
-            if (s % 10 == 0 || s == nAvg - 1) {
-                printState(s, currentEnergy);
+            if (s % 100 == 0 || s == nAvg - 1) {
+                printState(s, currentEnergy / nSites);
             }
         }
 
@@ -199,16 +209,16 @@ public class AlloyMC {
     /**
      * Prints the current simulation state including energy, acceptance rate, and CFs.
      */
-    private void printState(int sweep, double energy) {
+    private void printState(int sweep, double energyPerSite) {
         // Ensure CFs are fresh for printing
         updateCorrelationFunctions();
         
-        System.out.println(String.format("  Sweep %4d | Energy: %.6f | Acc: %.2f%%", 
-                sweep, energy, getAcceptanceRate() * 100));
+        System.out.println(String.format("  Sweep %4d | E/site: %.6f | Acc: %.2f%%", 
+                sweep, energyPerSite, getAcceptanceRate() * 100));
         
         double[] cvcf = getCvcfCorrelationFunctions();
-        System.out.print("    CVCFs: ");
-        for (int i = 0; i < ncf; i++) {
+        System.out.print("    CVCFs (first 5): ");
+        for (int i = 0; i < Math.min(5, ncf); i++) {
             System.out.print(String.format("%.4f ", cvcf[i]));
         }
         System.out.println();
@@ -456,7 +466,50 @@ public class AlloyMC {
      * Samples thermodynamic properties during the averaging phase.
      */
     private void sampleProperties(double energy) {
-        // TODO: Implement property accumulation
+        if (sumCvcf == null) {
+            sumCvcf = new double[cvcfCorrelationFunctions.length];
+            sumCvcfSq = new double[cvcfCorrelationFunctions.length];
+        }
+        sumEnergy += energy;
+        sumEnergySq += energy * energy;
+        
+        for (int i = 0; i < cvcfCorrelationFunctions.length; i++) {
+            double v = cvcfCorrelationFunctions[i];
+            sumCvcf[i] += v;
+            sumCvcfSq[i] += v * v;
+        }
+        nSamples++;
+    }
+
+    public double getAverageEnergyPerSite() {
+        return nSamples == 0 ? 0 : (sumEnergy / nSamples) / nSites;
+    }
+
+    public double getStdDevEnergyPerSite() {
+        if (nSamples <= 1) return 0;
+        double avg = sumEnergy / nSamples;
+        double var = (sumEnergySq / nSamples) - (avg * avg);
+        return Math.sqrt(Math.max(0, var)) / nSites;
+    }
+
+    public double[] getAverageCvcf() {
+        if (nSamples == 0) return cvcfCorrelationFunctions.clone();
+        double[] avg = new double[sumCvcf.length];
+        for (int i = 0; i < sumCvcf.length; i++) {
+            avg[i] = sumCvcf[i] / nSamples;
+        }
+        return avg;
+    }
+
+    public double[] getStdDevCvcf() {
+        if (nSamples <= 1 || sumCvcfSq == null) return new double[cvcfCorrelationFunctions.length];
+        double[] std = new double[sumCvcf.length];
+        for (int i = 0; i < sumCvcf.length; i++) {
+            double avg = sumCvcf[i] / nSamples;
+            double var = (sumCvcfSq[i] / nSamples) - (avg * avg);
+            std[i] = Math.sqrt(Math.max(0, var));
+        }
+        return std;
     }
 
     private void resetCounters() {

@@ -1,6 +1,7 @@
 package org.ce.model.mcs;
 
 import org.ce.model.ModelSession;
+import org.ce.model.ThermodynamicResult;
 import org.ce.model.storage.DataStore;
 import org.ce.model.storage.Workspace;
 
@@ -23,31 +24,88 @@ public class AlloyMCTest {
     }
 
     private static void runTest() throws Exception {
-        System.out.println("=== AlloyMC Orthogonal CF Diagnostic (L=1) ===");
+        System.out.println("=== AlloyMC Multicore Parallel Test (L=8) ===");
 
         Workspace ws = new Workspace();
         DataStore.HamiltonianStore hStore = new DataStore.HamiltonianStore(ws);
         ModelSession.Builder builder = new ModelSession.Builder(hStore);
         Workspace.SystemId id = new Workspace.SystemId("Nb-Ti-V", "BCC_A2", "T");
 
-        System.out.println("\n[1] Building ModelSession...");
+        System.out.println("\n[1] Building Shared ModelSession & Geometry...");
         ModelSession session = builder.build(id, ModelSession.EngineConfig.MCS, null);
 
-        System.out.println("\n[2] Instantiating AlloyMC (L=6)...");
-        // L=6 for BCC_A2 gives 432 sites
-        AlloyMC engine = new AlloyMC(session, 12, null);
-        MCSGeometry geo = engine.getGeo();
+        // Build geometry once (expensive)
+        MCSGeometry geo = MCSGeometry.build(session, 8, null);
 
-        System.out.println("Total Sites: " + geo.nSites());
-        System.out.println("Non-Point CFs (ncf): " + geo.getNcf());
+        int nChains = 4;
+        int nEquil = 100;
+        int nAvg = 500;
+        double temp = 1000.0;
+        double[] x = { 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0 };
 
-        // Production-like run via run() method
-        System.out.println("\n--- Audit: Equiatomic Disordered (L=6) Production-like Run ---");
-        engine.setTemperature(1000.0); // Dummy T
-        engine.setComposition(new double[] { 1.0/3.0, 1.0/3.0, 1.0/3.0 });
-        engine.run(100, 10);
-        
-        System.out.println("\n=== Diagnostic Complete ===");
+        System.out.println(
+                String.format("\n[2] Launching %d Parallel Chains (Equil=%d, Avg=%d)...", nChains, nEquil, nAvg));
+
+        long startTime = System.currentTimeMillis();
+
+        List<ThermodynamicResult> results = java.util.stream.IntStream.range(0, nChains)
+                .parallel()
+                .mapToObj(i -> {
+                    System.out.println("  > Starting Chain " + i + "...");
+                    AlloyMC engine = new AlloyMC(session, 8, null);
+                    engine.setSeed(System.nanoTime() + i * 1000000L);
+                    engine.setTemperature(temp);
+                    engine.setComposition(x);
+                    engine.run(nEquil, nAvg);
+
+                    return new ThermodynamicResult(
+                            temp, x, Double.NaN,
+                            engine.getAverageEnergyPerSite(),
+                            Double.NaN,
+                            engine.getStdDevEnergyPerSite(),
+                            Double.NaN,
+                            null,
+                            engine.getAverageCvcf(),
+                            engine.getStdDevCvcf());
+                })
+                .collect(java.util.stream.Collectors.toList());
+
+        long duration = System.currentTimeMillis() - startTime;
+        System.out.println(String.format("\n[3] All Chains Complete in %.2f seconds.", duration / 1000.0));
+
+        // 4. Aggregate Results
+        aggregateAndPrint(results);
+    }
+
+    private static void aggregateAndPrint(List<ThermodynamicResult> results) {
+        int m = results.size();
+        double sumH = 0;
+        double sumVarH = 0;
+        int ncf = results.get(0).avgCFs.length;
+        double[] sumCF = new double[ncf];
+        double[] sumVarCF = new double[ncf];
+
+        for (ThermodynamicResult r : results) {
+            sumH += r.enthalpy;
+            sumVarH += Math.pow(r.stdEnthalpy, 2);
+            for (int i = 0; i < ncf; i++) {
+                sumCF[i] += r.avgCFs[i];
+                sumVarCF[i] += Math.pow(r.stdCFs[i], 2);
+            }
+        }
+
+        double finalH = sumH / m;
+        double finalStdH = Math.sqrt(sumVarH / m); // Pooled within-chain std
+
+        System.out.println("\n=== Aggregated Results (Multicore) ===");
+        System.out.format("H (J/mol) : %.4f \u00B1 %.4f (pooled \u03C3)\n", finalH, finalStdH);
+
+        System.out.println("\nAggregated CFs (Top 5):");
+        for (int i = 0; i < Math.min(5, ncf); i++) {
+            double avg = sumCF[i] / m;
+            double std = Math.sqrt(sumVarCF[i] / m);
+            System.out.format("  [%02d] : %9.6f \u00B1 %7.6f\n", i, avg, std);
+        }
     }
 
     private static void traceOrthoCFSteps(AlloyMC engine) {

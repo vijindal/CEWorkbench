@@ -921,6 +921,172 @@ public class Embeddings {
         return dE;
     }
 
+    /**
+     * ATAT-style single-pass ΔE: for each affected embedding, walks its sites once
+     * (not twice) and multiplies in the changed factor(s) directly, instead of
+     * evaluating the full cluster product at occ-before and occ-after separately.
+     *
+     * <p>Reference: ATAT's {@code MultiMonteCarlo::spin_flip} (mmclib.c++) uses
+     * {@code rho = spin_val[newspin] - spin_val[oldspin]} for a single-site change —
+     * the basis-value difference at the one changed site, times the unchanged
+     * "environment" product of the other sites in the cluster, computed once.
+     * This generalizes that trick to a two-site canonical exchange (i↔j), where an
+     * embedding can touch site i only, site j only, or both:
+     *
+     * <pre>
+     *  Class A (embedding touches i, not j):
+     *    Δρ(e) = [φ(α_i, occJ) − φ(α_i, occI)] × env(e)          env = product over all other sites
+     *  Class B (embedding touches j, not i):  symmetric to A with occI/occJ swapped
+     *  Class C (embedding touches both i and j):
+     *    Δρ(e) = env(e) × [φ(α_i,occJ)·φ(α_j,occI) − φ(α_i,occI)·φ(α_j,occJ)]
+     * </pre>
+     *
+     * <p>In all three classes, each embedding's sites are visited exactly once
+     * (the "environment" product and the changed-factor value(s) are accumulated
+     * in the same pass), versus {@link #deltaEExchangeCvcf} which visits every
+     * affected embedding's sites twice (once at occ-before, once at occ-after).
+     *
+     * <p>Same scratch contract as the other ΔE methods: caller reads
+     * oldSumDelta/newSumDelta-derived deltaUOrth via scratch after return, then
+     * calls scratch.cleanup(maxEmbPerCol).
+     */
+    public static double deltaEExchangeCvcfV2(
+            int i, int j,
+            LatticeConfig config,
+            FlatEmbData flat, double[] flatBasisMatrix,
+            CsrSiteToCfIndex siteToCfIndex,
+            int ncf, double[] eciCvcf, CvCfBasis basis,
+            DeltaScratch scratch, int maxEmbPerCol, double[] eciOrth, int numComp) {
+
+        int[] occ = config.getRawOcc();
+        int occI = occ[i];
+        int occJ = occ[j];
+        if (occI == occJ) return 0.0;
+
+        int N = config.getN();
+
+        // Walk site i's and site j's embedding lists separately (not merged) so each
+        // embedding can be classified by whether it also touches the other swapped site.
+        int ac = 0;
+        int startI = siteToCfIndex.offsets[i], endI = siteToCfIndex.offsets[i + 1];
+        for (int idx = startI; idx < endI; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
+            if (scratch.seen[key]) continue;
+            scratch.seen[key] = true;
+            scratch.affectedL[ac]  = l;
+            scratch.affectedEI[ac] = ei;
+            ac++;
+
+            int flatEmbIdx = flat.cfOffsets[l] + ei;
+            int sStart = flat.embSiteStart[flatEmbIdx];
+            int sEnd   = flat.embSiteStart[flatEmbIdx + 1];
+
+            // Single pass: find i's (and j's, if present) alpha/slot while building
+            // the environment product over every other site.
+            double env = 1.0;
+            int alphaAtI = -1, alphaAtJ = -1;
+            boolean touchesJ = false;
+            for (int k = sStart; k < sEnd; k++) {
+                int site = flat.siteData[k];
+                if (site == i) {
+                    alphaAtI = flat.alphaData[k];
+                } else if (site == j) {
+                    alphaAtJ = flat.alphaData[k];
+                    touchesJ = true;
+                } else {
+                    env *= flatBasisMatrix[occ[site] * numComp + flat.alphaData[k]];
+                }
+            }
+
+            double diff;
+            if (!touchesJ) {
+                // Class A: only i changes in this embedding.
+                diff = env * (flatBasisMatrix[occJ * numComp + alphaAtI] - flatBasisMatrix[occI * numComp + alphaAtI]);
+            } else {
+                // Class C: both i and j change (embedding spans the exchange).
+                double afterProd  = flatBasisMatrix[occJ * numComp + alphaAtI] * flatBasisMatrix[occI * numComp + alphaAtJ];
+                double beforeProd = flatBasisMatrix[occI * numComp + alphaAtI] * flatBasisMatrix[occJ * numComp + alphaAtJ];
+                diff = env * (afterProd - beforeProd);
+            }
+            scratch.oldSumDelta[l] += 0.0;   // unused in V2; deltaUOrth accumulated directly below
+            scratch.newSumDelta[l] += diff;  // reuse newSumDelta as the running Δρ-sum accumulator
+        }
+
+        int startJ = siteToCfIndex.offsets[j], endJ = siteToCfIndex.offsets[j + 1];
+        for (int idx = startJ; idx < endJ; idx++) {
+            int l  = siteToCfIndex.dataL[idx];
+            int ei = siteToCfIndex.dataEI[idx];
+            int key = l * maxEmbPerCol + ei;
+            if (scratch.seen[key]) continue; // already handled as Class C above, or duplicate
+            scratch.seen[key] = true;
+            scratch.affectedL[ac]  = l;
+            scratch.affectedEI[ac] = ei;
+            ac++;
+
+            int flatEmbIdx = flat.cfOffsets[l] + ei;
+            int sStart = flat.embSiteStart[flatEmbIdx];
+            int sEnd   = flat.embSiteStart[flatEmbIdx + 1];
+
+            // Class B: touches j only (any embedding also touching i was already
+            // consumed — and marked seen — in the loop above).
+            double env = 1.0;
+            int alphaAtJ = -1;
+            for (int k = sStart; k < sEnd; k++) {
+                int site = flat.siteData[k];
+                if (site == j) {
+                    alphaAtJ = flat.alphaData[k];
+                } else {
+                    env *= flatBasisMatrix[occ[site] * numComp + flat.alphaData[k]];
+                }
+            }
+            double diff = env * (flatBasisMatrix[occI * numComp + alphaAtJ] - flatBasisMatrix[occJ * numComp + alphaAtJ]);
+            scratch.oldSumDelta[l] += 0.0;
+            scratch.newSumDelta[l] += diff;
+        }
+        scratch.affectedCount = ac;
+
+        int cc = 0;
+        for (int a = 0; a < ac; a++) {
+            int l = scratch.affectedL[a];
+            if (!scratch.seenCol[l]) {
+                scratch.seenCol[l] = true;
+                scratch.affectedCols[cc++] = l;
+                double diff = scratch.newSumDelta[l]; // already Δρ (new-old), summed across embeddings in column l
+                if (diff != 0.0)
+                    scratch.deltaUOrth[l] = diff / flat.cfEmbCount[l];
+            }
+        }
+        scratch.affectedColCount = cc;
+
+        double dE = 0.0;
+        if (eciOrth != null) {
+            for (int a = 0; a < cc; a++) {
+                int m = scratch.affectedCols[a];
+                dE += scratch.deltaUOrth[m] * eciOrth[m];
+            }
+        } else if (basis != null && basis.Tinv != null) {
+            double[][] Tinv = basis.Tinv;
+            int tCols = Tinv[0].length;
+            for (int l = 0; l < ncf && l < Tinv.length; l++) {
+                double sum = 0.0;
+                for (int m = 0; m < ncf && m < tCols; m++)
+                    sum += Tinv[l][m] * scratch.deltaUOrth[m];
+                scratch.deltaVCvcf[l] = sum;
+            }
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaVCvcf[l];
+        } else {
+            for (int l = 0; l < ncf && l < eciCvcf.length; l++)
+                dE += eciCvcf[l] * scratch.deltaUOrth[l];
+        }
+        dE *= N;
+
+        // Leave scratch populated — caller reads deltas, then calls cleanup()
+        return dE;
+    }
+
     // ── Section C helpers ─────────────────────────────────────────────────────
 
     /** Parses alpha index from site symbol (e.g. "s1" → 1). 1-indexed to match flatBasisMatrix layout. */

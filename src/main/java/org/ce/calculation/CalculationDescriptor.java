@@ -121,7 +121,9 @@ public final class CalculationDescriptor {
     public static final class Registry {
         public static List<Property> getAvailableProperties(EngineConfig engine) {
             if (engine.isCvm()) return Arrays.asList(Property.GIBBS_ENERGY, Property.ENTHALPY, Property.ENTROPY);
-            return Arrays.asList(Property.ENTHALPY, Property.HEAT_CAPACITY, Property.CORRELATION_FUNCTIONS);
+            // HEAT_CAPACITY omitted: ThermodynamicWorkflow.runMcs does not populate it yet
+            // (MCSStatisticsProcessor is not wired in — see CHANGELOG.md "Known gap").
+            return Arrays.asList(Property.ENTHALPY, Property.CORRELATION_FUNCTIONS);
         }
 
         public static List<Mode> getAvailableModes(Property property, EngineConfig engine) {
