@@ -9,7 +9,6 @@ import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.NumericalCECTransformer;
 import org.ce.model.storage.DataStore;
 
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -40,75 +39,6 @@ public class CECManagementWorkflow {
 
     public CECManagementWorkflow(DataStore.HamiltonianStore store) {
         this.store = store;
-    }
-
-    /**
-     * Creates a blank CEC database in memory (no disk IO).
-     * Populates optional metadata (numSites, multiplicity, description) from cluster data.
-     *
-     * @param elements       element string (e.g. "Nb-Ti")
-     * @param structurePhase structure identifier
-     * @param model          model identifier
-     * @param ncf            number of correlation functions
-     * @param cfMetadata     CF metadata from cluster data (contains numSites, multiplicity)
-     */
-    public CECEntry scaffoldEmptyCEC(
-            String elements,
-            String structurePhase,
-            String model,
-            int ncf,
-            CFMetadata[] cfMetadata) {
-
-        CECEntry.CECTerm[] terms = new CECEntry.CECTerm[ncf];
-
-        for (int i = 0; i < ncf; i++) {
-            CECEntry.CECTerm term = new CECEntry.CECTerm();
-            term.name = "CF_" + i;
-            term.a = 0.0;
-            term.b = 0.0;
-
-            // Populate optional CF metadata if available
-            if (cfMetadata != null && i < cfMetadata.length && cfMetadata[i] != null) {
-                term.numSites = cfMetadata[i].numSites;
-                term.multiplicity = cfMetadata[i].multiplicity;
-                term.description = cfMetadata[i].description;
-            }
-
-            terms[i] = term;
-        }
-
-        CECEntry entry = new CECEntry();
-        entry.elements = elements;
-        entry.structurePhase = structurePhase;
-        entry.model = model;
-        entry.cecTerms = terms;
-        entry.cecUnits = "J/mol";
-        entry.reference = "";
-        entry.notes = "Scaffolded empty CEC";
-        entry.ncf = ncf;
-
-        return entry;
-    }
-
-    /**
-     * Creates a new empty CEC database and saves it to disk.
-     *
-     * @param hamiltonianId ID for the saved file — {elements}_{structure}_{model}, e.g. Nb-Ti_BCC_A2_T
-     * @param cfMetadata    optional CF metadata (numSites, multiplicity) for enriching CECEntry.CECTerms
-     */
-    public CECEntry createAndSaveCEC(
-            String hamiltonianId,
-            String elements,
-            String structurePhase,
-            String model,
-            int ncf,
-            CFMetadata[] cfMetadata) throws IOException {
-
-        CECEntry entry = scaffoldEmptyCEC(elements, structurePhase, model, ncf, cfMetadata);
-
-        store.save(hamiltonianId, entry);
-
-        return entry;
     }
 
     /**
@@ -395,11 +325,6 @@ public class CECManagementWorkflow {
         store.save(ternaryId, ternaryEntry);
 
         return ternaryEntry;
-    }
-
-    /** Returns true if a Hamiltonian with the given ID exists in the store. */
-    public boolean hamiltonianExists(String hamiltonianId) {
-        return store.exists(hamiltonianId);
     }
 
     /** Saves a Hamiltonian entry to the store under the given ID. */
