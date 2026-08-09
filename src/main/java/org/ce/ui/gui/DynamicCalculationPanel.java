@@ -42,6 +42,7 @@ public class DynamicCalculationPanel extends JPanel {
     private final Consumer<String>          logSink;
     private final Consumer<Object>          resultSink;
     private final Consumer<ProgressEvent>   chartSink;
+    private final Runnable                  clearOutputSink;
 
     // ── System identity (migrated from SessionBar) ────────────────────────────
     private final JComboBox<String> elementsCombo  = makeEditable("Nb-Ti", "Cu-Au", "Al-Ti", "Nb-Mo");
@@ -69,6 +70,7 @@ public class DynamicCalculationPanel extends JPanel {
                                    Consumer<String> logSink,
                                    Consumer<Object> resultSink,
                                    Consumer<ProgressEvent> chartSink,
+                                   Runnable clearOutputSink,
                                    QuantityDescriptor.SelectionModel quantityModel) {
         this.context    = context;
         this.service    = appCtx.getCalculationService();
@@ -76,6 +78,7 @@ public class DynamicCalculationPanel extends JPanel {
         this.logSink    = logSink;
         this.resultSink = resultSink;
         this.chartSink  = chartSink;
+        this.clearOutputSink = clearOutputSink;
 
         setBackground(BG);
         setLayout(new BorderLayout());
@@ -378,6 +381,8 @@ public class DynamicCalculationPanel extends JPanel {
             logSink.accept("Error: Elements, Structure, and Model must be specified.");
             return;
         }
+
+        clearOutputSink.run();
 
         Property prop = (Property) propertyCombo.getSelectedItem();
         Mode mode = Mode.ANALYSIS;
