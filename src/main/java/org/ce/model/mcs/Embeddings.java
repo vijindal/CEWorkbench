@@ -287,11 +287,17 @@ public class Embeddings {
      * Generates one embedding per lattice site for each point CF column (single-site
      * decoration, {@code cfBasisIndices[l].length == 1}) among {@code [ncfStart, tcf)}.
      *
-     * <p>The returned list is ordered by increasing alpha (φ₁, φ₂, ..., φ_{K-1}),
-     * <b>not</b> by raw column index — {@code cfBasisIndices} may list point columns
-     * in a different order (observed descending for K≥3 in the BCC_A2 registrations).
-     * Callers (measureFullCVsFromConfig, Tinv) require ascending φ-power order to
-     * match {@code CvCfBasis.computeRandomStateVectors}'s point-CF layout.
+     * <p>The returned list preserves {@code cfBasisIndices}' own raw column order
+     * (observed descending in alpha for K≥3 in the BCC_A2 registrations), matching
+     * {@code CvCfBasis}'s {@code Tinv} matrix, which is built from the same pipeline
+     * column ordering (see {@code CMatrixPipeline.buildCfColumnMap}/{@code
+     * deriveCfBasisIndices}). Verified empirically: applying {@code Tinv} to a
+     * pure-species measured/analytic point-CF vector reproduces the correct physical
+     * point CFs (e.g. x_A=1 for an all-species-0 configuration) only when this raw
+     * order is preserved — reordering to ascending alpha (an earlier, reverted attempt)
+     * silently produces wrong CVCF values for K≥3 while looking self-consistent in every
+     * MCS-internal check (ΔE vs. finite-difference, trajectory running-energy vs.
+     * recompute), because both sides of those checks share the same (wrong) ordering.
      *
      * <p>Kept separate from {@link #generateCfEmbeddings} so the existing non-point
      * embeddings — and every ΔE/scratch structure sized against them — are completely
@@ -303,8 +309,7 @@ public class Embeddings {
             int N, int[][] cfBasisIndices, int ncfStart) {
 
         int tcf = cfBasisIndices.length;
-        // Collect (alpha -> embeddings) then emit in ascending alpha order.
-        java.util.TreeMap<Integer, List<Embedding>> byAlpha = new java.util.TreeMap<>();
+        List<List<Embedding>> result = new ArrayList<>();
         for (int l = ncfStart; l < tcf; l++) {
             int[] cfAlphas = cfBasisIndices[l];
             if (cfAlphas == null || cfAlphas.length != 1) continue;
@@ -312,9 +317,9 @@ public class Embeddings {
             List<Embedding> directed = new ArrayList<>(N);
             for (int i = 0; i < N; i++)
                 directed.add(new Embedding(-1, 0, new int[]{i}, new int[]{alpha}, 0));
-            byAlpha.put(alpha, directed);
+            result.add(directed);
         }
-        return new ArrayList<>(byAlpha.values());
+        return result;
     }
 
     // =========================================================================

@@ -338,3 +338,18 @@ artifacts). Verification is by CLI invocation against known values:
 
 Re-run these after any change to the calculation path. If you add tests, the layer
 split makes model-layer classes directly unit-testable with no mocks.
+
+For MCS-specific changes (`model/mcs/**`), also run:
+
+```bash
+./gradlew runScratch -PscratchClass=org.ce.model.mcs.AnalyticConfigVerification
+```
+
+Cross-checks orthogonal CFs, CVCF CFs, energy, ΔE, and Metropolis trajectory against
+configurations with independently-derivable ground truth (pure element, perfectly
+ordered B2, perfectly random, composition boundaries) for K=2/3/4 — not just
+internal self-consistency between MCS's own code paths. Expect `RESULT: PASS`.
+This suite is what caught a real point-CF-column-ordering bug that silently broke
+K≥3 CVCF energies while every internal-consistency check kept passing (see the
+class doc for the full story) — internal-consistency-only checks are not sufficient
+for this codebase's MCS correctness gate.

@@ -498,7 +498,13 @@ public final class ClusterCFIdentificationPipeline {
                 uFull[col] = val;
             }
 
-            // [ncf..ncf+pointCfColumnCount-1]: point CFs, placed using cfBasisIndices
+            // [ncf..ncf+pointCfColumnCount-1]: point CFs, placed using cfBasisIndices' own
+            // raw column order (observed descending in alpha for K>=3 in the BCC_A2
+            // registrations). This must match CvCfBasis's Tinv matrix, which is built from
+            // the same pipeline column ordering (CMatrixPipeline.buildCfColumnMap /
+            // deriveCfBasisIndices) — verified empirically that Tinv expects this raw order,
+            // not ascending alpha (see Embeddings.generatePointCfEmbeddings for the same
+            // finding on the measured/MCS side).
             for (int k = 0; k < pointCfColumnCount; k++) {
                 int col = ncf + k;
                 int power = cfBasisIndices[col][0]; // single decoration for point CF
