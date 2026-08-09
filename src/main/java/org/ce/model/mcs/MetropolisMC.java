@@ -43,6 +43,7 @@ public class MetropolisMC {
     // ── Step 1: INITIALIZATION (fields set by MCSRunner before calling run()) ─
 
     private final List<List<Embeddings.Embedding>> cfEmbeddings;  // per-CF-column embeddings
+    private final List<List<Embeddings.Embedding>> pointCfEmbeddings; // per-point-CF-column embeddings
     private final double[]              flatBasisMatrix;  // flat basis values [occ * numComp + alpha]
     private final Embeddings.CsrSiteToCfIndex siteToCfIndex; // per-site CF embedding index
     private final int                   ncf;          // number of non-point CFs
@@ -63,6 +64,7 @@ public class MetropolisMC {
     private BooleanSupplier     cancellationCheck = () -> false;
 
     public MetropolisMC(List<List<Embeddings.Embedding>> cfEmbeddings,
+                        List<List<Embeddings.Embedding>> pointCfEmbeddings,
                         double[][] basisMatrix,
                         Embeddings.CsrSiteToCfIndex siteToCfIndex,
                         int ncf,
@@ -76,7 +78,8 @@ public class MetropolisMC {
         if (nEquil <  0) throw new IllegalArgumentException("nEquil must be >= 0");
         if (nAvg   <  1) throw new IllegalArgumentException("nAvg must be >= 1");
         this.cfEmbeddings  = cfEmbeddings;
-        
+        this.pointCfEmbeddings = pointCfEmbeddings;
+
         // Flatten basisMatrix: padded so index is (occ * numComp + alpha) directly
         this.flatBasisMatrix = new double[numComp * numComp];
         if (basisMatrix != null) {
@@ -132,7 +135,7 @@ public class MetropolisMC {
         // incrementally using ΔE (Step 5), resyncing every DRIFT_CHECK_SWEEPS.
         Embeddings.resetDebugCounters();  // reset sampled counters for this run
         double currentEnergy = Embeddings.totalEnergyCvcf(
-                config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
+                config, cfEmbeddings, pointCfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
 
         // ── MCS-DBG: initial energy + composition ──
         if (MCSDebug.ENABLED) {
@@ -215,7 +218,7 @@ public class MetropolisMC {
             // Periodic full-energy and CF resync to suppress floating-point drift.
             if ((s + 1) % DRIFT_CHECK_SWEEPS == 0) {
                 double Hfull = Embeddings.totalEnergyCvcf(
-                        config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
+                        config, cfEmbeddings, pointCfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
                 double drift = Math.abs(currentEnergy - Hfull);
                 if (drift > 1e-6 * Math.max(1.0, Math.abs(Hfull)))
                     LOG.warning(String.format(
@@ -537,8 +540,9 @@ public class MetropolisMC {
         private final int[]       multiSiteEmbedCounts;
         private final CvCfBasis   basis;
         private final List<List<Embeddings.Embedding>> cfEmbeddings;
+        private final List<List<Embeddings.Embedding>> pointCfEmbeddings;
         private final double[][]  basisMatrix;
-        private double[]          fixedComposition; // set once before averaging; canonical MC keeps composition constant
+        private double[]          fixedUPoint;      // measured once (composition is invariant in canonical MC)
         private boolean           hmixWarnedOnce = false;
 
         // Accumulators for ⟨Hmix⟩ and ⟨Hmix²⟩
@@ -555,7 +559,8 @@ public class MetropolisMC {
         @SuppressWarnings("unchecked")
         Sampler(int N, int[] orbitSizes, List<List<Cluster>> orbits, double R,
                 double[] eci, int[] multiSiteEmbedCounts, CvCfBasis basis,
-                List<List<Embeddings.Embedding>> cfEmbeddings, double[][] basisMatrix) {
+                List<List<Embeddings.Embedding>> cfEmbeddings,
+                List<List<Embeddings.Embedding>> pointCfEmbeddings, double[][] basisMatrix) {
             if (N <= 0) throw new IllegalArgumentException("N must be > 0");
             if (R <= 0) throw new IllegalArgumentException("R must be > 0");
             this.N                    = N;
@@ -566,6 +571,7 @@ public class MetropolisMC {
             this.multiSiteEmbedCounts = multiSiteEmbedCounts.clone();
             this.basis                = basis;
             this.cfEmbeddings         = cfEmbeddings;
+            this.pointCfEmbeddings    = pointCfEmbeddings;
             this.basisMatrix          = basisMatrix;
 
             int ncf = (basis != null) ? basis.numNonPointCfs : 0;
@@ -604,13 +610,23 @@ public class MetropolisMC {
                 uOrth = Embeddings.measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
             }
 
-            // Transform to CVCF basis: v = Tinv · u_orth
+            // Transform to CVCF basis: v = Tinv · u_full
             if (basis.Tinv == null && !hmixWarnedOnce) {
                 SLOG.warning("CvCf Tinv unavailable — reporting orthogonal CFs as CVCF approximation.");
                 hmixWarnedOnce = true;
             }
-            double[] comp = (fixedComposition != null) ? fixedComposition : config.composition();
-            double[] v = Embeddings.applyTinvTransform(uOrth, comp, basis);
+            // uPoint is measured once and cached: canonical MC never changes composition,
+            // so re-measuring every sample would be wasted work for an invariant quantity.
+            if (fixedUPoint == null && pointCfEmbeddings != null) {
+                fixedUPoint = Embeddings.measureCVsFromConfig(
+                        config, pointCfEmbeddings, flatBasisMatrix, pointCfEmbeddings.size(), numComp);
+            }
+            int nPoint = (fixedUPoint != null) ? fixedUPoint.length : 0;
+            double[] uFull = new double[ncf + nPoint + 1];
+            System.arraycopy(uOrth, 0, uFull, 0, ncf);
+            if (fixedUPoint != null) System.arraycopy(fixedUPoint, 0, uFull, ncf, nPoint);
+            uFull[ncf + nPoint] = 1.0;
+            double[] v = Embeddings.applyTinvTransform(uFull, basis);
 
             // Accumulate: Hmix/site = Σ_l eci[l] · v[l]
             double hmix_per_site = 0.0;
@@ -645,9 +661,6 @@ public class MetropolisMC {
                         (sumHmix / nSamples) / N, nSamples);
             }
         }
-
-        /** Cache the (invariant) composition so applyTinvTransform avoids O(N) recount each sweep. */
-        void setFixedComposition(double[] composition) { this.fixedComposition = composition.clone(); }
 
         long     getSampleCount()   { return nSamples; }
         double   meanHmixPerSite()  { return nSamples == 0 ? 0.0 : (sumHmix / nSamples) / N; }
@@ -884,7 +897,7 @@ public class MetropolisMC {
         // ── MCS-DBG: CROSS-VALIDATION — recompute energy from scratch ──
         if (MCSDebug.ENABLED) {
             double freshE = Embeddings.totalEnergyCvcf(
-                    config, cfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
+                    config, cfEmbeddings, pointCfEmbeddings, flatBasisMatrix, ncf, eciCvcf, basis, numComp);
             double freshPerSite = freshE / N;
             double drift = Math.abs(energy - freshPerSite);
             MCSDebug.separator("CROSS-VALIDATION (buildResult)");

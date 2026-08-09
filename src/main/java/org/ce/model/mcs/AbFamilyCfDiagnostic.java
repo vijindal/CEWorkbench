@@ -47,8 +47,10 @@ public class AbFamilyCfDiagnostic {
                     l, cfNames.get(l), uOrth[l], geo.cfEmbeddings.get(l).size());
         }
 
-        // Step 2: apply Tinv to get CVCF basis.
-        double[] v = Embeddings.applyTinvTransform(uOrth, config.composition(), geo.basis);
+        // Step 2: apply Tinv to get CVCF basis (via the full, directly-measured vector).
+        double[] uFull = Embeddings.measureFullCVsFromConfig(
+                config, geo.cfEmbeddings(), geo.pointCfEmbeddings(), geo.flatBasisMatrix, ncf, geo.numComp);
+        double[] v = Embeddings.applyTinvTransform(uFull, geo.basis);
 
         System.out.println();
         System.out.println("v (post-Tinv, CVCF basis):");

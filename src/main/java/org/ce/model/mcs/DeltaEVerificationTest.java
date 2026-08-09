@@ -64,7 +64,7 @@ public class DeltaEVerificationTest {
             if (config.getOccupation(i) == config.getOccupation(j)) continue;
 
             double eBefore = Embeddings.totalEnergyCvcf(
-                    config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                    config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
 
             // Flat-path hot ΔE (primary production path)
             double dEFlat = Embeddings.deltaEExchangeCvcf(
@@ -89,7 +89,7 @@ public class DeltaEVerificationTest {
             config.setOccupation(j, occI);
 
             double eAfter = Embeddings.totalEnergyCvcf(
-                    config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                    config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
 
             double dEFiniteDiff = eAfter - eBefore;
 

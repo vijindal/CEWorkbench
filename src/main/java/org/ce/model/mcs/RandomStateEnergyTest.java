@@ -78,7 +78,7 @@ public class RandomStateEnergyTest {
                 LatticeConfig config = new LatticeConfig(N, geo.numComp);
                 config.randomise(xFrac, rng);
                 double E = Embeddings.totalEnergyCvcf(
-                        config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                        config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
                 double hPerSite = E / N;
                 sumH += hPerSite;
                 sumH2 += hPerSite * hPerSite;

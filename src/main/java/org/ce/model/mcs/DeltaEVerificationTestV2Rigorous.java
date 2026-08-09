@@ -173,7 +173,7 @@ public class DeltaEVerificationTestV2Rigorous {
         // this is not physical Metropolis sampling, just a stress walk that guarantees
         // long sequences of real accepted exchanges).
         double runningE = Embeddings.totalEnergyCvcf(
-                config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
 
         int checkpointInterval = Math.max(1, nSteps / 20);
         int mismatches = 0;
@@ -197,7 +197,7 @@ public class DeltaEVerificationTestV2Rigorous {
 
             if (step % checkpointInterval == 0 || step == nSteps - 1) {
                 double trueE = Embeddings.totalEnergyCvcf(
-                        config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                        config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
                 double err = Math.abs(runningE - trueE);
                 double relErr = err / Math.max(1e-9, Math.abs(trueE));
                 totalChecks++;
@@ -227,7 +227,7 @@ public class DeltaEVerificationTestV2Rigorous {
             String label) {
 
         double eBefore = Embeddings.totalEnergyCvcf(
-                config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
 
         double dEV1 = Embeddings.deltaEExchangeCvcf(
                 i, j, config, geo.flatEmbData, geo.flatBasisMatrix, geo.siteToCfIndex,
@@ -244,7 +244,7 @@ public class DeltaEVerificationTestV2Rigorous {
         config.setOccupation(j, occI);
 
         double eAfter = Embeddings.totalEnergyCvcf(
-                config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
 
         config.setOccupation(i, occI);
         config.setOccupation(j, occJ);

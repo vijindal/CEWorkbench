@@ -185,9 +185,8 @@ public class MCSRunner {
 
         MetropolisMC.Sampler sampler = new MetropolisMC.Sampler(
                 N, geo.orbitSizes, geo.orbits, R, eciCvcf,
-                geo.multiSiteEmbedCounts, geo.basis, geo.cfEmbeddings, geo.basisMatrix);
-        // Composition is invariant in canonical MC — cache it once to avoid O(N) recount per sweep
-        sampler.setFixedComposition(config.composition());
+                geo.multiSiteEmbedCounts, geo.basis, geo.cfEmbeddings, geo.pointCfEmbeddings(),
+                geo.basisMatrix);
 
         // Compute spatial decomposition for parallel execution
         double rMax = LatticeDecomposer.computeRMax(geo.cfEmbeddings, geo.positions);
@@ -195,7 +194,7 @@ public class MCSRunner {
         LatticeDecomposer.DecomposedLattice dl = LatticeDecomposer.decompose(geo.positions, geo.L, rMax, blocksPerDim);
 
         MetropolisMC engine = new MetropolisMC(
-                geo.cfEmbeddings, geo.basisMatrix, siteToCfIndex,
+                geo.cfEmbeddings, geo.pointCfEmbeddings(), geo.basisMatrix, siteToCfIndex,
                 ncf, eciCvcf, eciOrth, geo.basis,
                 geo.numComp, T, nEquil, nAvg, R, rng, dl);
         if (cancellationCheck != null) engine.setCancellationCheck(cancellationCheck);

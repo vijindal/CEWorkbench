@@ -72,6 +72,7 @@ public final class MCSGeometry {
     final int[]                   multiSiteEmbedCounts;
     final CvCfBasis               basis;
     final List<List<Embeddings.Embedding>> cfEmbeddings;
+    final List<List<Embeddings.Embedding>> pointCfEmbeddings;
     final Embeddings.CsrSiteToCfIndex     siteToCfIndex;
     final Embeddings.FlatEmbData          flatEmbData;
     final double[][]                      basisMatrix;
@@ -161,6 +162,8 @@ public final class MCSGeometry {
         if (basis != null && matData != null) {
             this.cfEmbeddings = Embeddings.generateCfEmbeddings(
                     this.positions, clusterData, L, matData.getCfBasisIndices(), pr.getLcf());
+            this.pointCfEmbeddings = Embeddings.generatePointCfEmbeddings(
+                    nSites(), matData.getCfBasisIndices(), ncf);
             this.basisMatrix = Embeddings.buildBasisValues(numComp);
             
             // Build high-performance indices for ΔE
@@ -178,6 +181,7 @@ public final class MCSGeometry {
             }
         } else {
             this.cfEmbeddings  = null;
+            this.pointCfEmbeddings = null;
             this.basisMatrix   = null;
             this.flatBasisMatrix = null;
             this.siteToCfIndex = null;
@@ -226,6 +230,10 @@ public final class MCSGeometry {
 
     public List<List<Embeddings.Embedding>> cfEmbeddings() {
         return cfEmbeddings;
+    }
+
+    public List<List<Embeddings.Embedding>> pointCfEmbeddings() {
+        return pointCfEmbeddings;
     }
 
     public Embeddings.CsrSiteToCfIndex getSiteToCfIndex() { return siteToCfIndex; }

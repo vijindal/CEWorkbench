@@ -60,7 +60,7 @@ public class MetropolisTrajectoryVerification {
                 ncf, eciCvcf, eciOrth, geo.basis, geo.numComp, T, R, rng, null);
 
         double currentEnergy = Embeddings.totalEnergyCvcf(
-                config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
         double initialFullEnergy = currentEnergy;
         System.out.printf("Initial E (from random config) = %.6f (E/site = %.6f)%n", currentEnergy, currentEnergy / N);
 
@@ -72,7 +72,7 @@ public class MetropolisTrajectoryVerification {
             currentEnergy += dEreturned;
 
             double trueEnergy = Embeddings.totalEnergyCvcf(
-                    config, geo.cfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
+                    config, geo.cfEmbeddings, geo.pointCfEmbeddings, geo.flatBasisMatrix, ncf, eciCvcf, geo.basis, geo.numComp);
             double err = Math.abs(currentEnergy - trueEnergy);
             double relErr = err / Math.max(1.0, Math.abs(trueEnergy));
             maxAbsErr = Math.max(maxAbsErr, err);

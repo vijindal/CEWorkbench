@@ -283,6 +283,40 @@ public class Embeddings {
         return cfEmbeddings;
     }
 
+    /**
+     * Generates one embedding per lattice site for each point CF column (single-site
+     * decoration, {@code cfBasisIndices[l].length == 1}) among {@code [ncfStart, tcf)}.
+     *
+     * <p>The returned list is ordered by increasing alpha (φ₁, φ₂, ..., φ_{K-1}),
+     * <b>not</b> by raw column index — {@code cfBasisIndices} may list point columns
+     * in a different order (observed descending for K≥3 in the BCC_A2 registrations).
+     * Callers (measureFullCVsFromConfig, Tinv) require ascending φ-power order to
+     * match {@code CvCfBasis.computeRandomStateVectors}'s point-CF layout.
+     *
+     * <p>Kept separate from {@link #generateCfEmbeddings} so the existing non-point
+     * embeddings — and every ΔE/scratch structure sized against them — are completely
+     * unaffected. Callers that want the full orthogonal CF vector (including point
+     * columns) can measure these directly instead of deriving them analytically from
+     * composition, but nothing in the hot ΔE path needs to change to support this.
+     */
+    public static List<List<Embedding>> generatePointCfEmbeddings(
+            int N, int[][] cfBasisIndices, int ncfStart) {
+
+        int tcf = cfBasisIndices.length;
+        // Collect (alpha -> embeddings) then emit in ascending alpha order.
+        java.util.TreeMap<Integer, List<Embedding>> byAlpha = new java.util.TreeMap<>();
+        for (int l = ncfStart; l < tcf; l++) {
+            int[] cfAlphas = cfBasisIndices[l];
+            if (cfAlphas == null || cfAlphas.length != 1) continue;
+            int alpha = cfAlphas[0];
+            List<Embedding> directed = new ArrayList<>(N);
+            for (int i = 0; i < N; i++)
+                directed.add(new Embedding(-1, 0, new int[]{i}, new int[]{alpha}, 0));
+            byAlpha.put(alpha, directed);
+        }
+        return new ArrayList<>(byAlpha.values());
+    }
+
     // =========================================================================
     // Section D — Step 2: Initial energy E(σ)
     // Called once before equilibration: totalEnergyCvcf() + clusterProduct()
@@ -370,40 +404,61 @@ public class Embeddings {
     }
 
     /**
-     * Transforms orthogonal CFs to CVCF basis: v_cvcf = Tinv * [uOrthNonPoint | uPoint | 1].
-     * Returns uOrthNonPoint unchanged when Tinv is null.
+     * Measures the FULL orthogonal CF vector directly from the configuration in one
+     * embedding run: [uOrthNonPoint(0..ncf-1) | uPoint(0..K-2) | 1.0].
      *
-     * <p>uFull layout: [uOrth(0..ncf-1) | uPoint(φ₁..φ_{K-1}) | 1.0]
-     * Point CFs in natural order φ_k = Σ_s x_s · basis[s]^k (k=1..K-1),
-     * matching CvCfBasis.computeRandomStateVectors.
+     * <p>Replaces the previous approach of measuring only the non-point CFs and then
+     * deriving uPoint analytically from composition (uPoint[k] = Σ_s x_s · seq[s]^(k+1)).
+     * That analytic shortcut was exact only because canonical-ensemble composition is
+     * exact by construction; measuring uPoint the same way as every other CF removes
+     * the special case and generalizes correctly to structures whose point orbits
+     * split across sublattices, where a single global composition is not enough.
+     *
+     * @param pointCfEmbeddings from {@link #generatePointCfEmbeddings}, one list per
+     *                          point column (length K-1 for BCC_A2/FCC_A1/HCP_A3)
      */
-    public static double[] applyTinvTransform(
-            double[] uOrthNonPoint, double[] composition, CvCfBasis basis) {
+    public static double[] measureFullCVsFromConfig(
+            LatticeConfig config,
+            List<List<Embedding>> cfEmbeddings,
+            List<List<Embedding>> pointCfEmbeddings,
+            double[] flatBasisMatrix,
+            int ncf,
+            int numComp) {
+
+        double[] uNonPoint = measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
+        int nPoint = pointCfEmbeddings.size();
+        double[] uPoint = measureCVsFromConfig(config, pointCfEmbeddings, flatBasisMatrix, nPoint, numComp);
+
+        double[] uFull = new double[ncf + nPoint + 1];
+        System.arraycopy(uNonPoint, 0, uFull, 0, ncf);
+        System.arraycopy(uPoint, 0, uFull, ncf, nPoint);
+        uFull[ncf + nPoint] = 1.0; // empty-cluster CF, always 1
+
+        if (MCSDebug.ENABLED) {
+            MCSDebug.vector("CF-MEAS", "measureFullCVsFromConfig result (uFull)", uFull);
+        }
+        return uFull;
+    }
+
+    /**
+     * Transforms the full orthogonal CF vector to CVCF basis: v_cvcf = Tinv * uFull.
+     *
+     * <p>uFull must already be assembled as [uOrthNonPoint(0..ncf-1) | uPoint | 1.0] —
+     * see {@link #measureFullCVsFromConfig}, which measures every entry (including
+     * point and empty-cluster columns) directly from the configuration in one
+     * embedding run. No analytic point-CF formula is used here; composition-derived
+     * shortcuts were removed in favor of measuring everything the same way.
+     */
+    public static double[] applyTinvTransform(double[] uFull, CvCfBasis basis) {
         double[][] Tinv = basis.Tinv;
         int ncf = basis.numNonPointCfs;
-        if (Tinv == null) return uOrthNonPoint.clone();
-
-        int K = basis.numComponents;
-        double[] basisSeq = org.ce.model.cluster.ClusterMath.buildBasis(K);
-        int nPoint = K - 1;
-        double[] uPoint = new double[nPoint];
-        for (int k = 0; k < nPoint; k++)
-            for (int s = 0; s < K; s++)
-                uPoint[k] += composition[s] * Math.pow(basisSeq[s], k + 1);
+        if (Tinv == null) return Arrays.copyOf(uFull, ncf);
 
         int tRows = Tinv[0].length;
-        double[] uFull = new double[tRows];
-        int nonPt = Math.min(uOrthNonPoint.length, tRows);
-        System.arraycopy(uOrthNonPoint, 0, uFull, 0, nonPt);
-        for (int k = 0; k < nPoint && nonPt + k < tRows; k++)
-            uFull[nonPt + k] = uPoint[k];
-        if (tRows > nonPt + nPoint)
-            uFull[tRows - 1] = 1.0;
-
         double[] vCvcf = new double[ncf];
         for (int i = 0; i < ncf; i++) {
             double sum = 0.0;
-            for (int j = 0; j < Tinv[i].length && j < tRows; j++)
+            for (int j = 0; j < Tinv[i].length && j < tRows && j < uFull.length; j++)
                 sum += Tinv[i][j] * uFull[j];
             vCvcf[i] = sum;
         }
@@ -411,10 +466,7 @@ public class Embeddings {
         if (MCSDebug.ENABLED && dbgApplyTinvCalls == 0) {
             dbgApplyTinvCalls++;
             MCSDebug.separator("TINV TRANSFORM (applyTinvTransform)");
-            MCSDebug.vector("TINV", "uOrthNonPoint (input)", uOrthNonPoint);
-            MCSDebug.vector("TINV", "composition", composition);
-            MCSDebug.vector("TINV", "uPoint (derived)", uPoint);
-            MCSDebug.vector("TINV", "uFull (assembled)", uFull);
+            MCSDebug.vector("TINV", "uFull (input, fully measured)", uFull);
             MCSDebug.log("TINV", "Tinv dims: %dx%d, ncf=%d", Tinv.length, tRows, ncf);
             MCSDebug.vector("TINV", "vCvcf (output)", vCvcf);
         }
@@ -496,12 +548,14 @@ public class Embeddings {
      */
     public static double totalEnergyCvcf(
             LatticeConfig config,
-            List<List<Embedding>> cfEmbeddings, double[] flatBasisMatrix,
+            List<List<Embedding>> cfEmbeddings, List<List<Embedding>> pointCfEmbeddings,
+            double[] flatBasisMatrix,
             int ncf, double[] eciCvcf, CvCfBasis basis, int numComp) {
 
         int N = config.getN();
-        double[] uOrth = measureCVsFromConfig(config, cfEmbeddings, flatBasisMatrix, ncf, numComp);
-        double[] vCvcf = applyTinvTransform(uOrth, config.composition(), basis);
+        double[] uFull = measureFullCVsFromConfig(
+                config, cfEmbeddings, pointCfEmbeddings, flatBasisMatrix, ncf, numComp);
+        double[] vCvcf = applyTinvTransform(uFull, basis);
 
         double E = 0.0;
         for (int l = 0; l < ncf && l < eciCvcf.length; l++)
@@ -512,7 +566,7 @@ public class Embeddings {
         if (trace) {
             dbgTotalEnergyTraced = true;
             MCSDebug.separator("TOTAL ENERGY E(σ) — CVCF BASIS");
-            MCSDebug.vector("E-CVCF", "uOrth (measured)", uOrth);
+            MCSDebug.vector("E-CVCF", "uFull (measured)", uFull);
             MCSDebug.vector("E-CVCF", "vCvcf (after Tinv)", vCvcf);
             MCSDebug.log("E-CVCF", "E(σ) = %.10f  (E/site = %.10f, N=%d)", E, E / N, N);
         }
