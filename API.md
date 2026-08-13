@@ -317,12 +317,9 @@ triangle/tetrahedron multi-site SRO are not yet available via this endpoint.
 probabilities rather than a single probability, so they don't have a directly
 meaningful Cowley-Warren-style alpha — see CLAUDE.md for the full discussion.)
 
-`α` is undefined (returned as `NaN`, which appears as the JSON string
-`"NaN"` since raw NaN isn't valid JSON) wherever either paired element's mole
-fraction is exactly 0 — e.g. along the edge opposite that element. Points
-with an undefined value are counted in neither `interpolated` nor `skipped`;
-callers should filter `"value" == "NaN"` before using or plotting the data
-(the renderer already does this).
+`α` is mathematically undefined at a pure-element corner (division by a
+mole fraction that's exactly 0) — no point is emitted there at all for an
+SRO request, rather than a `NaN` value.
 
 ### Response
 
@@ -331,18 +328,37 @@ callers should filter `"value" == "NaN"` before using or plotting the data
  "elements": ["Nb","Ti","V"], "structure":"BCC_A2", "model":"T", "engine":"CVM",
  "temperature": 1273.0, "calculation": "GIBBS_ENERGY", "skipped": 0,
  "points": [
-   {"Nb":0.0, "Ti":0.0, "V":1.0, "value":-1.17, "interpolated": false},
-   {"Nb":0.0, "Ti":0.1, "V":0.9, "value":-2340.2, "interpolated": false}
+   {"Nb":1.0, "Ti":0.0, "V":0.0, "value":0.0, "region": "CORNER"},
+   {"Nb":0.0, "Ti":0.1, "V":0.9, "value":-2340.2, "region": "EDGE"},
+   {"Nb":0.4, "Ti":0.3, "V":0.3, "value":-8500.1, "region": "INTERIOR"}
  ]}
 ```
 
-The ternary CVM solver can fail to converge in a thin composition band
-adjacent to a binary edge (a known near-edge instability), even though it
-converges exactly on the edge and further into the interior. Rather than
-leave a gap, such points are bridged by linear interpolation between the
-exact edge value and a converged interior point on the same composition
-ray — `"interpolated": true` marks these. `"skipped"` counts any points that
-could not be resolved even with interpolation.
+Every point falls into exactly one of three regions, marked by `"region"`:
+
+- **`INTERIOR`** (all three mole fractions > 0) — a genuine ternary CVM
+  solve. The ternary solver can fail to converge in a thin composition band
+  adjacent to a binary edge (a known near-edge instability, not a bug); such
+  points are simply omitted rather than interpolated or estimated.
+- **`EDGE`** (exactly one mole fraction = 0) — a genuine **binary** CVM
+  solve on the sub-Hamiltonian extracted for that pair, not the ternary
+  Hamiltonian evaluated at zero composition (which was tried and found
+  numerically fragile exactly there). See CLAUDE.md for why this is
+  physically sound (binary CECs are inherited unchanged into the ternary
+  Hamiltonian).
+- **`CORNER`** (two mole fractions = 0, i.e. a pure element) — no
+  calculation; G/H/S are analytically 0, and no point is emitted for SRO
+  (undefined there).
+
+`"skipped"` counts grid points where a calculation was attempted but failed
+(solver non-convergence, or — for an edge — no matching binary CVCF terms
+found for that pair). For an SRO request, only the requested pair's own edge
+is attempted — the other two edges don't involve both elements of the pair
+at all, so those points are never attempted and never counted in
+`"skipped"`, exactly like corners. This means `"skipped"` is directly
+comparable between a G/H/S request and an SRO request on the same grid: it
+always means "a real computation failed," never "this quantity doesn't
+apply here."
 
 ### Getting a rendered image, not just numbers
 

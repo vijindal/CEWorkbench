@@ -332,14 +332,49 @@ by both the GUI (`TernaryPlotPanel` → `OutputPanel`'s ternary card) and the
 JSON API (`TernaryGridCommand`'s `"render":true`), so there is one rendering
 code path, not two.
 
-The ternary CVM solver can fail to converge in a thin composition band
-adjacent to a binary edge, even though it converges exactly on the edge (one
-component = 0) and further into the interior — a known near-edge Newton-
-Raphson instability, not a bug in the scan itself. `TernaryGridScan` bridges
-such points by linear interpolation between the exact edge value and a
-converged interior point on the same composition ray, marking them
-`interpolated: true` rather than leaving a gap or plotting an unconverged
-value.
+### Four composition regions, each handled differently
+
+Every grid point falls into exactly one region, classified by how many of
+its three mole fractions are exactly zero:
+
+- **Interior** (all three &gt; 0) — a genuine ternary CVM solve via the
+  session passed into `TernaryGridScan.run`. If it fails to converge, the
+  point is skipped — no interpolation or synthetic data is substituted for
+  it. The ternary CVM solver is known to be numerically fragile in the
+  composition band adjacent to a binary edge (a near-edge Newton-Raphson
+  instability, not a bug in the scan itself), so some interior points near
+  an edge will legitimately be missing from the result; increasing `n`
+  recovers coverage density since the failure is per-point, not systemic.
+- **Edge** (exactly one = 0) — never evaluated on the ternary Hamiltonian at
+  all. Swept as its own 1-D scan on a genuine **binary** CVM session.
+  `BinarySubsystemExtractor` extracts the binary-pair CVCF terms
+  (point/pair/triangle/tetrahedron terms whose CVCF name refers only to the
+  two edge elements — e.g. `e21AB`, `e22AB`, `e3AB`, `e4AB`) from the ternary
+  Hamiltonian's `cecTerms`, renamed to the binary basis's own A/B letter
+  assignment, and builds a real 2-component `ModelSession` from them (cached
+  per pair for the life of the scan). This is sound because binary-cluster
+  CECs are inherited unchanged into any higher-order system containing that
+  pair (Eq. 30 of the paper) — no transformation, only extraction. Evaluating
+  the ternary Hamiltonian at a zero-composition edge was tried first and
+  found to still be numerically fragile exactly where it's needed most (a
+  large fraction of edge points failing to converge even there, for some
+  systems); the true binary problem has a much smaller configuration space
+  and solves far more reliably.
+- **Corner** (two = 0, i.e. a pure element) — no calculation at all. G/H/S
+  are trivially 0 by definition (nothing to mix with a single component).
+  Pair SRO's Eq. 40 reference `x_P*x_R` is 0 there, making alpha
+  mathematically undefined, so no point is emitted for SRO at a corner.
+
+An earlier version of this scan tried to paper over interior near-edge
+failures by linearly interpolating between the nearest edge value and a
+converged interior point further along the same composition ray. This was
+removed: for a near-**corner** interior point (two mole fractions both
+small, but nonzero), "nearest edge" is ambiguous between two edges, and the
+single-axis interpolation could snap the result almost entirely onto one
+edge's value — producing a visibly wrong, discontinuous-looking point right
+next to the correct interior contour. Skipping non-convergent points outright
+is simpler and never wrong; only real solved values (interior, edge, or the
+analytic corner) are ever reported.
 
 ### SRO in the ternary grid — why only pair SRO, and why some CFs are skipped
 
@@ -377,6 +412,21 @@ it doesn't produce a probability. If multi-site SRO is added later, the
 (each a real probability with a real reference) rather than computed
 directly from the CF as defined.
 
+**A pair-SRO scan only attempts that pair's own edge.** `PairSroQuantity`
+(A,B) is undefined on the *other* two binary edges of a ternary system —
+those edges each exclude one of A/B, so the pair being asked about doesn't
+even exist there. `TernaryGridScan.run` checks `isPairEdge` before running
+the edge's binary solve for an SRO request and, if it's the wrong edge,
+skips the point without attempting a calculation or counting it in
+`skipped` — exactly like a corner. This matters for interpreting `skipped`:
+before this check existed, an SRO scan's `skipped` count included every
+point on the two irrelevant edges (a large, systematic inflation that made
+SRO look far less reliable than G/H/S on the *same* underlying CVM solves,
+when in fact the interior/edge success rate is identical — verified by
+diffing the exact composition sets that succeeded for G vs. SRO on the same
+grid). After the fix, `skipped` means the same thing for every quantity:
+a real computation was attempted and failed.
+
 ---
 
 ## Key files for context
@@ -396,7 +446,8 @@ directly from the CF as defined.
 | `calculation/workflow/thermo/ThermodynamicWorkflow.java` | CVM/MCS dispatch, caching, SRO/convergence wiring |
 | `ui/cli/ApiCommand.java` | JSON API for external callers |
 | `ui/cli/TernaryGridCommand.java` | JSON API for ternary composition-grid scans (`ternary_grid` subcommand); optional `"render":true` returns a base64 PNG |
-| `calculation/workflow/TernaryGridScan.java` | In-process ternary composition-grid sweep, near-edge interpolation |
+| `calculation/workflow/TernaryGridScan.java` | In-process ternary composition-grid sweep, near-edge interpolation via binary-edge fallback |
+| `calculation/workflow/BinarySubsystemExtractor.java` | Extracts a binary CVCF sub-Hamiltonian for one pair from a ternary+ Hamiltonian's inherited terms |
 | `calculation/workflow/TernaryPlotRenderer.java` | Shells out to `scripts/isothermal_section.py` (mpltern) to render a grid result to PNG |
 | `ui/gui/DynamicCalculationPanel.java` | GUI calculation entry point |
 | `ui/gui/TernaryPlotPanel.java` | GUI ternary isothermal-section panel (explorer column controls) |

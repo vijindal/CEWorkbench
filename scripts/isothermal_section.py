@@ -227,8 +227,16 @@ def render_ternary_plot(elements, structure, temperature, quantity_label,
     fig = plt.figure(figsize=(5.5, 4.8))
     ax = fig.add_subplot(projection="ternary")
 
-    cs = ax.tricontourf(ta, la, ra, values, levels=20, cmap="RdYlBu_r")
-    ax.tricontour(ta, la, ra, values, levels=20, colors="k", linewidths=0.3, alpha=0.4)
+    # Clip the color range to the 2nd-98th percentile so a handful of
+    # dilute-limit outliers (e.g. SRO alpha blowing up where a pair's mole
+    # fractions are both tiny -- mathematically valid, since the random
+    # reference x_P*x_R is itself tiny, but not representative) don't wash
+    # out the interesting structure elsewhere. Outlier points still render,
+    # just saturated at the clipped color rather than stretching the scale.
+    vmin, vmax = np.percentile(values, [2, 98])
+    levels = np.linspace(vmin, vmax, 21)
+    cs = ax.tricontourf(ta, la, ra, values, levels=levels, cmap="RdYlBu_r", extend="both")
+    ax.tricontour(ta, la, ra, values, levels=levels, colors="k", linewidths=0.3, alpha=0.4)
     # SRO (Cowley-Warren alpha) is dimensionless; G/H/S are in J/mol.
     unit = "" if quantity_label.startswith("SRO") else " (J/mol)"
     # pad pushes the colorbar clear of the r-axis tick labels, which extend

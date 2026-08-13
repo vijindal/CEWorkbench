@@ -28,7 +28,7 @@ import java.util.function.Consumer;
 public class CVMGibbsModel {
 
     private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
-    private static final int MAX_ITER = 20;
+    private static final int MAX_ITER = 100;
     private static final double TOLX = 1.0e-12;
 
     private String elements;
@@ -708,7 +708,7 @@ public class CVMGibbsModel {
                 }
             }
         }
-        return (fmin >= 1.0) ? 1.0 : (0.1 * fmin);
+        return (fmin >= 1.0) ? 1.0 : (0.99 * fmin);
     }
 
     private double[][][] updateCVInternal(double[] u, double[] moleFractions) {

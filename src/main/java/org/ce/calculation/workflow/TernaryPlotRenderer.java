@@ -60,7 +60,7 @@ public final class TernaryPlotRenderer {
             pn.put(elements.get(1), p.fb());
             pn.put(elements.get(2), p.fc());
             pn.put("value", p.value());
-            pn.put("interpolated", p.interpolated());
+            pn.put("region", p.region().name());
             points.add(pn);
         }
         Files.writeString(file.toPath(), mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root));
