@@ -61,6 +61,20 @@ public final class ApiCommand {
 
     /** Runs the api subcommand. Returns the process exit code. */
     public static int run(CEWorkbenchContext appCtx, InputStream stdin) {
+        return run(appCtx, stdin, false);
+    }
+
+    /**
+     * Runs the api subcommand. Returns the process exit code.
+     *
+     * @param helpRequested if {@code true} (caller passed {@code --help}/{@code -h}),
+     *        stdin is not read and a self-documenting usage payload is printed
+     *        instead. An empty/missing stdin request also gets this payload
+     *        (under the {@code "usage"} key) alongside its error, so a caller
+     *        who runs {@code api} with nothing piped in still discovers the
+     *        request shape without needing to find API.md first.
+     */
+    public static int run(CEWorkbenchContext appCtx, InputStream stdin, boolean helpRequested) {
         // Physics and pipeline code writes progress directly to System.out (e.g.
         // "[Stage 3b] Testing..."). That would corrupt the JSON payload, so stdout is
         // redirected to stderr for the duration and the response is written to the
@@ -72,9 +86,25 @@ public final class ApiCommand {
         ObjectNode response;
         int exit = 0;
         try {
+            if (helpRequested) {
+                response = usage();
+                System.setOut(realOut);
+                realOut.println(OUT.writerWithDefaultPrettyPrinter().writeValueAsString(response));
+                realOut.flush();
+                return 0;
+            }
+
             JsonNode req = IN.readTree(new String(stdin.readAllBytes(), StandardCharsets.UTF_8));
-            if (req == null || req.isNull() || req.isMissingNode())
-                throw new ApiError("EMPTY_REQUEST", "No JSON request received on stdin.");
+            if (req == null || req.isNull() || req.isMissingNode()) {
+                ApiError err = new ApiError("EMPTY_REQUEST",
+                        "No JSON request received on stdin. Run 'api --help' for usage, or see 'usage' below.");
+                ObjectNode errJson = err.toJson();
+                errJson.set("usage", usage());
+                System.setOut(realOut);
+                realOut.println(OUT.writerWithDefaultPrettyPrinter().writeValueAsString(errJson));
+                realOut.flush();
+                return 1;
+            }
 
             response = req.has("describe")
                     ? handleDescribe(req.get("describe"))
@@ -101,6 +131,54 @@ public final class ApiCommand {
         }
         realOut.flush();
         return exit;
+    }
+
+    /**
+     * Self-documenting usage payload: request shapes, required fields, and
+     * error codes — so an external caller can discover the API in-band
+     * ({@code api --help} or an empty/missing stdin request) without needing
+     * to find API.md first. Kept in sync by hand; if the request shapes
+     * documented here drift from {@link #handleDescribe}/{@link #handleCalculate},
+     * fix this method too.
+     */
+    private static ObjectNode usage() {
+        ObjectNode out = OUT.createObjectNode();
+        out.put("ok", true);
+        out.put("command", "api");
+        out.put("summary", "JSON request on stdin -> JSON response on stdout. "
+                + "Two request modes: 'describe' (capability discovery) or a calculation request "
+                + "('system' + 'calculation' + 'conditions', optionally 'hamiltonian'). "
+                + "Full docs: API.md in the repo root.");
+
+        ObjectNode describeExample = out.putObject("describeExample");
+        describeExample.put("describe", "{\"elements\":\"Nb-Ti\",\"structure\":\"BCC_A2\",\"model\":\"T\",\"engine\":\"CVM\"}");
+        describeExample.put("returns", "supported, expectedEciNames, calculations available for this system/engine");
+
+        ObjectNode calcExample = out.putObject("calculateExample");
+        ObjectNode calcReq = OUT.createObjectNode();
+        ObjectNode calcSys = calcReq.putObject("system");
+        calcSys.put("elements", "Nb-Ti");
+        calcSys.put("structure", "BCC_A2");
+        calcSys.put("model", "T");
+        calcSys.put("engine", "CVM");
+        calcReq.put("calculation", "GIBBS_ENERGY");
+        ObjectNode calcCond = calcReq.putObject("conditions");
+        calcCond.put("temperature", 1000);
+        calcCond.putObject("composition").put("Ti", 0.5);
+        calcExample.set("request", calcReq);
+        calcExample.put("note", "'hamiltonian' is optional - omit to use the stored ECI database; "
+                + "supply it (basis:'CVCF', units:'J/mol', cecTerms:[...]) to pass your own ECIs.");
+
+        ArrayNode errorCodes = out.putArray("errorCodes");
+        for (String code : new String[] {
+                "EMPTY_REQUEST", "MISSING_SYSTEM", "INVALID_SYSTEM", "UNSUPPORTED_SYSTEM",
+                "MISSING_CONDITIONS", "INVALID_CONDITIONS", "UNSUPPORTED_BASIS", "UNSUPPORTED_UNITS",
+                "INVALID_HAMILTONIAN", "ECI_VALIDATION_FAILED", "NOT_IMPLEMENTED", "INTERNAL_ERROR" }) {
+            errorCodes.add(code);
+        }
+
+        out.put("relatedCommand", "ternary_grid --help  (composition-grid isothermal-section scans)");
+        return out;
     }
 
     // =========================================================================

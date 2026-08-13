@@ -27,9 +27,10 @@ public class ExplorerPanel extends JPanel {
         "DATA PREPARATION",
         "HAMILTONIAN  /  ECI",
         "THERMODYNAMICS",
+        "TERNARY SECTION",
     };
 
-    private static final String[] CARDS = { "DataPrep", "Hamiltonian", "Thermodynamics" };
+    private static final String[] CARDS = { "DataPrep", "Hamiltonian", "Thermodynamics", "Ternary" };
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel     cardPanel  = new JPanel(cardLayout);

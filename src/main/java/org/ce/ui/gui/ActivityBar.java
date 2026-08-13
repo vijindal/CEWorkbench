@@ -37,6 +37,7 @@ public class ActivityBar extends JPanel {
         { "1a", "Data Prep"  },
         { "1b", "Hamilt."    },
         { "TH", "Thermo"     },
+        { "TP", "Ternary"    },
     };
 
     private final List<ActivityItem> items = new ArrayList<>();

@@ -274,3 +274,109 @@ for pt in resp["points"]:
         continue
     print(pt["temperature"], pt["gibbsEnergy"])
 ```
+
+## Ternary isothermal sections (`ternary_grid`)
+
+A separate JSON stdin/stdout subcommand for composition-grid scans over a
+3-component system at fixed temperature — the data behind isothermal-section
+plots (Figs. 15–20 of Jindal & Lele 2025). `api`'s `ConditionsScan` only
+supports one varying axis at a time (temperature XOR one composition
+element); `ternary_grid` sweeps the full 2-D composition triangle directly,
+in-process, reusing the session cache — no per-point subprocess overhead.
+
+```json
+{"system":      {"elements":"Nb-Ti-V","structure":"BCC_A2","model":"T","engine":"CVM"},
+ "calculation": "GIBBS_ENERGY",
+ "temperature": 1273,
+ "n": 20}
+```
+
+`n` is the grid resolution (subdivisions per triangle edge; point count is
+`(n+1)(n+2)/2`, default 20). `calculation` accepts `GIBBS_ENERGY`,
+`ENTHALPY`, `ENTROPY`, or `SRO`.
+
+### Short-range order (`"calculation": "SRO"`)
+
+Plots the 1st-neighbour Cowley-Warren pair SRO parameter (α, Eq. 40 of
+Jindal & Lele 2025) for one unlike species pair across the composition
+triangle — the data behind Fig. 24 of that paper. Requires a `"pair"` field:
+a 2-element array naming the two elements (both must be in `system.elements`):
+
+```json
+{"system":      {"elements":"Nb-Ti-V","structure":"BCC_A2","model":"T","engine":"CVM"},
+ "calculation": "SRO",
+ "pair":        ["Nb","Ti"],
+ "temperature": 1273,
+ "n": 20}
+```
+
+Only 1st-neighbour pair SRO is exposed for now — 2nd-neighbour and
+triangle/tetrahedron multi-site SRO are not yet available via this endpoint.
+(Some CVCF correlation functions, like the ternary binary-triangle CFs
+`v3AB`/`v3AC`/`v3BC`, are antisymmetric *differences* of two cluster
+probabilities rather than a single probability, so they don't have a directly
+meaningful Cowley-Warren-style alpha — see CLAUDE.md for the full discussion.)
+
+`α` is undefined (returned as `NaN`, which appears as the JSON string
+`"NaN"` since raw NaN isn't valid JSON) wherever either paired element's mole
+fraction is exactly 0 — e.g. along the edge opposite that element. Points
+with an undefined value are counted in neither `interpolated` nor `skipped`;
+callers should filter `"value" == "NaN"` before using or plotting the data
+(the renderer already does this).
+
+### Response
+
+```json
+{"ok": true,
+ "elements": ["Nb","Ti","V"], "structure":"BCC_A2", "model":"T", "engine":"CVM",
+ "temperature": 1273.0, "calculation": "GIBBS_ENERGY", "skipped": 0,
+ "points": [
+   {"Nb":0.0, "Ti":0.0, "V":1.0, "value":-1.17, "interpolated": false},
+   {"Nb":0.0, "Ti":0.1, "V":0.9, "value":-2340.2, "interpolated": false}
+ ]}
+```
+
+The ternary CVM solver can fail to converge in a thin composition band
+adjacent to a binary edge (a known near-edge instability), even though it
+converges exactly on the edge and further into the interior. Rather than
+leave a gap, such points are bridged by linear interpolation between the
+exact edge value and a converged interior point on the same composition
+ray — `"interpolated": true` marks these. `"skipped"` counts any points that
+could not be resolved even with interpolation.
+
+### Getting a rendered image, not just numbers
+
+Add `"render": true` to have the server also produce a plotted PNG (mpltern
+ternary contour, matching the GUI's ternary panel) and return it embedded as
+base64 — no shared filesystem between caller and server required:
+
+```json
+{"system": {"elements":"Nb-Ti-V","structure":"BCC_A2","model":"T","engine":"CVM"},
+ "calculation": "GIBBS_ENERGY", "temperature": 1273, "n": 20, "render": true}
+```
+
+```json
+{"ok": true, "...": "...",
+ "image": {"format": "png", "base64": "iVBORw0KGgoAAAANS..."}}
+```
+
+Points are always included regardless of `render`, so callers who only want
+raw numbers pay no rendering cost. Rendering shells out to
+`scripts/isothermal_section.py` (mpltern) — requires a working `python` on
+`PATH` with `matplotlib`/`mpltern`/`numpy` installed on the machine running
+the server. If rendering fails, the response still carries `"ok": true` and
+the computed `points`, with the failure reported as `"renderError"` instead
+of `"image"` — a broken Python environment never blocks the physics.
+
+```python
+resp = call_ternary_grid({  # same call() pattern as above, subcommand "ternary_grid"
+    "system": {"elements":"Nb-Ti-V","structure":"BCC_A2","model":"T","engine":"CVM"},
+    "calculation": "GIBBS_ENERGY", "temperature": 1273, "n": 30, "render": True,
+})
+if "image" in resp:
+    import base64
+    with open("isothermal_section.png", "wb") as f:
+        f.write(base64.b64decode(resp["image"]["base64"]))
+elif "renderError" in resp:
+    print("render failed, using raw points instead:", resp["renderError"])
+```

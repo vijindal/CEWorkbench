@@ -303,6 +303,82 @@ private static void emit(Consumer<String> sink, String msg) {
 
 ---
 
+## Ternary isothermal-section plotting — why Python renders, Java computes
+
+`TernaryGridScan` (Java, in-process, session-cached) sweeps a 2-D composition
+grid over a 3-component system at fixed temperature and computes it directly
+against `CalculationService.calculate` — not through `ConditionsScan`, which
+supports only one varying axis at a time (temperature XOR one composition
+element; see its class doc) and cannot express a full ternary sweep.
+
+Rendering the result as a ternary contour is delegated to
+`scripts/isothermal_section.py` (mpltern) rather than drawn in Java. This was
+a deliberate choice, not a shortcut: no maintained Java library offers
+ternary contour plotting — JFreeChart has no ternary axis support, and the
+one abandoned point-plotting library found (`jTernaryPlot`, last updated
+2013, unclear license) has no fill/contour capability. Plotly was also
+checked and rejected: neither plotly.js nor Python plotly has a native
+ternary contour trace either — Python's `figure_factory.create_ternary_contour`
+is a convenience wrapper that does the same barycentric-to-Cartesian
+transform-and-mask mpltern does internally, and that wrapper doesn't exist in
+JS at all. mpltern is the only option that provides real ternary contour
+support without hand-rolling the triangle geometry.
+
+Java remains the sole source of truth for the physics: `TernaryPlotRenderer`
+writes the already-computed grid to a temp JSON file and shells out to the
+script's `--from-json` mode, which only turns numbers into pixels — it never
+recomputes anything. This split (Java computes / Python renders) is shared
+by both the GUI (`TernaryPlotPanel` → `OutputPanel`'s ternary card) and the
+JSON API (`TernaryGridCommand`'s `"render":true`), so there is one rendering
+code path, not two.
+
+The ternary CVM solver can fail to converge in a thin composition band
+adjacent to a binary edge, even though it converges exactly on the edge (one
+component = 0) and further into the interior — a known near-edge Newton-
+Raphson instability, not a bug in the scan itself. `TernaryGridScan` bridges
+such points by linear interpolation between the exact edge value and a
+converged interior point on the same composition ray, marking them
+`interpolated: true` rather than leaving a gap or plotting an unconverged
+value.
+
+### SRO in the ternary grid — why only pair SRO, and why some CFs are skipped
+
+`TernaryGridScan.Quantity` is either a `PropertyQuantity` (G/H/S) or a
+`PairSroQuantity` (1st-neighbour Cowley-Warren pair SRO for one unlike
+species pair). Both route through the same single-point `calculate` call —
+every CVM calculation already computes SRO as a side effect
+(`ThermodynamicWorkflow.computeSro`), so `PairSroQuantity` just extracts a
+different field from the same `ThermodynamicResult`, not a separate
+calculation path.
+
+Only pair SRO (1NN) is exposed. Extending this to triangle/tetrahedron
+multi-site SRO looks straightforward at first — cluster probabilities for
+*every* cluster type are already available via
+`CVMGibbsModel.evaluateClusterVariables(...)` — but most CVCF correlation
+functions for triangle/tetrahedron clusters are not single physical
+probabilities. `CvCfBasis.VSpec` makes this explicit: each CF is defined as
+either `product(...)` (a single site-atom-pair probability, directly
+SRO-eligible via `alpha = 1 − ρ/reference`) or `diff(...)`/`combo(...)` (a
+signed linear combination of multiple probabilities, e.g. the ternary
+binary-triangle CFs `v3AB = ρ^RPR − ρ^PRP`). A `diff`-type CF has no natural
+`[0,1]` reference, so `1 − value/reference` isn't meaningful for it.
+
+The literature confirms there's no shortcut around this: Goff, Li, Sinnott,
+Dabo (PRB 104, 054109, 2021) — one of the two papers `SroCalculator`'s Eq. 41
+cites — define one SRO-like parameter per distinct, symmetry-labeled
+*occupation probability*, never on a signed difference of probabilities.
+Nor does the "orthogonal" (Chebyshev/Inden-polynomial) basis used internally
+by `CMatrixPipeline`/`ClusterCFIdentificationPipeline` help: those orthogonal
+CFs are themselves signed polynomial moments of occupation, related to the
+CVCF `diff`-type CFs by an invertible linear transform (`CvCfBasis`'s
+`T`/`Tinv`) — swapping basis just trades one signed combination for another,
+it doesn't produce a probability. If multi-site SRO is added later, the
+`diff`-type CFs need to be split into their constituent `product(...)` terms
+(each a real probability with a real reference) rather than computed
+directly from the CF as defined.
+
+---
+
 ## Key files for context
 
 | File | Why |
@@ -319,7 +395,11 @@ private static void emit(Consumer<String> sink, String msg) {
 | `calculation/workflow/CalculationService.java` | Public API (`calculate`/`calculateScan`) |
 | `calculation/workflow/thermo/ThermodynamicWorkflow.java` | CVM/MCS dispatch, caching, SRO/convergence wiring |
 | `ui/cli/ApiCommand.java` | JSON API for external callers |
+| `ui/cli/TernaryGridCommand.java` | JSON API for ternary composition-grid scans (`ternary_grid` subcommand); optional `"render":true` returns a base64 PNG |
+| `calculation/workflow/TernaryGridScan.java` | In-process ternary composition-grid sweep, near-edge interpolation |
+| `calculation/workflow/TernaryPlotRenderer.java` | Shells out to `scripts/isothermal_section.py` (mpltern) to render a grid result to PNG |
 | `ui/gui/DynamicCalculationPanel.java` | GUI calculation entry point |
+| `ui/gui/TernaryPlotPanel.java` | GUI ternary isothermal-section panel (explorer column controls) |
 | `ui/gui/WorkbenchContext.java` | GUI session state, listeners |
 | `CEWorkbenchContext.java` | App wiring — how layers connect |
 

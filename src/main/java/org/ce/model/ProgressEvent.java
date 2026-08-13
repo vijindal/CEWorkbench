@@ -93,4 +93,20 @@ public abstract class ProgressEvent {
             this.cfs = cfs != null ? cfs.clone() : null;
         }
     }
+
+    /**
+     * One point completed within a multi-point composition sweep (e.g. a ternary
+     * grid scan) — emitted by the calculation layer between independent
+     * single-point calculations, not by a model-layer optimizer. Drives a
+     * "computed N/total" progress bar rather than any physics chart.
+     */
+    public static final class ScanPoint extends ProgressEvent {
+        public final int index;
+        public final int total;
+
+        public ScanPoint(int index, int total) {
+            this.index = index;
+            this.total = total;
+        }
+    }
 }

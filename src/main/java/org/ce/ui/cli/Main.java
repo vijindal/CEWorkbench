@@ -78,7 +78,17 @@ public class Main {
         // JSON request on stdin -> JSON response on stdout. Diagnostics go to
         // stderr so the payload stays machine-parseable.
         if (args.length > 0 && args[0].equals("api")) {
-            System.exit(ApiCommand.run(appCtx, System.in));
+            boolean helpRequested = args.length > 1 && (args[1].equals("--help") || args[1].equals("-h"));
+            System.exit(ApiCommand.run(appCtx, System.in, helpRequested));
+            return;
+        }
+
+        // ── ternary_grid ─────────────────────────────────────────────────────
+        // JSON request on stdin -> JSON response on stdout: a ternary
+        // composition-grid scan at fixed temperature (isothermal section data).
+        if (args.length > 0 && args[0].equals("ternary_grid")) {
+            boolean helpRequested = args.length > 1 && (args[1].equals("--help") || args[1].equals("-h"));
+            System.exit(TernaryGridCommand.run(appCtx, System.in, helpRequested));
             return;
         }
 

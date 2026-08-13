@@ -122,17 +122,22 @@ public class MainWindow extends JFrame {
         DynamicCalculationPanel calcPanel = new DynamicCalculationPanel(
                 appCtx, context, statusSink, logSink, resultSink, chartSink, clearOutputSink, quantityModel);
 
+        TernaryPlotPanel ternaryPanel = new TernaryPlotPanel(appCtx, context, statusSink, logSink,
+                outputPanel::showTernaryPlot, outputPanel::showTernaryError);
+
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();
         explorerPanel.addCard(dataPrepPanel, 0);
         explorerPanel.addCard(cecPanel,      1);
         explorerPanel.addCard(calcPanel,     2);
+        explorerPanel.addCard(ternaryPanel,  3);
 
         // ── activity bar ──────────────────────────────────────────────────────
         Runnable[] navCallbacks = {
             () -> navigate(0),
             () -> navigate(1),
             () -> navigate(2),
+            () -> navigate(3),
         };
         activityBar = new ActivityBar(navCallbacks);
 

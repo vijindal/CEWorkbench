@@ -41,10 +41,12 @@ public class OutputPanel extends JPanel {
 
     private final ResultChartPanel chartPanel;
     private final CECEditorPanel cecEditorPanel;
+    private final JLabel ternaryPlotLabel = new JLabel("", SwingConstants.CENTER);
     private final JPanel resultsBody;
     private final CardLayout resultsBodyLayout;
     private static final String CARD_CHART = "chart";
     private static final String CARD_CEC = "cec";
+    private static final String CARD_TERNARY = "ternary";
     private final JTextArea logArea = new JTextArea();
 
     public OutputPanel(WorkbenchContext context, QuantityDescriptor.SelectionModel selectionModel) {
@@ -59,14 +61,32 @@ public class OutputPanel extends JPanel {
         resultsBody.add(chartPanel, CARD_CHART);
         resultsBody.add(cecEditorPanel, CARD_CEC);
 
+        ternaryPlotLabel.setOpaque(true);
+        ternaryPlotLabel.setBackground(BG);
+        JScrollPane ternaryScroll = new JScrollPane(ternaryPlotLabel);
+        ternaryScroll.setBorder(null);
+        ternaryScroll.getViewport().setBackground(BG);
+        resultsBody.add(ternaryScroll, CARD_TERNARY);
+
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 buildResultsSection(),
                 buildLogSection());
-        split.setDividerLocation(320);
-        split.setDividerSize(1);
+        split.setResizeWeight(0.75);   // results get the lion's share of extra space on resize
+        split.setDividerSize(6);       // wide enough to grab comfortably
         split.setContinuousLayout(true);
         split.setBorder(null);
         split.setBackground(BG);
+        split.addComponentListener(new java.awt.event.ComponentAdapter() {
+            private boolean initialized = false;
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                if (!initialized && split.getHeight() > 0) {
+                    initialized = true;
+                    split.setDividerLocation(0.75);  // 75% results / 25% output by default
+                    split.removeComponentListener(this);
+                }
+            }
+        });
 
         add(split, BorderLayout.CENTER);
     }
@@ -227,6 +247,28 @@ public class OutputPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             resultsBodyLayout.show(resultsBody, CARD_CHART);
             chartPanel.showMapResult(grid);
+        });
+    }
+
+    /**
+     * Displays a rendered ternary isothermal-section PNG (produced by
+     * {@code scripts/isothermal_section.py} from Java-computed grid data).
+     * Thread-safe — can be called from any thread.
+     */
+    public void showTernaryPlot(java.awt.image.BufferedImage image) {
+        SwingUtilities.invokeLater(() -> {
+            ternaryPlotLabel.setIcon(new ImageIcon(image));
+            ternaryPlotLabel.setText(null);
+            resultsBodyLayout.show(resultsBody, CARD_TERNARY);
+        });
+    }
+
+    /** Shows an error message in place of the ternary plot. Thread-safe. */
+    public void showTernaryError(String message) {
+        SwingUtilities.invokeLater(() -> {
+            ternaryPlotLabel.setIcon(null);
+            ternaryPlotLabel.setText("<html><span style='color:#F44747'>" + message + "</span></html>");
+            resultsBodyLayout.show(resultsBody, CARD_TERNARY);
         });
     }
 
