@@ -67,6 +67,18 @@ public final class TernaryGridScan {
      * probability into large, non-physical swings in alpha. Points below this
      * threshold are mathematically defined but not representative; excluding
      * them keeps the plotted/reported SRO values meaningful.
+     *
+     * <p>A second, more severe near-edge failure mode — the ternary solver
+     * silently reporting a boundary-stalled Newton-Raphson step as
+     * "converged" — used to also show up in this band and was previously
+     * (wrongly) worked around by widening this threshold. That was a
+     * genuine convergence-criterion bug, now fixed at the source in
+     * {@code CVMGibbsModel.minimize} (the {@code errx <= TOLX} branch no
+     * longer reports convergence without also checking the gradient at the
+     * post-step point). Bad near-edge points now correctly come back with
+     * {@code converged=false} and are skipped by the ordinary
+     * non-convergence path below, so this threshold only needs to cover the
+     * reference-denominator effect described above.</p>
      */
     private static final double SRO_MIN_MOLE_FRACTION = 0.03;
 
@@ -102,8 +114,15 @@ public final class TernaryGridScan {
         @Override public String label() { return "SRO_" + elementA + "-" + elementB + "_1NN"; }
     }
 
-    /** Which composition region a point came from. */
-    public enum Region { INTERIOR, EDGE, CORNER }
+    /**
+     * Which composition region a point came from. {@code INTERPOLATED} means
+     * the ternary solve failed to converge at that exact composition but was
+     * filled from its converged interior neighbors (see
+     * {@link #interpolateIsolatedGaps}) — reported separately from
+     * {@code INTERIOR} so callers/plots can tell a genuine solve apart from
+     * a filled hole.
+     */
+    public enum Region { INTERIOR, EDGE, CORNER, INTERPOLATED }
 
     /** One computed grid point. */
     public record Point(double fa, double fb, double fc, double value, Region region) {}
@@ -114,8 +133,14 @@ public final class TernaryGridScan {
 
     /**
      * Runs the scan: corners (trivial or omitted), each binary edge (1-D
-     * binary CVM sweep), and the ternary interior (2-D ternary CVM sweep,
-     * failures skipped — no interpolation).
+     * binary CVM sweep), and the ternary interior (2-D ternary CVM sweep).
+     * An interior point that fails to converge is left as a genuine gap
+     * unless it is an isolated hole surrounded by converged interior
+     * neighbors, in which case it is filled by
+     * {@link #interpolateIsolatedGaps} and reported with
+     * {@link Region#INTERPOLATED}. A contiguous band of failures (e.g. the
+     * near-edge fragility band described in CLAUDE.md) is not filled — see
+     * that method's doc for why only isolated single-point holes qualify.
      *
      * @param n           grid subdivisions per triangle edge
      * @param eventSink   receives {@link ProgressEvent.ScanPoint} after each
@@ -139,6 +164,12 @@ public final class TernaryGridScan {
         Map<String, ModelSession> binarySessions = new LinkedHashMap<>();
 
         List<Point> points = new ArrayList<>(total);
+        // Failed INTERIOR points only, keyed by integer grid coords (i,j,k) —
+        // candidates for interpolateIsolatedGaps. Edge/corner failures are not
+        // tracked here: filling those would mean fabricating a point on a
+        // different physical calculation (binary solve) or a trivial analytic
+        // one, not patching a hole in an otherwise-solved interior surface.
+        Map<String, int[]> failedInterior = new LinkedHashMap<>();
         int skipped = 0;
         int index = 0;
 
@@ -212,11 +243,77 @@ public final class TernaryGridScan {
                 points.add(new Point(f[0], f[1], f[2], value, region));
             } else {
                 skipped++;
+                if (region == Region.INTERIOR) {
+                    int gi = (int) Math.round(f[0] * n);
+                    int gj = (int) Math.round(f[1] * n);
+                    int gk = (int) Math.round(f[2] * n);
+                    failedInterior.put(gi + "," + gj + "," + gk, new int[] { gi, gj, gk });
+                }
             }
             if (eventSink != null) eventSink.accept(new ProgressEvent.ScanPoint(index, total));
         }
 
+        List<Point> interpolated = interpolateIsolatedGaps(points, failedInterior, n);
+        points.addAll(interpolated);
+        skipped -= interpolated.size();
+
         return new Result(elements, temperature, quantity, points, skipped);
+    }
+
+    /**
+     * Fills isolated single-point holes in the ternary interior by averaging
+     * each failed point's converged direct neighbors (the up-to-6 grid
+     * points at barycentric distance 1: (i&plusmn;1,j,k), (i,j&plusmn;1,k),
+     * (i,j,k&plusmn;1) with the corresponding compensating change so
+     * i+j+k=n is preserved).
+     *
+     * <p>Deliberately conservative: a failed point is only filled when a
+     * majority of its up-to-6 neighbors converged (at least 4 present, or
+     * all of them when fewer than 4 exist near a corner/edge). A contiguous
+     * band of failures — such as the near-edge solver fragility band
+     * documented in CLAUDE.md, which is exactly the region most likely to
+     * be systematically wrong rather than randomly missing — will not have
+     * enough converged neighbors and is left as a genuine gap. This
+     * distinguishes "one point out of a smooth field failed to converge"
+     * (safe, ordinary numerical happenstance) from "this whole region is
+     * known to be unreliable" (must not be papered over — see the session
+     * history around {@code SRO_MIN_MOLE_FRACTION} for why silently filling
+     * that band is exactly the mistake to avoid).</p>
+     */
+    private static List<Point> interpolateIsolatedGaps(List<Point> points, Map<String, int[]> failedInterior, int n) {
+        if (failedInterior.isEmpty()) return List.of();
+
+        Map<String, Point> byKey = new LinkedHashMap<>();
+        for (Point p : points) {
+            if (p.region() == Region.INTERIOR) {
+                int i = (int) Math.round(p.fa() * n);
+                int j = (int) Math.round(p.fb() * n);
+                int k = (int) Math.round(p.fc() * n);
+                byKey.put(i + "," + j + "," + k, p);
+            }
+        }
+
+        int[][] deltas = { {1, -1, 0}, {-1, 1, 0}, {1, 0, -1}, {-1, 0, 1}, {0, 1, -1}, {0, -1, 1} };
+
+        List<Point> filled = new ArrayList<>();
+        for (int[] gk : failedInterior.values()) {
+            int i = gk[0], j = gk[1], k = gk[2];
+            List<Double> neighborValues = new ArrayList<>();
+            int neighborsInRange = 0;
+            for (int[] d : deltas) {
+                int ni = i + d[0], nj = j + d[1], nk = k + d[2];
+                if (ni < 0 || nj < 0 || nk < 0) continue; // outside the triangle
+                neighborsInRange++;
+                Point neighbor = byKey.get(ni + "," + nj + "," + nk);
+                if (neighbor != null) neighborValues.add(neighbor.value());
+            }
+            int required = Math.max(1, (int) Math.ceil(neighborsInRange * 0.5) + 1); // strict majority
+            if (neighborValues.size() < required) continue; // real gap, not an isolated hole
+
+            double avg = neighborValues.stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+            filled.add(new Point((double) i / n, (double) j / n, (double) k / n, avg, Region.INTERPOLATED));
+        }
+        return filled;
     }
 
     private static Double query(CalculationService service, ModelSession session, List<String> elements,

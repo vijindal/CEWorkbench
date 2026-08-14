@@ -18,7 +18,21 @@ public final class LinearAlgebra {
 
     /**
      * Solves the linear system {@code A Â· x = b} using Gaussian elimination
-     * with partial pivoting.
+     * with partial pivoting, after symmetric (Jacobi) diagonal scaling.
+     *
+     * <p>The CVM Hessian this is normally called on ({@code Guu} in
+     * {@code CVMGibbsModel.minimize}) can be extremely badly scaled near a
+     * dilute composition -- diagonal entries spanning ~10 orders of
+     * magnitude between a majority-element cluster variable and a
+     * near-zero rare-pair one. Plain partial-pivoting elimination on such a
+     * matrix lets large-magnitude rows dominate the elimination of small
+     * ones, degrading the solved direction for the small-magnitude
+     * variables even though the matrix is not actually singular. Scaling
+     * each row/column by {@code 1/sqrt(|A[i][i]|)} before elimination (and
+     * undoing it on the solution) brings every diagonal entry to
+     * O(1) magnitude, which is the standard remedy for this failure mode
+     * and does not change the solution of a consistent system -- only its
+     * numerical conditioning during elimination.</p>
      *
      * <p>The input arrays are <em>not</em> modified (copies are made internally).</p>
      *
@@ -33,12 +47,25 @@ public final class LinearAlgebra {
         if (A[0].length != n) throw new IllegalArgumentException("Matrix must be square");
         if (b.length != n) throw new IllegalArgumentException("RHS length must match matrix size");
 
-        // Work on copies
+        // Diagonal scaling factors: s[i] = 1/sqrt(|A[i][i]|), falling back to 1
+        // for a zero/negligible diagonal entry (elimination's own pivoting and
+        // singularity check still apply to the scaled matrix).
+        double[] s = new double[n];
+        for (int i = 0; i < n; i++) {
+            double d = Math.abs(A[i][i]);
+            s[i] = (d > 1e-300) ? 1.0 / Math.sqrt(d) : 1.0;
+        }
+
+        // Work on scaled copies: M[i][j] = s[i]*A[i][j]*s[j], rhs[i] = s[i]*b[i].
+        // Solving M*y = rhs then gives the true solution as x[i] = s[i]*y[i]
+        // (substitute x = S*y into A*x=b to get S*A*S*y = S*b, i.e. M*y=rhs).
         double[][] M = new double[n][n];
         double[] rhs = new double[n];
         for (int i = 0; i < n; i++) {
-            System.arraycopy(A[i], 0, M[i], 0, n);
-            rhs[i] = b[i];
+            for (int j = 0; j < n; j++) {
+                M[i][j] = s[i] * A[i][j] * s[j];
+            }
+            rhs[i] = s[i] * b[i];
         }
 
         // Forward elimination with partial pivoting
@@ -76,14 +103,20 @@ public final class LinearAlgebra {
             }
         }
 
-        // Back substitution
-        double[] x = new double[n];
+        // Back substitution (in the scaled variable y)
+        double[] y = new double[n];
         for (int i = n - 1; i >= 0; i--) {
             double sum = rhs[i];
             for (int j = i + 1; j < n; j++) {
-                sum -= M[i][j] * x[j];
+                sum -= M[i][j] * y[j];
             }
-            x[i] = sum / M[i][i];
+            y[i] = sum / M[i][i];
+        }
+
+        // Undo the scaling: x[i] = s[i]*y[i]
+        double[] x = new double[n];
+        for (int i = 0; i < n; i++) {
+            x[i] = s[i] * y[i];
         }
 
         return x;

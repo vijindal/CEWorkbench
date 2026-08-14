@@ -35,7 +35,9 @@ import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.tri as mtri
 import mpltern  # noqa: F401  (registers the 'ternary' projection)
+from mpltern.ternary._base import TernaryAxesBase
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAIN_CLASS = "org.ce.ui.cli.Main"
@@ -86,44 +88,6 @@ def ternary_grid(n):
     return points
 
 
-def nearest_edge_and_interior(fa, fb, fc):
-    """For composition (fa, fb, fc), find the nearest edge (component -> 0)
-    and a point further along the same ray into the interior.
-
-    Returns (edge_point, interior_point, t) where t in (0, 1) is the
-    barycentric fraction of the original point between edge_point (t=0)
-    and interior_point (t=1) along the ray from the edge vertex-opposite
-    through the original point.
-    """
-    comps = [fa, fb, fc]
-    axis = min(range(3), key=lambda i: comps[i])  # component closest to 0
-    t_edge = comps[axis]
-
-    def scale(target_axis_value):
-        """Rescale composition so comps[axis] == target_axis_value, keeping
-        the ratio of the other two components fixed (moves along the ray
-        toward/away from the edge where axis == 0)."""
-        others = [i for i in range(3) if i != axis]
-        remaining = 1.0 - target_axis_value
-        other_sum = comps[others[0]] + comps[others[1]]
-        if other_sum <= 0:
-            return None
-        scaled = list(comps)
-        scaled[axis] = target_axis_value
-        for i in others:
-            scaled[i] = comps[i] / other_sum * remaining
-        return tuple(scaled)
-
-    edge_point = scale(0.0)
-    # step further into the interior than the failed point itself
-    interior_target = min(t_edge + 0.08, 1.0)
-    interior_point = scale(interior_target)
-    if interior_point is None or interior_target <= t_edge:
-        return edge_point, None, None
-    t = t_edge / interior_target
-    return edge_point, interior_point, t
-
-
 def compute_via_api(args, elements):
     """Slow path: one `api` subprocess call per grid point."""
     classpath = build_classpath(args.classpath_jars)
@@ -156,28 +120,20 @@ def compute_via_api(args, elements):
             return None
         return points[0][args.quantity]
 
+    # Matches the fast path's philosophy (see TernaryGridScan.java / CLAUDE.md):
+    # a point that fails to converge is skipped outright, never estimated.
     ta, la, ra, values = [], [], [], []
     skipped = 0
-    interpolated = 0
     for (fa, fb, fc) in grid:
         value = query(fa, fb, fc)
         if value is None:
-            edge_pt, interior_pt, t = nearest_edge_and_interior(fa, fb, fc)
-            edge_val = query(*edge_pt) if edge_pt else None
-            interior_val = query(*interior_pt) if interior_pt else None
-            if edge_val is not None and interior_val is not None:
-                value = (1 - t) * edge_val + t * interior_val
-                interpolated += 1
-            else:
-                skipped += 1
-                continue
+            skipped += 1
+            continue
         ta.append(fc)
         la.append(fa)
         ra.append(fb)
         values.append(value)
 
-    if interpolated:
-        print(f"[info] interpolated {interpolated}/{len(grid)} near-edge grid points", file=sys.stderr)
     if skipped:
         print(f"[warn] skipped {skipped}/{len(grid)} grid points", file=sys.stderr)
 
@@ -218,6 +174,41 @@ def load_from_json(path):
             np.array(ta), np.array(la), np.array(ra), np.array(values))
 
 
+def _masked_triangulation(ax, ta, la, ra, factor=3.0):
+    """Builds the same Cartesian triangulation mpltern uses internally for a
+    ternary tricontour, then masks triangles whose longest edge is
+    anomalously long relative to the triangulation's own median edge length.
+
+    Points along a binary edge come from a separate binary CVM solve (see
+    TernaryGridScan/BinarySubsystemExtractor), not the ternary interior
+    solve, and for SRO a band of near-edge interior points is additionally
+    excluded outright (SRO_MIN_MOLE_FRACTION in TernaryGridScan.java)
+    because the ternary solver's SRO is numerically noisy there. That
+    leaves a real gap between the edge line and the nearest interior ring
+    for at least one edge of every SRO plot (and, for G/H/S, a smaller gap
+    wherever the interior solve failed to converge near an edge/corner).
+    Plain tricontourf doesn't know about that gap and fills it with a
+    straight-line guess between two independently-computed data sources --
+    that's what produced the near-edge discontinuity. Masking long-edge
+    triangles (a standard matplotlib.tri recipe; the reference scale is
+    derived from the data itself, not a fixed physical distance) leaves
+    that gap blank instead.
+    """
+    tlr = np.column_stack((ta, la, ra))
+    x, y = ax.transProjection.transform(tlr).T
+    triangulation = mtri.Triangulation(x, y)
+
+    tris = triangulation.triangles
+    edge_lengths = np.stack([
+        np.hypot(x[tris[:, i]] - x[tris[:, j]], y[tris[:, i]] - y[tris[:, j]])
+        for i, j in ((0, 1), (1, 2), (2, 0))
+    ])  # shape (3, n_triangles)
+    threshold = factor * np.median(edge_lengths)
+    triangulation.set_mask(edge_lengths.max(axis=0) > threshold)
+
+    return triangulation
+
+
 def render_ternary_plot(elements, structure, temperature, quantity_label,
                          ta, la, ra, values, out_path):
     """Renders the filled ternary contour and saves it to out_path."""
@@ -235,8 +226,17 @@ def render_ternary_plot(elements, structure, temperature, quantity_label,
     # just saturated at the clipped color rather than stretching the scale.
     vmin, vmax = np.percentile(values, [2, 98])
     levels = np.linspace(vmin, vmax, 21)
-    cs = ax.tricontourf(ta, la, ra, values, levels=levels, cmap="RdYlBu_r", extend="both")
-    ax.tricontour(ta, la, ra, values, levels=levels, colors="k", linewidths=0.3, alpha=0.4)
+
+    triangulation = _masked_triangulation(ax, ta, la, ra)
+
+    # TernaryAxesBase.tricontour(f) is called directly (bypassing the public
+    # ax.tricontour(f) wrapper) because that wrapper only accepts raw t/l/r
+    # coordinate arrays and always re-triangulates internally -- it has no
+    # way to accept our pre-built, gap-masked Triangulation.
+    cs = TernaryAxesBase.tricontourf(ax, triangulation, values, levels=levels,
+                                      cmap="RdYlBu_r", extend="both", transform=ax.transData)
+    TernaryAxesBase.tricontour(ax, triangulation, values, levels=levels,
+                                colors="k", linewidths=0.3, alpha=0.4, transform=ax.transData)
     # SRO (Cowley-Warren alpha) is dimensionless; G/H/S are in J/mol.
     unit = "" if quantity_label.startswith("SRO") else " (J/mol)"
     # pad pushes the colorbar clear of the r-axis tick labels, which extend
