@@ -1,0 +1,155 @@
+{
+  "elements": "Mo-Nb-Ta",
+  "structurePhase": "BCC_A2",
+  "model": "T_CVCF",
+  "cecTerms": [
+    {
+      "name": "e4AB",
+      "description": "v4AB (Mo-Nb tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4AC",
+      "description": "v4AC (Mo-Ta tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4BC",
+      "description": "v4BC (Nb-Ta tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 6.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4ABC1",
+      "description": "v4ABC1 (Mo-Nb-Ta tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4ABC2",
+      "description": "v4ABC2 (Mo-Nb-Ta tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e4ABC3",
+      "description": "v4ABC3 (Mo-Nb-Ta tetrahedron)",
+      "numSites": 4,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3AB",
+      "description": "v3AB (Mo-Nb triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 894.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3AC",
+      "description": "v3AC (Mo-Ta triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -1802.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3BC",
+      "description": "v3BC (Nb-Ta triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": -630.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3ABC1",
+      "description": "v3ABC1 (Mo-Nb-Ta triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3ABC2",
+      "description": "v3ABC2 (Mo-Nb-Ta triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e3ABC3",
+      "description": "v3ABC3 (Mo-Nb-Ta triangle)",
+      "numSites": 3,
+      "multiplicity": 12.0,
+      "a": 0.0,
+      "b": 0.0
+    },
+    {
+      "name": "e22AB",
+      "description": "v22AB (Mo-Nb II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": -11887.0,
+      "b": 0.0
+    },
+    {
+      "name": "e22AC",
+      "description": "v22AC (Mo-Ta II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": -20054.0,
+      "b": 0.0
+    },
+    {
+      "name": "e22BC",
+      "description": "v22BC (Nb-Ta II-pair)",
+      "numSites": 2,
+      "multiplicity": 3.0,
+      "a": -501.0,
+      "b": 0.0
+    },
+    {
+      "name": "e21AB",
+      "description": "v21AB (Mo-Nb I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": -23774.0,
+      "b": 0.0
+    },
+    {
+      "name": "e21AC",
+      "description": "v21AC (Mo-Ta I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": -40107.0,
+      "b": 0.0
+    },
+    {
+      "name": "e21BC",
+      "description": "v21BC (Nb-Ta I-pair)",
+      "numSites": 2,
+      "multiplicity": 4.0,
+      "a": -1002.0,
+      "b": 0.0
+    }
+  ],
+  "cecUnits": "J/mol",
+  "reference": "paper_draft.md, CVM-inheritance table (CV basis, J/mol) -- three binary CEC sets (Mo-Nb, Mo-Ta, Nb-Ta) inherited into ternary via cluster-variable-basis assembly, ternary-specific terms zero (no Mo-Nb-Ta ternary DFT data)",
+  "notes": "CVCF CEC for ternary Mo-Nb-Ta in T model of CVM. 18 non-point CFs + 3 point variables. Element order fixes A=Mo, B=Nb, C=Ta.",
+  "ncf": 18
+}

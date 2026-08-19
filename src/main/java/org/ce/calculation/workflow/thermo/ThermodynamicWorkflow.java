@@ -124,15 +124,21 @@ public class ThermodynamicWorkflow {
                     T, Arrays.toString(x), eq.iterations, eq.finalGradientNorm));
         }
 
+        // Mixing quantities (Gm/Hm/Sm), not the pure-element-anchored
+        // absolutes (calG/calH/calS): these feed ThermodynamicResult, which
+        // the CLI/GUI/JSON API report and which CLAUDE.md's documented
+        // verification values (e.g. G = -3480.5209063901 for Nb-Ti) are
+        // anchored to. Switching to absolute here would change every reported
+        // energy without changing any physics.
         double g = Double.NaN, h = Double.NaN, s = Double.NaN;
         switch (request.property) {
             case GIBBS_ENERGY -> {
-                g = model.calG();
-                h = model.calH();
-                s = model.calS();
+                g = model.calGm();
+                h = model.calHm();
+                s = model.calSm();
             }
-            case ENTHALPY -> h = model.calH();
-            case ENTROPY -> s = model.calS();
+            case ENTHALPY -> h = model.calHm();
+            case ENTROPY -> s = model.calSm();
         }
 
         ThermodynamicResult result = new ThermodynamicResult(

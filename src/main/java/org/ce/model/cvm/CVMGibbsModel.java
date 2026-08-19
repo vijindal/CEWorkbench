@@ -364,19 +364,19 @@ public class CVMGibbsModel {
             // iteration, not just as a trial-step limiter.
             double minCv = minClusterVariable();
             if (minCv <= 0) {
-                double G0 = calculateG(), H0 = calculateH(), S0 = calculateS();
-                double[] Gu0 = calculateGu();
+                double G0 = calculateGm(), H0 = calculateHm(), S0 = calculateSm();
+                double[] Gu0 = calculateGmu();
                 double errf0 = 0;
                 for (double g : Gu0) errf0 += Math.abs(g);
-                ModelResult finalModelRes = new ModelResult(G0, H0, S0, Gu0, calculateGuu(), calculateHu(),
-                        calculateSu(), calculateSuu(), calculateCfs());
+                ModelResult finalModelRes = new ModelResult(G0, H0, S0, Gu0, calculateGmuu(), calculateHmu(),
+                        calculateSmu(), calculateSmuu(), calculateCfs());
                 return new EquilibriumResult(finalModelRes, u.clone(), true, its, errf0);
             }
 
-            double[] Gu = calculateGu();
-            double G = calculateG();
-            double H = calculateH();
-            double S = calculateS();
+            double[] Gu = calculateGmu();
+            double G = calculateGm();
+            double H = calculateHm();
+            double S = calculateSm();
 
             errf = 0;
             for (double g : Gu)
@@ -386,8 +386,8 @@ public class CVMGibbsModel {
                 eventSink.accept(new ProgressEvent.CvmIteration(its, G, errf, H, S, u));
 
             if (errf <= tolerance) {
-                ModelResult finalModelRes = new ModelResult(G, H, S, Gu, calculateGuu(), calculateHu(), calculateSu(),
-                        calculateSuu(), calculateCfs());
+                ModelResult finalModelRes = new ModelResult(G, H, S, Gu, calculateGmuu(), calculateHmu(), calculateSmu(),
+                        calculateSmuu(), calculateCfs());
                 return new EquilibriumResult(finalModelRes, u.clone(), true, its, errf);
             }
 
@@ -396,7 +396,7 @@ public class CVMGibbsModel {
                 for (int i = 0; i < ncf; i++)
                     negGu[i] = -Gu[i];
 
-                double[][] Guu = calculateGuu();
+                double[][] Guu = calculateGmuu();
                 double[] p = LinearAlgebra.solve(Guu, negGu);
 
                 double errx = 0;
@@ -427,21 +427,21 @@ public class CVMGibbsModel {
                 // small step caused purely by the boundary clamp above.
                 if (errx <= TOLX) {
                     setU(u);
-                    ModelResult finalModelRes = new ModelResult(calculateG(), calculateH(), calculateS(), calculateGu(),
-                            calculateGuu(), calculateHu(), calculateSu(), calculateSuu(), calculateCfs());
+                    ModelResult finalModelRes = new ModelResult(calculateGm(), calculateHm(), calculateSm(), calculateGmu(),
+                            calculateGmuu(), calculateHmu(), calculateSmu(), calculateSmuu(), calculateCfs());
                     return new EquilibriumResult(finalModelRes, u.clone(), true, its, errf);
                 }
 
             } catch (Exception e) {
-                ModelResult finalModelRes = new ModelResult(G, H, S, Gu, calculateGuu(), calculateHu(), calculateSu(),
-                        calculateSuu(), calculateCfs());
+                ModelResult finalModelRes = new ModelResult(G, H, S, Gu, calculateGmuu(), calculateHmu(), calculateSmu(),
+                        calculateSmuu(), calculateCfs());
                 return new EquilibriumResult(finalModelRes, u.clone(), false, its, errf);
             }
         }
 
         setU(u);
-        ModelResult finalModelRes = new ModelResult(calculateG(), calculateH(), calculateS(), calculateGu(),
-                calculateGuu(), calculateHu(), calculateSu(), calculateSuu(), calculateCfs());
+        ModelResult finalModelRes = new ModelResult(calculateGm(), calculateHm(), calculateSm(), calculateGmu(),
+                calculateGmuu(), calculateHmu(), calculateSmu(), calculateSmuu(), calculateCfs());
         return new EquilibriumResult(finalModelRes, u.clone(), false, MAX_ITER, errf);
     }
 
@@ -531,14 +531,14 @@ public class CVMGibbsModel {
         }
     }
 
-    public double calH() {
+    public double calHm() {
         checkMinimized();
-        return calculateH();
+        return calculateHm();
     }
 
-    public double[] calHu() {
+    public double[] calHmu() {
         checkMinimized();
-        return calculateHu();
+        return calculateHmu();
     }
 
     public double[][] calHuu() {
@@ -546,34 +546,105 @@ public class CVMGibbsModel {
         return calculateHuu();
     }
 
-    public double calS() {
+    public double calSm() {
         checkMinimized();
-        return calculateS();
+        return calculateSm();
     }
 
-    public double[] calSu() {
+    public double[] calSmu() {
         checkMinimized();
-        return calculateSu();
+        return calculateSmu();
     }
 
-    public double[][] calSuu() {
+    public double[][] calSmuu() {
         checkMinimized();
-        return calculateSuu();
+        return calculateSmuu();
     }
 
+    public double calGm() {
+        checkMinimized();
+        return calculateGm();
+    }
+
+    public double[] calGmu() {
+        checkMinimized();
+        return calculateGmu();
+    }
+
+    public double[][] calGmuu() {
+        checkMinimized();
+        return calculateGmuu();
+    }
+
+    // =========================================================================
+    // Reference energy (G0m) and the absolute total: G = G0m + Gm
+    //
+    //   G0m  reference energy of the mechanical mixture of pure elements,
+    //        Sum_i x_i * G0(element_i, phase, T). Pure energy: linear in
+    //        composition, independent of the CVCF variables u, and carrying
+    //        no configurational entropy of its own.
+    //
+    //   Gm   the CVM mixing contribution -- the ECI energy Hm together with
+    //        the configurational entropy of mixing Sm that the cluster
+    //        variation method computes. This is what the Newton-Raphson loop
+    //        minimises and what CLAUDE.md's documented verification values
+    //        (e.g. -3480.5209063901 for Nb-Ti) are anchored to.
+    //
+    //   G    the absolute Gibbs energy, G = G0m + Gm.
+    //
+    // Because G0m depends only on (x, T) and not on u, every u-derivative of
+    // the absolute quantity equals the mixing one exactly:
+    //   dG0m/du = 0, d2G0m/du2 = 0, so calGmu/calGmuu serve both.
+    // Only a widened gradient over uFull = [u ; x] differs, and only in its
+    // trailing composition block, where dG0m/dx_i = G0(element_i, phase, T).
+    // =========================================================================
+
+    /**
+     * Reference energy of the mechanical mixture of pure elements,
+     * {@code G0m = Sum_i x_i * G0(element_i, phase, T)}, via
+     * {@link org.ce.model.equilibrium.LatticeStability#g0m}.
+     *
+     * <p>Carries no configurational entropy, so {@code H0m = G0m} and
+     * {@code S0m = 0}.</p>
+     */
+    public double calG0m() {
+        checkMinimized();
+        return calculateG0m();
+    }
+
+    /** {@code H0m = G0m} -- the reference term is pure energy. */
+    public double calH0m() {
+        checkMinimized();
+        return calculateG0m();
+    }
+
+    /** {@code S0m = 0} -- a mechanical mixture of pure elements has no entropy of mixing. */
+    public double calS0m() {
+        checkMinimized();
+        return 0.0;
+    }
+
+    /** Absolute Gibbs energy {@code G = G0m + Gm}. */
     public double calG() {
         checkMinimized();
-        return calculateG();
+        return calculateG0m() + calculateGm();
     }
 
-    public double[] calGu() {
+    /** Absolute enthalpy {@code H = H0m + Hm = G0m + Hm}. */
+    public double calH() {
         checkMinimized();
-        return calculateGu();
+        return calculateG0m() + calculateHm();
     }
 
-    public double[][] calGuu() {
+    /** Absolute entropy {@code S = S0m + Sm = Sm}, since {@code S0m = 0}. */
+    public double calS() {
         checkMinimized();
-        return calculateGuu();
+        return calculateSm();
+    }
+
+    private double calculateG0m() {
+        return org.ce.model.equilibrium.LatticeStability.g0m(
+                java.util.List.of(elements.split("-")), structure, x_mole, temp);
     }
 
     /**
@@ -582,8 +653,8 @@ public class CVMGibbsModel {
      * length {@code ncf + K} -- for the Hillert multi-phase equilibrium
      * solver only (HILLERT_SOLVER_PLAN.md).
      *
-     * <p><b>Deliberately separate from {@link #calGu}/{@link #calGuu} and
-     * the private {@code calculateGu}/{@code calculateGuu} the Newton-Raphson
+     * <p><b>Deliberately separate from {@link #calGmu}/{@link #calGmuu} and
+     * the private {@code calculateGmu}/{@code calculateGmuu} the Newton-Raphson
      * loop in {@code minimize()} actually solves against.</b> Those must stay
      * exactly {@code ncf}-length: {@code minimize()} builds
      * {@code negGu}/{@code Guu} sized {@code ncf} and hands them to
@@ -596,7 +667,7 @@ public class CVMGibbsModel {
      * <p>The trailing {@code K} entries are the composition-block gradient
      * (chemical-potential-like quantities, {@code Gx} in the ported
      * Mathematica reference {@code delxGCVM}); the leading {@code ncf}
-     * entries equal {@link #calGu} exactly, since both are computed the same
+     * entries equal {@link #calGmu} exactly, since both are computed the same
      * way over the same {@code cm} columns, just over a different column
      * range.</p>
      */
@@ -608,7 +679,7 @@ public class CVMGibbsModel {
     /**
      * Widened Hessian of G over the full {@code uFull} space, {@code (ncf+K)
      * x (ncf+K)} -- see {@link #calGuFull} for why this is separate from
-     * {@link #calGuu}/the Newton-Raphson loop's own {@code calculateGuu}.
+     * {@link #calGmuu}/the Newton-Raphson loop's own {@code calculateGmuu}.
      */
     public double[][] calGuuFull() {
         checkMinimized();
@@ -620,14 +691,14 @@ public class CVMGibbsModel {
         return calculateCfs();
     }
 
-    private double calculateH() {
+    private double calculateHm() {
         double Hval = 0.0;
         for (int l = 0; l < ncf; l++)
             Hval += eci[l] * u[l];
         return Hval;
     }
 
-    private double[] calculateHu() {
+    private double[] calculateHmu() {
         return eci.clone();
     }
 
@@ -635,7 +706,7 @@ public class CVMGibbsModel {
         return new double[ncf][ncf];
     }
 
-    private double calculateS() {
+    private double calculateSm() {
         double Sval = 0.0;
         for (int t = 0; t < tcdis; t++) {
             double coeff_t = kb[t] * mhdis[t];
@@ -660,7 +731,7 @@ public class CVMGibbsModel {
         return Sval;
     }
 
-    private double[] calculateSu() {
+    private double[] calculateSmu() {
         double[] Su = new double[ncf];
         for (int t = 0; t < tcdis; t++) {
             double coeff_t = kb[t] * mhdis[t];
@@ -690,7 +761,7 @@ public class CVMGibbsModel {
         return Su;
     }
 
-    private double[][] calculateSuu() {
+    private double[][] calculateSmuu() {
         double[][] Suu = new double[ncf][ncf];
         for (int t = 0; t < tcdis; t++) {
             double coeff_t = kb[t] * mhdis[t];
@@ -731,9 +802,9 @@ public class CVMGibbsModel {
     /**
      * Widened entropy gradient over {@code uFull = [u ; x]}, length
      * {@code ncf + numComponents} -- for {@link #calGuFull} (Hillert solver
-     * only). Independent copy of {@link #calculateSu}'s loop body, widened
+     * only). Independent copy of {@link #calculateSmu}'s loop body, widened
      * to walk {@code cm}'s trailing composition columns too, rather than a
-     * shared parameterized helper: {@code calculateSu}/{@code calculateSuu}
+     * shared parameterized helper: {@code calculateSmu}/{@code calculateSmuu}
      * are the Newton-Raphson loop's own hot path (the target of this
      * session's convergence-criterion and step-damping fixes), and keeping
      * this method fully separate means nothing here can accidentally change
@@ -812,7 +883,7 @@ public class CVMGibbsModel {
 
     /**
      * Widened gradient of G (= H - T*S) over {@code uFull = [u ; x]}. The
-     * leading {@code ncf} entries equal {@link #calculateGu} exactly (H is
+     * leading {@code ncf} entries equal {@link #calculateGmu} exactly (H is
      * linear in {@code u} only, so {@code Hu}'s contribution is identical
      * either way); the trailing {@code numComponents} entries are zero from
      * H (H has no x-dependence at all -- {@code eci[l]*u[l]} sums only over
@@ -843,13 +914,13 @@ public class CVMGibbsModel {
         return Guu;
     }
 
-    private double calculateG() {
-        return calculateH() - temp * calculateS();
+    private double calculateGm() {
+        return calculateHm() - temp * calculateSm();
     }
 
-    private double[] calculateGu() {
-        double[] Hu = calculateHu();
-        double[] Su = calculateSu();
+    private double[] calculateGmu() {
+        double[] Hu = calculateHmu();
+        double[] Su = calculateSmu();
         double[] Gu = new double[ncf];
         for (int i = 0; i < ncf; i++) {
             Gu[i] = Hu[i] - temp * Su[i];
@@ -857,8 +928,8 @@ public class CVMGibbsModel {
         return Gu;
     }
 
-    private double[][] calculateGuu() {
-        double[][] Suu = calculateSuu();
+    private double[][] calculateGmuu() {
+        double[][] Suu = calculateSmuu();
         double[][] Guu = new double[ncf][ncf];
         for (int i = 0; i < ncf; i++) {
             for (int j = 0; j < ncf; j++) {
@@ -883,14 +954,14 @@ public class CVMGibbsModel {
         setU(u);
 
         return new ModelResult(
-                calculateG(),
-                calculateH(),
-                calculateS(),
-                calculateGu(),
-                calculateGuu(),
-                calculateHu(),
-                calculateSu(),
-                calculateSuu(),
+                calculateGm(),
+                calculateHm(),
+                calculateSm(),
+                calculateGmu(),
+                calculateGmuu(),
+                calculateHmu(),
+                calculateSmu(),
+                calculateSmuu(),
                 calculateCfs());
     }
 
