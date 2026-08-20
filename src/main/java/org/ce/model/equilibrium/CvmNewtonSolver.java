@@ -106,13 +106,38 @@ public final class CvmNewtonSolver {
         this.model = model;
     }
 
-    /** Outcome of a minimisation: the converged point and how it was reached. */
+    /**
+     * Outcome of a minimisation: the converged point and how it was reached.
+     *
+     * <p>{@link #state} is the model already evaluated at the converged
+     * {@link #u} -- the solver built it on the final iteration and hands it
+     * back rather than making the caller repeat the work. Reading a property
+     * off it needs no further evaluation:</p>
+     *
+     * <pre>
+     *   Result eq = new CvmNewtonSolver(model).solve(T, x, tol, null, null);
+     *   double g = eq.state().gm();          // no re-evaluation
+     *   // equivalently, but wastefully: model.at(T, x, eq.u()).gm()
+     * </pre>
+     *
+     * <p><b>Always check {@link #converged} first.</b> A non-converged CVM run
+     * still returns plausible-looking numbers; the flag is the only thing that
+     * distinguishes them.</p>
+     */
     public record Result(
             CVMGibbsModel.State state,
             double[] u,
             boolean converged,
             int iterations,
             double finalGradientNorm) {
+
+        /**
+         * The model this result was produced by, taken from the state rather
+         * than stored separately so the two cannot disagree.
+         */
+        public CVMGibbsModel model() {
+            return state.model();
+        }
     }
 
     /**

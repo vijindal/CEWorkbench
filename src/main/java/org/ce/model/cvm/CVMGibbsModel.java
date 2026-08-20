@@ -103,6 +103,13 @@ public final class CVMGibbsModel {
     /**
      * Evaluates at one thermodynamic point.
      *
+     * <p>The returned {@link State} belongs to this model and can name it
+     * again through {@link State#model()}. That matters when a state outlives
+     * the call: a solver evaluates at its converged iterate and returns the
+     * state inside its result, so what a caller receives from
+     * {@code solver.solve(...).state()} is exactly what this method produced --
+     * already evaluated, and needing no repeat.</p>
+     *
      * @param temperature temperature in K
      * @param x           mole fractions, length {@code numComponents}
      * @param u           non-point CVCF correlation functions, length {@code >= ncf}
@@ -343,6 +350,20 @@ public final class CVMGibbsModel {
         /** Cluster probabilities {@code cv[t][j][v]} at this point. */
         public double[][][] clusterVariables() {
             return cv;
+        }
+
+        /**
+         * The model that produced this state.
+         *
+         * <p>A state is always an evaluation of some model at some point --
+         * {@code model.at(T, x, u)} -- and this makes that link visible rather
+         * than leaving it implied by the nested type name. It matters where a
+         * state has travelled away from its origin: a solver returns one inside
+         * its result, and a caller holding several models otherwise has no way
+         * to tell which one an arriving state belongs to.</p>
+         */
+        public CVMGibbsModel model() {
+            return CVMGibbsModel.this;
         }
 
         // =========================================================================
