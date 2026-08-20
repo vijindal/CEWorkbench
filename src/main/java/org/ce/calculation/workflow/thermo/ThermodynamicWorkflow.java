@@ -7,6 +7,7 @@ import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.cvm.CVMGibbsModel;
+import org.ce.model.cvm.CvmNewtonSolver;
 import org.ce.model.cvm.SroCalculator;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCSGeometry;
@@ -28,9 +29,45 @@ public class ThermodynamicWorkflow {
     private static final Logger LOG = Logger.getLogger(ThermodynamicWorkflow.class.getName());
 
     // Caching records for value-based identity
-    private record CvmCache(ModelSession session, CVMGibbsModel model) {
+    /**
+     * The model for one session, together with the last minimisation result.
+     *
+     * <p>The (T, x) memoisation lives here rather than on the model: it is a
+     * workflow concern -- avoiding a repeated solve for the same requested
+     * point -- not physics. The model itself is a pure evaluator and holds no
+     * current point.</p>
+     */
+    private static final class CvmCache {
+        final ModelSession session;
+        final CVMGibbsModel model;
+        double lastT = Double.NaN;
+        double[] lastX;
+        CvmNewtonSolver.Result lastResult;
+
+        CvmCache(ModelSession session, CVMGibbsModel model) {
+            this.session = session;
+            this.model = model;
+        }
+
         boolean validFor(ModelSession s) {
             return session == s;
+        }
+
+        CVMGibbsModel model() {
+            return model;
+        }
+
+        boolean hasResultFor(double t, double[] x) {
+            return lastResult != null
+                    && Math.abs(lastT - t) <= 1.0e-5
+                    && lastX != null
+                    && Arrays.equals(lastX, x);
+        }
+
+        void store(double t, double[] x, CvmNewtonSolver.Result result) {
+            this.lastT = t;
+            this.lastX = x.clone();
+            this.lastResult = result;
         }
     }
 
@@ -101,9 +138,9 @@ public class ThermodynamicWorkflow {
 
     private ThermodynamicResult runCvm(ModelSession session, Request request) throws Exception {
         if (cvmCache == null || !cvmCache.validFor(session)) {
-            CVMGibbsModel model = new CVMGibbsModel();
-            model.initialize(session.systemId.elements(), session.systemId.structure(), session.systemId.model(),
-                    session.cecEntry, request.progressSink);
+            CVMGibbsModel model = CVMGibbsModel.of(
+                    session.systemId.elements(), session.systemId.structure(),
+                    session.systemId.model(), session.cecEntry, request.progressSink);
             cvmCache = new CvmCache(session, model);
         }
 
@@ -111,17 +148,31 @@ public class ThermodynamicWorkflow {
         double T = request.temperature;
         double[] x = request.composition;
 
-        // Extract result via procedural bridge logic (formerly ThermodynamicMethods)
-        CVMGibbsModel.EquilibriumResult eq = model.getEquilibriumState(
-                T, x, 1e-5, request.progressSink(), request.eventSink(), request.property());
+        CvmNewtonSolver.Result eq;
+        if (cvmCache.hasResultFor(T, x)) {
+            emit(request.progressSink, "  [Model] Reusing cached equilibrium state for these parameters.");
+            eq = cvmCache.lastResult;
+        } else {
+            emit(request.progressSink, String.format(
+                    "\n  [Model] Parameters updated: T = %.1f K, x = %s", T, Arrays.toString(x)));
+            emit(request.progressSink, "  [Model] Initiating internal minimization (Newton-Raphson loop)...");
+            eq = new CvmNewtonSolver(model).solve(
+                    T, x, 1e-5, request.progressSink(), request.eventSink());
+            emit(request.progressSink, eq.converged()
+                    ? "  [Model] \u2713 Minimization converged in " + eq.iterations() + " iterations."
+                    : "  [Model] \u26a0 Minimization FAILED to converge.");
+            cvmCache.store(T, x, eq);
+        }
 
-        if (!eq.converged) {
+        CVMGibbsModel.State state = eq.state();
+
+        if (!eq.converged()) {
             emit(request.progressSink, String.format(
                     "  [WARNING] CVM minimization did NOT converge at T=%.1f K, x=%s "
                     + "(%d iterations, final ||grad G||=%.3e). Results are unreliable.",
-                    T, Arrays.toString(x), eq.iterations, eq.finalGradientNorm));
+                    T, Arrays.toString(x), eq.iterations(), eq.finalGradientNorm()));
             LOG.warning(String.format("CVM non-convergence at T=%.1f K, x=%s: %d iters, gradNorm=%.3e",
-                    T, Arrays.toString(x), eq.iterations, eq.finalGradientNorm));
+                    T, Arrays.toString(x), eq.iterations(), eq.finalGradientNorm()));
         }
 
         // Mixing quantities (Gm/Hm/Sm), not the pure-element-anchored
@@ -133,26 +184,26 @@ public class ThermodynamicWorkflow {
         double g = Double.NaN, h = Double.NaN, s = Double.NaN;
         switch (request.property) {
             case GIBBS_ENERGY -> {
-                g = model.calGm();
-                h = model.calHm();
-                s = model.calSm();
+                g = state.gm();
+                h = state.hm();
+                s = state.sm();
             }
-            case ENTHALPY -> h = model.calHm();
-            case ENTROPY -> s = model.calSm();
+            case ENTHALPY -> h = state.hm();
+            case ENTROPY -> s = state.sm();
         }
 
         ThermodynamicResult result = new ThermodynamicResult(
                 T, x, g, h, s,
                 Double.NaN, // stdEnthalpy
                 Double.NaN, // heatCapacity
-                model.calCfs(),
+                state.cfs(),
                 null, // avgCFs
                 null, // stdCFs
                 request.property());
 
         return result
-                .withConvergence(eq.converged, eq.iterations, eq.finalGradientNorm)
-                .withSro(computeSro(model, x, request.progressSink));
+                .withConvergence(eq.converged(), eq.iterations(), eq.finalGradientNorm())
+                .withSro(computeSro(model, state, x, request.progressSink));
     }
 
     /**
@@ -162,10 +213,9 @@ public class ThermodynamicWorkflow {
      * unsupported geometry must not fail the whole calculation.
      */
     private Map<String, List<SroCalculator.PairSro>> computeSro(
-            CVMGibbsModel model, double[] x, Consumer<String> sink) {
+            CVMGibbsModel model, CVMGibbsModel.State state, double[] x, Consumer<String> sink) {
         try {
-            double[] u = Arrays.copyOf(model.calCfs(), model.getNcf());
-            double[][][] cv = model.evaluateClusterVariables(u, x);
+            double[][][] cv = state.clusterVariables();
             Map<String, List<SroCalculator.PairSro>> out = new LinkedHashMap<>();
             out.put("1NN", SroCalculator.pairSro(cv, x, SroCalculator.T_PAIR_1NN));
             out.put("2NN", SroCalculator.pairSro(cv, x, SroCalculator.T_PAIR_2NN));

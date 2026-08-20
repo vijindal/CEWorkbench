@@ -19,9 +19,8 @@ import java.util.Map;
  * against a Mathematica reference gradient at the same state.
  *
  * <p><b>No minimization is performed.</b> Everything is evaluated at one
- * fixed, caller-supplied CF set via {@link CVMGibbsModel#evaluate}, which
- * only calls {@code setT}/{@code setX}/{@code setU} and then evaluates — the
- * Newton-Raphson loop in {@code minimize()} is never entered.</p>
+ * fixed, caller-supplied CF set via {@link CVMGibbsModel#at}, which
+ * a pure evaluation — the Newton-Raphson loop is never entered.</p>
  *
  * <h2>CF ordering</h2>
  *
@@ -113,10 +112,9 @@ public class SmokeTestG0mDerivatives {
         ModelSession session = builder.build(
                 new SystemId(elements, structure, model), EngineConfig.CVM, null);
 
-        CVMGibbsModel gm = new CVMGibbsModel();
-        gm.initialize(elements, structure, model, session.cecEntry, null);
+        CVMGibbsModel gm = CVMGibbsModel.of(elements, structure, model, session.cecEntry, null);
 
-        int ncf = gm.getNcf();
+        int ncf = gm.ncf();
         String[] els = elements.split("-");
         int K = els.length;
         List<String> javaNames = CvCfBasis.getNonPointCfNames(structure, model, K);
@@ -146,7 +144,7 @@ public class SmokeTestG0mDerivatives {
         }
 
         // --- Evaluate at that state (pure evaluation, no solver) -----------
-        org.ce.model.cvm.CvmState mixing = gm.getEvaluator().stateAt(T, x, u);
+        CVMGibbsModel.State mixing = gm.at(T, x, u);
         double[] gmu = mixing.gmu();
 
         double g0m = LatticeStability.g0m(List.of(els), structure, x, T);

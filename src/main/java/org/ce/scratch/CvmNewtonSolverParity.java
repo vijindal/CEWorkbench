@@ -3,7 +3,7 @@ package org.ce.scratch;
 import org.ce.CEWorkbenchContext;
 import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
-import org.ce.model.cvm.CvmEvaluator;
+import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CvmGeometry;
 import org.ce.model.cvm.CvmNewtonSolver;
 import org.ce.model.storage.Workspace;
@@ -77,7 +77,7 @@ public final class CvmNewtonSolverParity {
         legacy.initialize(elements, structure, model, session.cecEntry, null);
 
         CvmGeometry geo = CvmGeometry.build(elements, structure, model, null);
-        CvmNewtonSolver solver = new CvmNewtonSolver(new CvmEvaluator(geo, session.cecEntry));
+        CvmNewtonSolver solver = new CvmNewtonSolver(new CVMGibbsModel(geo, session.cecEntry));
 
         int K = geo.numComponents;
 

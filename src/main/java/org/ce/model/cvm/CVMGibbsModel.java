@@ -1,175 +1,83 @@
 package org.ce.model.cvm;
 
-import org.ce.model.cluster.LinearAlgebra;
+import org.ce.model.PhysicsConstants;
 import org.ce.model.hamiltonian.CECEntry;
-import org.ce.model.ProgressEvent;
+import org.ce.model.hamiltonian.CECEvaluator;
 
-import java.util.Arrays;
 import java.util.function.Consumer;
 
 /**
- * Physical model for the Cluster Variation Method (CVM): the Newton-Raphson
- * equilibrium minimisation at fixed composition, plus the Hillert per-phase
- * Newton step.
+ * The CVM Gibbs model: a <b>pure evaluator</b> mapping
  *
- * <h2>Now a façade over {@link CvmEvaluator}</h2>
+ * <pre>
+ *   system parameters  (elements, structure, ECIs)   bound once, here
+ *   macro parameters   (T, x)                        per evaluation
+ *   micro parameters   (u)                           per evaluation
+ *       --&gt;  G, Gm, Hm, Sm, G0m and their derivatives
+ * </pre>
  *
- * <p>This class formerly carried the pipeline setup, seventeen fields of
- * geometry, a mutable {@code (T, x, u)} point, and its own copy of every free
- * energy expression. Those are gone. Setup lives in {@link CvmGeometry},
- * evaluation in {@link CvmEvaluator}/{@link CvmState}, and what remains here is
- * the part that is genuinely a solver: the minimisation loop, its step
- * limiting, and the per-phase linear system.</p>
+ * <p>It holds no per-point state: no current {@code (T, x, u)}, no
+ * {@code isMinimized} flag, no setter sequence to get wrong. Every quantity is
+ * reached through {@link #at}, which returns an immutable {@link State}
+ * carrying everything evaluated at the point you asked for. Two threads may
+ * call it concurrently, and a caller may hold states at several points at
+ * once.</p>
  *
- * <p>Two things motivated the split:</p>
+ * <p><b>Solvers are not part of this class.</b> They hold an instance and drive
+ * it from the outside, each owning its own loop:</p>
  *
  * <ul>
- *   <li><b>Duplicated expressions.</b> The entropy sum existed here in four
- *       near-identical loops (gradient and Hessian, each in an {@code ncf} and
- *       an {@code ncf+K} variant) and again in {@code CvmState}. An audit of a
- *       formula that exists five times checks nothing.</li>
- *   <li><b>Temporal coupling.</b> Every {@code calculateXxx} read fields staged
- *       by a prior {@code setT}/{@code setX}/{@code setU} sequence, a contract
- *       the compiler cannot express and which {@code checkMinimized()} could
- *       only partly guard. A {@link CvmState} carries its own point.</li>
+ *   <li>{@link CvmNewtonSolver} -- fixed-composition minimisation, where
+ *       {@code x} is a constraint and {@code u} the unknown. Reads the
+ *       {@code ncf}-wide {@link State#gmu()} and {@link State#gmuu()}.</li>
+ *   <li>{@code HillertPhaseStepSolver} -- the multi-phase per-phase step, where
+ *       composition is an unknown too. Reads the {@code (ncf+K)}-wide
+ *       {@link State#gmuFull()} and {@link State#gmuuFull()}.</li>
  * </ul>
  *
- * <p>The public API is unchanged and every caller still works. Results are
- * bit-identical: {@code org.ce.scratch.CvmEvaluatorParity} gates the evaluator
- * against the expressions this class used to hold.</p>
+ * <p>Same physics, same evaluation, different active set -- which is why one
+ * model serves both.</p>
  *
- * <p><b>Still stateful, deliberately.</b> {@code setU}/{@code setX}/{@code setT}
- * and the {@code cal*} accessors remain, because {@code ThermodynamicWorkflow}
- * and the GUI depend on the "minimise, then read results off the model" shape.
- * The mutable point is now a single {@link CvmState} reference rather than five
- * loose fields, so it cannot fall out of sync with itself. Callers that want no
- * state at all should use {@link CvmEvaluator} directly, as the Hillert solver
- * will once it is migrated.</p>
+ * <p>This class previously carried the Stage 1-4 pipeline, seventeen fields of
+ * geometry, a mutable point, five duplicated copies of the entropy expression,
+ * and the Newton-Raphson loop itself. Setup now lives in {@link CvmGeometry}
+ * and the solvers in their own classes; what remains is evaluation, with each
+ * expression defined exactly once.</p>
  */
-public class CVMGibbsModel {
+public final class CVMGibbsModel {
 
-    /** Immutable lattice combinatorics; replaces the seventeen setup fields. */
-    private CvmGeometry geo;
-    /** Geometry bound to a Hamiltonian; the source of every {@link CvmState}. */
-    private CvmEvaluator evaluator;
-    private CECEntry cecEntry;
+    private final CvmGeometry geo;
+    private final CECEntry cecEntry;
 
     /**
-     * The current thermodynamic point, or null before one is set. Replaces the
-     * former {@code u}/{@code x_mole}/{@code temp}/{@code currentCv}/{@code eci}
-     * fields: those could disagree with each other (notably {@code setX} synced
-     * cluster variables only when {@code u} was already non-null, and vice
-     * versa), whereas a state is computed whole or not at all.
+     * @param geometry the lattice's cluster algebra, from {@link CvmGeometry#build}
+     * @param cecEntry the Hamiltonian supplying ECIs, matched by name against
+     *                 {@code geometry.basis} at each evaluation
      */
-    private CvmState current;
-
-    /** Pending point, staged by the setters until all three parts are present. */
-    private double[] pendingU;
-    private double[] pendingX;
-    private double pendingT = Double.NaN;
-
-    // Cached minimisation result — invalidated when T or composition changes
-    private boolean isMinimized = false;
-    private double currentTemperature = -1.0;
-    private double[] currentComposition = null;
-    private EquilibriumResult lastResult = null;
-
-    // =========================================================================
-    // Inner result type
-    // =========================================================================
-
-    /** Result returned by {@link #getEquilibriumState}. */
-    public static final class EquilibriumResult {
-        /** Physics values at the equilibrium point. */
-        public final ModelResult modelResult;
-        /** Equilibrium non-point CVCF correlation functions (length = ncf). */
-        public final double[] u;
-        /** Convergence flag. Check before using modelResult. */
-        public final boolean converged;
-        /** Iteration count at convergence or failure. */
-        public final int iterations;
-        /** Final gradient norm ||∇G|| at exit. */
-        public final double finalGradientNorm;
-
-        public EquilibriumResult(ModelResult modelResult, double[] u, boolean converged,
-                int iterations, double finalGradientNorm) {
-            this.modelResult = modelResult;
-            this.u = u;
-            this.converged = converged;
-            this.iterations = iterations;
-            this.finalGradientNorm = finalGradientNorm;
+    public CVMGibbsModel(CvmGeometry geometry, CECEntry cecEntry) {
+        if (geometry == null) {
+            throw new IllegalArgumentException("geometry must not be null");
         }
-    }
-
-    // =========================================================================
-    // Inner physics result type
-    // =========================================================================
-
-    /**
-     * Calculated free energy and derivatives at a given (u, T, x) point.
-     *
-     * <p><b>These are the mixing quantities</b> (Gm/Hm/Sm and their
-     * derivatives), not the pure-element-anchored absolutes. The field names
-     * keep their historical short spelling, but every producer fills them from
-     * the mixing accessors. {@code HillertSolver} relies on this: it reads
-     * {@code evaluate(...).G} as Gm and adds {@code LatticeStability.g0m}
-     * itself, so filling these with absolute values would double-count G0m.</p>
-     */
-    public static class ModelResult {
-        public final double G, H, S;
-        public final double[] Gu;
-        public final double[][] Guu;
-        public final double[] Hu;
-        public final double[] Su;
-        public final double[][] Suu;
-        public final double[] cfs;
-
-        public ModelResult(double G, double H, double S,
-                double[] Gu, double[][] Guu,
-                double[] Hu, double[] Su, double[][] Suu,
-                double[] cfs) {
-            this.G = G;
-            this.H = H;
-            this.S = S;
-            this.Gu = Gu;
-            this.Guu = Guu;
-            this.Hu = Hu;
-            this.Su = Su;
-            this.Suu = Suu;
-            this.cfs = cfs;
-        }
-    }
-
-    /** Default constructor for lazy initialization. */
-    public CVMGibbsModel() {
-    }
-
-    // =========================================================================
-    // Initialization
-    // =========================================================================
-
-    /**
-     * Primary entry point for model formation. Delegates the Stage 1-4 pipeline
-     * to {@link CvmGeometry#build} and binds the result to {@code cecEntry}.
-     *
-     * <p>The geometry is Hamiltonian-independent -- the pipeline never reads
-     * {@code cecEntry} -- so it is cacheable on (elements, structure, model)
-     * alone.</p>
-     */
-    public void initialize(
-            String elements,
-            String structure,
-            String model,
-            CECEntry cecEntry,
-            Consumer<String> progressSink) {
-
+        this.geo = geometry;
         this.cecEntry = cecEntry;
+    }
 
-        if (progressSink != null) {
+    /**
+     * Builds a model for one system identity, running the Stage 1-4 pipeline.
+     *
+     * <p>Expensive. The geometry it produces is Hamiltonian-independent, so a
+     * caller evaluating several Hamiltonians on the same lattice should build
+     * one {@link CvmGeometry} and share it across constructor calls rather than
+     * repeating this.</p>
+     */
+    public static CVMGibbsModel of(
+            String elements, String structure, String model,
+            CECEntry cecEntry, Consumer<String> progressSink) {
+
+        if (progressSink != null && cecEntry != null) {
             progressSink.accept(String.format("  > CEC Entry:         %s (%s)",
-                    cecEntry != null ? cecEntry.elements : "null",
-                    cecEntry != null ? cecEntry.structurePhase : "null"));
-            if (cecEntry != null && cecEntry.cecTerms != null) {
+                    cecEntry.elements, cecEntry.structurePhase));
+            if (cecEntry.cecTerms != null) {
                 for (CECEntry.CECTerm term : cecEntry.cecTerms) {
                     progressSink.accept(String.format("    - %-10s: a = %10.6f, b = %10.6f",
                             term.name, term.a, term.b));
@@ -177,560 +85,536 @@ public class CVMGibbsModel {
             }
         }
 
-        this.geo = CvmGeometry.build(elements, structure, model, progressSink);
-        this.geo.validate();
-        this.evaluator = new CvmEvaluator(geo, cecEntry);
-    }
-
-    /** The immutable geometry this model was initialized against. */
-    public CvmGeometry getGeometry() {
-        return geo;
-    }
-
-    /** The pure evaluator underlying this model. */
-    public CvmEvaluator getEvaluator() {
-        return evaluator;
+        CvmGeometry geometry = CvmGeometry.build(elements, structure, model, progressSink);
+        geometry.validate();
+        return new CVMGibbsModel(geometry, cecEntry);
     }
 
     // =========================================================================
-    // Equilibrium resolution (Newton-Raphson loop)
+    // Evaluation
     // =========================================================================
 
     /**
-     * Returns the equilibrium state at the given (T, x). Result is cached and
-     * reused on repeated calls at the same conditions.
+     * Evaluates at one thermodynamic point.
+     *
+     * @param temperature temperature in K
+     * @param x           mole fractions, length {@code numComponents}
+     * @param u           non-point CVCF correlation functions, length {@code >= ncf}
      */
-    public EquilibriumResult getEquilibriumState(
-            double temperature, double[] composition, double tolerance,
-            Consumer<String> progressSink, Consumer<ProgressEvent> eventSink,
-            org.ce.calculation.CalculationDescriptor.Property required) {
-
-        boolean compositionChanged = currentComposition == null
-                || !Arrays.equals(currentComposition, composition);
-        boolean temperatureChanged = Math.abs(currentTemperature - temperature) > 1.0e-5;
-
-        if (temperatureChanged || compositionChanged) {
-            if (progressSink != null) {
-                progressSink.accept(String.format(
-                        "\n  [Model] Parameters updated: T = %.1f K, x = %s",
-                        temperature, Arrays.toString(composition)));
-            }
-            isMinimized = false;
-            currentTemperature = temperature;
-            currentComposition = Arrays.copyOf(composition, composition.length);
-        } else if (isMinimized) {
-            if (progressSink != null)
-                progressSink.accept("  [Model] Reusing cached equilibrium state for these parameters.");
-        }
-
-        if (!isMinimized || lastResult == null) {
-            if (progressSink != null)
-                progressSink.accept("  [Model] Initiating internal minimization (Newton-Raphson loop)...");
-            lastResult = minimize(composition, temperature, tolerance, progressSink, eventSink, required);
-            if (progressSink != null) {
-                progressSink.accept(lastResult.converged
-                        ? "  [Model] ✓ Minimization converged in " + lastResult.iterations + " iterations."
-                        : "  [Model] ⚠ Minimization FAILED to converge.");
-            }
-            isMinimized = true;
-        }
-
-        return lastResult;
+    public State at(double temperature, double[] x, double[] u) {
+        return new State(temperature, x, u);
     }
 
     /**
-     * Runs the fixed-composition Newton-Raphson minimisation.
-     *
-     * <p>Delegates to {@link CvmNewtonSolver}, which owns the loop, its
-     * convergence criteria and its step limiting. This method only adapts
-     * between that solver's {@link CvmNewtonSolver.Result} and the
-     * {@link EquilibriumResult}/{@link ModelResult} shape callers expect, and
-     * leaves this model's current point at the converged state so the
-     * {@code cal*} accessors read from it.</p>
+     * Evaluates from a joint {@code uFull = [u ; x]} vector -- the form the
+     * Hillert solver carries, where composition is part of the unknown rather
+     * than a separate input.
      */
-    private EquilibriumResult minimize(
-            double[] moleFractions, double temperature, double tolerance,
-            Consumer<String> progressSink, Consumer<ProgressEvent> eventSink,
-            org.ce.calculation.CalculationDescriptor.Property required) {
-
-        CvmNewtonSolver.Result result = new CvmNewtonSolver(evaluator)
-                .solve(temperature, moleFractions, tolerance, progressSink, eventSink);
-
-        // Leave the model sitting at the converged point: ThermodynamicWorkflow
-        // and the GUI minimise first, then read G/H/S off the model.
-        this.pendingT = temperature;
-        this.pendingX = moleFractions.clone();
-        this.pendingU = result.u().clone();
-        this.current = result.state();
-
-        return new EquilibriumResult(
-                modelResult(), result.u(), result.converged(),
-                result.iterations(), result.finalGradientNorm());
-    }
-
-    /** Bundles the current state into the result shape callers expect. */
-    private ModelResult modelResult() {
-        return new ModelResult(
-                current.gm(), current.hm(), current.sm(),
-                current.gmu(), current.gmuu(),
-                current.hmu(), current.smu(), current.smuu(),
-                current.cfs());
-    }
-
-
-    // =========================================================================
-    // Current-point staging
-    //
-    // The setters accumulate the parts of a point and rebuild the CvmState as
-    // soon as all three are present. The former fields could disagree with one
-    // another -- setX synced cluster variables only when u was already set, and
-    // setU only when x was -- whereas a state is computed whole or not at all.
-    // =========================================================================
-
-    /** Sets the current correlation functions (non-point). */
-    public void setU(double[] u) {
-        this.pendingU = u.clone();
-        refreshState();
-        this.isMinimized = false;
-    }
-
-    /** Sets the current mole fractions (composition). */
-    public void setX(double[] x) {
-        this.pendingX = x.clone();
-        this.currentComposition = x.clone();
-        refreshState();
-        this.isMinimized = false;
-    }
-
-    /** Sets the current temperature. */
-    public void setT(double temperature) {
-        setT(temperature, null);
-    }
-
-    public void setT(double temperature, Consumer<String> sink) {
-        this.pendingT = temperature;
-        this.currentTemperature = temperature;
-        refreshState();
-        this.isMinimized = false;
-    }
-
-    private void refreshState() {
-        if (pendingU != null && pendingX != null && !Double.isNaN(pendingT)) {
-            this.current = evaluator.stateAt(pendingT, pendingX, pendingU);
-        }
-    }
-
-    private void checkMinimized() {
-        if (!isMinimized) {
-            throw new IllegalStateException("CVM Model is not minimized. Please call getEquilibriumState() first.");
-        }
-    }
-
-    // =========================================================================
-    // Mixing quantities (Gm = Hm - T*Sm)
-    // =========================================================================
-
-    public double calHm() {
-        checkMinimized();
-        return current.hm();
-    }
-
-    public double[] calHmu() {
-        checkMinimized();
-        return current.hmu();
-    }
-
-    public double[][] calHuu() {
-        checkMinimized();
-        return current.hmuu();
-    }
-
-    public double calSm() {
-        checkMinimized();
-        return current.sm();
-    }
-
-    public double[] calSmu() {
-        checkMinimized();
-        return current.smu();
-    }
-
-    public double[][] calSmuu() {
-        checkMinimized();
-        return current.smuu();
-    }
-
-    public double calGm() {
-        checkMinimized();
-        return current.gm();
-    }
-
-    public double[] calGmu() {
-        checkMinimized();
-        return current.gmu();
-    }
-
-    public double[][] calGmuu() {
-        checkMinimized();
-        return current.gmuu();
-    }
-
-    // =========================================================================
-    // Reference energy (G0m) and the absolute total: G = G0m + Gm
-    //
-    //   G0m  reference energy of the mechanical mixture of pure elements,
-    //        Sum_i x_i * G0(element_i, phase, T). Pure energy: linear in
-    //        composition, independent of the CVCF variables u, and carrying
-    //        no configurational entropy of its own.
-    //
-    //   Gm   the CVM mixing contribution -- the ECI energy Hm together with
-    //        the configurational entropy of mixing Sm. This is what the
-    //        Newton-Raphson loop minimises and what CLAUDE.md's documented
-    //        verification values (e.g. -3480.5209063901 for Nb-Ti) are
-    //        anchored to.
-    //
-    //   G    the absolute Gibbs energy, G = G0m + Gm.
-    //
-    // Because G0m depends only on (x, T) and not on u, every u-derivative of
-    // the absolute quantity equals the mixing one exactly, so calGmu/calGmuu
-    // serve both. Only a widened gradient over uFull = [u ; x] differs, and
-    // only in its trailing composition block.
-    // =========================================================================
-
-    /** Reference energy of the mechanical mixture of pure elements. */
-    public double calG0m() {
-        checkMinimized();
-        return current.g0m();
-    }
-
-    /** {@code H0m = G0m} -- the reference term is pure energy. */
-    public double calH0m() {
-        checkMinimized();
-        return current.h0m();
-    }
-
-    /** {@code S0m = 0} -- a mechanical mixture of pure elements has no entropy of mixing. */
-    public double calS0m() {
-        checkMinimized();
-        return current.s0m();
-    }
-
-    /** Absolute Gibbs energy {@code G = G0m + Gm}. */
-    public double calG() {
-        checkMinimized();
-        return current.g();
-    }
-
-    /** Absolute enthalpy {@code H = H0m + Hm}. */
-    public double calH() {
-        checkMinimized();
-        return current.h();
-    }
-
-    /** Absolute entropy {@code S = S0m + Sm = Sm}. */
-    public double calS() {
-        checkMinimized();
-        return current.s();
-    }
-
-    /**
-     * Widened gradient of Gm with respect to {@code uFull = [u ; x]}, length
-     * {@code ncf + K} -- for the Hillert multi-phase equilibrium solver.
-     *
-     * <p>Distinct from {@link #calGmu}, which must stay exactly {@code ncf}
-     * long: {@code minimize()} sizes its linear system from it, so widening
-     * that in place would silently change the single-phase solver to solve a
-     * different system. The leading {@code ncf} entries of this vector equal
-     * {@link #calGmu} exactly.</p>
-     *
-     * <p>Note this returns the <em>mixing</em> gradient, matching the previous
-     * behaviour of this method: {@code HillertSolver} adds the pure-element
-     * reference itself. {@link CvmState#guFull()} is the absolute version.</p>
-     */
-    public double[] calGuFull() {
-        checkMinimized();
-        return current.gmuFull();
-    }
-
-    /** Widened Hessian over {@code uFull} -- see {@link #calGuFull}. */
-    public double[][] calGuuFull() {
-        checkMinimized();
-        return current.gmuuFull();
-    }
-
-    public double[] calCfs() {
-        checkMinimized();
-        return current.cfs();
-    }
-
-    // =========================================================================
-    // Physics evaluation
-    //
-    // There is deliberately no evaluate(u, x, T) here any more. It duplicated
-    // CvmEvaluator.stateAt: a stateless-looking method on a stateful class that
-    // silently moved this model's current point as a side effect of a read, and
-    // computed all nine quantities whether the caller wanted one or all. It
-    // also left isMinimized false, so its result could not be read back through
-    // the cal* accessors -- a method at odds with its own class.
-    //
-    // For evaluation at an arbitrary point use getEvaluator().stateAt(T, x, u),
-    // which builds an immutable CvmState and touches nothing here.
-    // =========================================================================
-
-    /**
-     * Result of {@link #solvePerPhaseStep}: the joint Newton step
-     * {@code deltaY(mu)}, expressed as an <b>affine function of the trial
-     * chemical-potential vector {@code mu}</b> rather than a value at one
-     * fixed {@code mu} -- see the note on {@link #solvePerPhaseStep} for why
-     * this shape, not a single numeric result, is what the outer Hillert
-     * solver actually needs.
-     *
-     * <p>{@code deltaY(mu) = deltaY0 + Σ_k mu[k]*deltaYSensitivity[k]}, and
-     * likewise for {@code deltaComposition}/{@code lambda}.</p>
-     */
-    public record PerPhaseStepResult(
-            double[] deltaY0, double[][] deltaYSensitivity,
-            double[] deltaComposition0, double[][] deltaCompositionSensitivity,
-            double lambda0, double[] lambdaSensitivity) {
-
-        /** Evaluates this affine result at a specific numeric {@code mu}. */
-        public double[] deltaCompositionAt(double[] mu) {
-            double[] result = deltaComposition0.clone();
-            for (int k = 0; k < mu.length; k++) {
-                for (int i = 0; i < result.length; i++) {
-                    result[i] += mu[k] * deltaCompositionSensitivity[k][i];
-                }
-            }
-            return result;
-        }
-
-        /** Evaluates the full joint deltaY (length ncf+K) at a specific numeric {@code mu}. */
-        public double[] deltaYAt(double[] mu) {
-            double[] result = deltaY0.clone();
-            for (int k = 0; k < mu.length; k++) {
-                for (int i = 0; i < result.length; i++) {
-                    result[i] += mu[k] * deltaYSensitivity[k][i];
-                }
-            }
-            return result;
-        }
-    }
-
-    /**
-     * One Hillert multi-phase equilibrium Newton step for this phase,
-     * expressed as an <b>affine function of the trial chemical-potential
-     * vector {@code mu}</b> -- port of the reference Mathematica
-     * implementation's {@code delxGCVM}.
-     *
-     * <p><b>Why affine-in-mu, not a fixed-mu numeric result:</b> tracing
-     * {@code phaseq}'s outer loop shows {@code delxGCVM} is called with
-     * {@code mu} still <em>symbolic</em>, and {@code genEqMat}'s outer
-     * mass-balance equations substitute that symbolic result in directly, so
-     * {@code mu} and {@code deltaN} are solved <em>simultaneously</em> in one
-     * combined system -- the per-phase step is never evaluated at a numeric
-     * {@code mu} on its own. Since {@code deltaY} is provably affine in
-     * {@code mu} (the matrix {@code A} does not depend on it; only the
-     * right-hand side does, and only in the x-block rows), the numeric
-     * equivalent is to solve the same system {@code K+1} times against basis
-     * right-hand sides -- once for {@code mu=0}, once per unit vector -- and
-     * let {@link org.ce.model.equilibrium.EquilibriumMatrix} fold the affine
-     * form into its own equations, mirroring {@code genEqMat}'s substitution
-     * entirely numerically.</p>
-     *
-     * <p>Unrelated to {@code minimize()}'s single-phase Newton-Raphson loop
-     * (fixed composition, stationary {@code G}) and must not be confused with
-     * it: this solves for a stationary point of {@code G} <em>relative to a
-     * trial {@code mu}</em>, with composition itself among the unknowns.</p>
-     *
-     * <p><b>The linear system</b> (at fixed T/P, so the {@code GxT*ΔT} and
-     * {@code GxP*ΔP} terms vanish): unknowns are {@code deltaY[0..ncf+K-1]}
-     * and {@code lambda}, over {@code ncf+K+1} equations:</p>
-     * <ul>
-     *   <li>Rows {@code 0..ncf-1} (u-block): {@code Guu[i,:] . deltaY = -Gu[i]}
-     *       -- ordinary stationarity on the internal CFs, unconstrained by
-     *       {@code mu}.</li>
-     *   <li>Rows {@code ncf..ncf+K-1} (x-block): {@code Guu[i,:] . deltaY -
-     *       lambda = mu[i-ncf] - Gu[i]} -- the only rows where {@code mu}
-     *       appears, always with coefficient exactly {@code +1} on its own
-     *       row, which is why one basis solve per component suffices.</li>
-     *   <li>Row {@code ncf+K}: {@code sum(deltaY[ncf..]) = 0} -- the
-     *       composition change stays on the simplex.</li>
-     * </ul>
-     *
-     * <p>Built entirely from analytic widened derivatives -- no
-     * finite-differencing anywhere.</p>
-     *
-     * @param uFull current joint state {@code [u ; x]}, length {@code ncf+K}
-     * @param temperature current temperature, K
-     */
-    public PerPhaseStepResult solvePerPhaseStep(double[] uFull, double temperature) {
-        int ncf = geo.ncf;
-        int numComponents = geo.numComponents;
-        int width = ncf + numComponents;
+    public State atFull(double temperature, double[] uFull) {
+        int width = geo.ncf + geo.numComponents;
         if (uFull.length != width) {
             throw new IllegalArgumentException(
                     "uFull.length=" + uFull.length + " != ncf+K=" + width);
         }
-
-        CvmState state = evaluator.stateAtFull(temperature, uFull);
-        double[] Gu = state.gmuFull();
-        double[][] Guu = state.gmuuFull();
-
-        int n = width + 1; // + lambda
-
-        // Matrix A is the same for every right-hand side (mu does not appear
-        // in it) -- build once, reuse for all K+1 solves.
-        double[][] A = new double[n][n];
-        for (int i = 0; i < width; i++) {
-            System.arraycopy(Guu[i], 0, A[i], 0, width);
-        }
-        for (int i = ncf; i < width; i++) {
-            A[i][width] = -1.0; // -lambda
-        }
-        for (int i = ncf; i < width; i++) {
-            A[width][i] = 1.0; // sum(deltaX) = 0
-        }
-
-        // b0: the mu=0 right-hand side.
-        double[] b0 = new double[n];
-        for (int i = 0; i < width; i++) b0[i] = -Gu[i];
-        double[] sol0 = LinearAlgebra.solve(A, b0);
-
-        // Solving A*z = e_{ncf+k} directly gives d(deltaY)/d(mu_k), since the
-        // system is linear and A is shared across right-hand sides.
-        double[][] deltaYSens = new double[numComponents][];
-        double[] lambdaSens = new double[numComponents];
-        double[][] deltaCompSens = new double[numComponents][];
-        for (int k = 0; k < numComponents; k++) {
-            double[] ek = new double[n];
-            ek[ncf + k] = 1.0;
-            double[] solK = LinearAlgebra.solve(A, ek);
-            double[] deltaYk = new double[width];
-            System.arraycopy(solK, 0, deltaYk, 0, width);
-            deltaYSens[k] = deltaYk;
-            lambdaSens[k] = solK[width];
-            double[] deltaCompK = new double[numComponents];
-            System.arraycopy(deltaYk, ncf, deltaCompK, 0, numComponents);
-            deltaCompSens[k] = deltaCompK;
-        }
-
-        double[] deltaY0 = new double[width];
-        System.arraycopy(sol0, 0, deltaY0, 0, width);
-        double[] deltaComposition0 = new double[numComponents];
-        System.arraycopy(deltaY0, ncf, deltaComposition0, 0, numComponents);
-        double lambda0 = sol0[width];
-
-        return new PerPhaseStepResult(deltaY0, deltaYSens, deltaComposition0, deltaCompSens, lambda0, lambdaSens);
+        double[] u = new double[geo.ncf];
+        double[] x = new double[geo.numComponents];
+        System.arraycopy(uFull, 0, u, 0, geo.ncf);
+        System.arraycopy(uFull, geo.ncf, x, 0, geo.numComponents);
+        return at(temperature, x, u);
     }
 
     // =========================================================================
-    // Helpers used by the N-R loop
+    // System parameters
     // =========================================================================
 
-    /**
-     * Correlation functions of the fully disordered state at this composition
-     * -- the Newton loop's starting iterate.
-     *
-     * <p>Delegates to {@link CvmNewtonSolver}, which owns the minimisation, so
-     * the starting point used here and the one the solver actually starts from
-     * cannot drift apart. Returns the full CVCF vector (length {@code tcf}) for
-     * backwards compatibility; the solver itself takes only the leading
-     * {@code ncf} block.</p>
-     */
-    public double[] computeRandomCFs(double[] moleFractions) {
-        return geo.basis.computeRandomCvcfCFs(moleFractions, geo.pipelineResult);
+    /** The lattice cluster algebra this model evaluates against. */
+    public CvmGeometry geometry() {
+        return geo;
     }
 
-    /**
-     * Largest fraction of the step from {@code uOld} to {@code uTrial} that
-     * keeps every cluster variable within {@code [0, 1]} -- the reference
-     * solver's {@code stpmx}. Delegates to {@link CvmNewtonSolver#stepLimit},
-     * which the minimisation itself uses.
-     */
-    public double calculateStepLimit(double[] uOld, double[] uTrial, double[] moleFractions) {
-        return new CvmNewtonSolver(evaluator).stepLimit(uOld, uTrial, moleFractions);
+    /** The Hamiltonian this model evaluates against. */
+    public CECEntry cecEntry() {
+        return cecEntry;
     }
 
-    /**
-     * True if every cluster variable at the given {@code (u, x)} point --
-     * across <em>all</em> cluster types, including the point (composition)
-     * block -- lies strictly inside {@code (0, 1)}. Side-effect-free, so
-     * external callers -- notably the Hillert multi-phase solver, which must
-     * validate a trial joint step across several models before committing to
-     * it -- can check a candidate point without perturbing this instance's
-     * minimization state.
-     *
-     * <p>Port of the reference implementation's {@code isValidParams}, which
-     * checks {@code cvt} over the <em>full</em> {@code 1..tcdis} range --
-     * unlike {@link #minClusterVariable}'s {@code findMin}, which explicitly
-     * excludes the last (point) type. So this is deliberately <em>broader</em>
-     * than {@code minClusterVariable}, not a stateless twin of it: it also
-     * catches a trial point whose composition itself has drifted to a
-     * pure-element boundary ({@code x_i = 0} or {@code 1}), exactly the kind
-     * of boundary the Hillert backtracking is meant to catch. Do not
-     * "simplify" this back to the {@code tcdis-1} exclusion; that would
-     * silently narrow what this check catches.</p>
-     */
-    public boolean isValidParams(double[] u, double[] moleFractions) {
-        double[][][] cv = evaluateClusterVariables(u, moleFractions);
-        for (int t = 0; t < geo.tcdis; t++) {
-            double[][] tt = cv[t];
-            if (tt == null) continue;
-            for (double[] jj : tt) {
-                if (jj == null) continue;
-                for (double v : jj) {
-                    if (v <= 0.0 || v >= 1.0) return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    // =========================================================================
-    // Accessors
-    // =========================================================================
-
-    public int getNumComponents() {
-        return geo.numComponents;
-    }
-
-    public String getElements() {
-        return geo.elements;
-    }
-
-    public CvCfBasis getBasis() {
-        return geo.basis;
-    }
-
-    public int getNcf() {
+    /** Number of non-point CFs: the length of {@code u}, and a solver's dimension. */
+    public int ncf() {
         return geo.ncf;
     }
 
-    public int getTcf() {
-        return geo.tcf;
-    }
-
-    public int getTcdis() {
-        return geo.tcdis;
-    }
-
-    public int[] getLc() {
-        return geo.lc;
-    }
-
-    public int[][] getLcv() {
-        return geo.lcv;
-    }
-
-    public int[][] getOrthCfBasisIndices() {
-        return geo.orthCfBasisIndices;
+    /** Number of components K. */
+    public int numComponents() {
+        return geo.numComponents;
     }
 
     /**
-     * Computes cluster variables cv[t][j][v] from the given non-point CFs and
-     * composition.
+     * Correlation functions of the fully disordered state at this composition
+     * -- a natural starting iterate for a minimisation. Returns the leading
+     * {@code ncf} block.
      */
-    public double[][][] evaluateClusterVariables(double[] u, double[] moleFractions) {
-        return geo.evaluateCVs(u, moleFractions);
+    public double[] randomStateU(double[] x) {
+        double[] full = geo.basis.computeRandomCvcfCFs(x, geo.pipelineResult);
+        double[] u = new double[geo.ncf];
+        System.arraycopy(full, 0, u, 0, geo.ncf);
+        return u;
+    }
+
+    /** Full random-state CVCF vector {@code [u ; x]} at this composition. */
+    public double[] randomStateFull(double[] x) {
+        return geo.basis.computeRandomCvcfCFs(x, geo.pipelineResult);
+    }
+
+    /**
+     * Cluster probabilities at an arbitrary {@code (u, x)}, without building a
+     * full {@link State} -- for callers that want only the cluster variables,
+     * such as SRO post-processing and a solver's step limiter.
+     */
+    public double[][][] clusterVariablesAt(double[] u, double[] x) {
+        return geo.evaluateCVs(u, x);
+    }
+
+    @Override
+    public String toString() {
+        return "CVMGibbsModel[" + geo + "]";
+    }
+
+    // =========================================================================
+    // State: the model evaluated at one point
+    // =========================================================================
+
+    /**
+     * Immutable evaluation of the CVM free energy at one thermodynamic point
+     * {@code (T, x, u)}.
+     *
+     * <p>Nested inside the model because a state is meaningless without the
+     * geometry and Hamiltonian it was evaluated against -- it is the model at a
+     * point, not an independent object.</p>
+     *
+     * <p>Two derived quantities are computed eagerly in the constructor because
+     * nearly every accessor needs them:</p>
+     *
+     * <pre>
+     *   eci[l]        depends on T only        (a + b*T per Hamiltonian term)
+     *   cv[t][j][v]   depends on (u, x) only   (via the CVCF C-matrix)
+     * </pre>
+     *
+     * <p>Everything else is derived on demand. Gradients and Hessians are not
+     * memoised: the {@code ncf x ncf} Hessian is not always wanted, and a
+     * Newton loop asks for each exactly once per iteration.</p>
+     */
+    public final class State {
+
+        /**
+         * Cluster variables below this value use a quadratic extension of
+         * {@code cv*ln(cv)} rather than the logarithm itself, keeping the entropy
+         * and its first two derivatives finite as a cluster probability approaches
+         * zero. Matches {@code CVMGibbsModel.ENTROPY_SMOOTH_EPS}.
+         */
+        private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
+
+        /** Temperature (K). */
+        private final double temp;
+        /** Mole fractions, length K. */
+        private final double[] x;
+        /** Non-point CVCF correlation functions, length ncf. */
+        private final double[] u;
+
+        /** Effective cluster interactions at this temperature, length ncf. */
+        private final double[] eci;
+        /** Cluster probabilities at this (u, x). */
+        private final double[][][] cv;
+
+        State(double temp, double[] x, double[] u) {
+            if (x.length != geo.numComponents) {
+                throw new IllegalArgumentException(
+                        "x.length=" + x.length + " != numComponents=" + geo.numComponents);
+            }
+            if (u.length < geo.ncf) {
+                throw new IllegalArgumentException(
+                        "u.length=" + u.length + " < ncf=" + geo.ncf);
+            }
+            this.temp = temp;
+            this.x = x.clone();
+            this.u = u.clone();
+            this.eci = CECEvaluator.evaluate(cecEntry, temp, geo.basis, "CVM", null);
+            this.cv = geo.evaluateCVs(u, x);
+        }
+
+        // =========================================================================
+        // The point itself
+        // =========================================================================
+
+        public double temperature() {
+            return temp;
+        }
+
+        /** Mole fractions (defensive copy). */
+        public double[] composition() {
+            return x.clone();
+        }
+
+        /** Non-point CVCF correlation functions (defensive copy). */
+        public double[] u() {
+            return u.clone();
+        }
+
+        /** Effective cluster interactions at this temperature (defensive copy). */
+        public double[] eci() {
+            return eci.clone();
+        }
+
+        /** Cluster probabilities {@code cv[t][j][v]} at this point. */
+        public double[][][] clusterVariables() {
+            return cv;
+        }
+
+        // =========================================================================
+        // Mixing quantities: Gm = Hm - T*Sm
+        //
+        // Gm is the CVM mixing contribution -- the ECI energy together with the
+        // configurational entropy of mixing. It has no absolute reference zero of
+        // its own; see g0m()/g() for the pure-element-anchored total.
+        // =========================================================================
+
+        /** Mixing enthalpy {@code Hm = sum_l eci[l]*u[l]}. */
+        public double hm() {
+            double h = 0.0;
+            for (int l = 0; l < geo.ncf; l++) {
+                h += eci[l] * u[l];
+            }
+            return h;
+        }
+
+        /** {@code dHm/du = eci} -- Hm is linear in u. */
+        public double[] hmu() {
+            return eci.clone();
+        }
+
+        /** {@code d2Hm/du2 = 0} -- Hm is linear in u. */
+        public double[][] hmuu() {
+            return new double[geo.ncf][geo.ncf];
+        }
+
+        /** Configurational entropy of mixing. */
+        public double sm() {
+            double sval = 0.0;
+            for (int t = 0; t < geo.tcdis; t++) {
+                double coeffT = geo.kb[t] * geo.mhdis[t];
+                for (int j = 0; j < geo.lc[t]; j++) {
+                    double mhTj = geo.mh[t][j];
+                    int[] w = geo.wcv.get(t).get(j);
+                    int nv = geo.lcv[t][j];
+                    for (int incv = 0; incv < nv; incv++) {
+                        double cvVal = cv[t][j][incv];
+                        double sContrib;
+                        if (cvVal > ENTROPY_SMOOTH_EPS) {
+                            sContrib = cvVal * Math.log(cvVal);
+                        } else {
+                            double logEps = Math.log(ENTROPY_SMOOTH_EPS);
+                            double d = cvVal - ENTROPY_SMOOTH_EPS;
+                            sContrib = ENTROPY_SMOOTH_EPS * logEps + (1.0 + logEps) * d
+                                    + 0.5 / ENTROPY_SMOOTH_EPS * d * d;
+                        }
+                        sval -= PhysicsConstants.R_GAS * coeffT * mhTj * w[incv] * sContrib;
+                    }
+                }
+            }
+            return sval;
+        }
+
+        /** {@code dSm/du}, length {@code ncf}. */
+        public double[] smu() {
+            return entropyGradient(geo.ncf);
+        }
+
+        /** {@code d2Sm/du2}, {@code ncf x ncf}. */
+        public double[][] smuu() {
+            return entropyHessian(geo.ncf);
+        }
+
+        /** Mixing Gibbs energy {@code Gm = Hm - T*Sm}. */
+        public double gm() {
+            return hm() - temp * sm();
+        }
+
+        /** {@code dGm/du = dHm/du - T*dSm/du}, length {@code ncf}. */
+        public double[] gmu() {
+            double[] su = smu();
+            double[] gu = new double[geo.ncf];
+            for (int i = 0; i < geo.ncf; i++) {
+                gu[i] = eci[i] - temp * su[i];
+            }
+            return gu;
+        }
+
+        /** {@code d2Gm/du2 = -T*d2Sm/du2}, since Hm is linear in u. */
+        public double[][] gmuu() {
+            double[][] suu = smuu();
+            double[][] guu = new double[geo.ncf][geo.ncf];
+            for (int i = 0; i < geo.ncf; i++) {
+                for (int j = 0; j < geo.ncf; j++) {
+                    guu[i][j] = -temp * suu[i][j];
+                }
+            }
+            return guu;
+        }
+
+        // =========================================================================
+        // Widened quantities over uFull = [u ; x]
+        //
+        // For the Hillert per-phase step, where composition is an unknown rather
+        // than a constraint. The leading ncf entries match the fixed-composition
+        // gradient exactly; the trailing K come from the C-matrix's composition
+        // columns.
+        // =========================================================================
+
+        /** Width of the widened parameter vector, {@code ncf + K}. */
+        public int fullWidth() {
+            return geo.ncf + geo.numComponents;
+        }
+
+        /** {@code dSm/d(uFull)}, length {@code ncf + K}. */
+        public double[] smuFull() {
+            return entropyGradient(fullWidth());
+        }
+
+        /** {@code d2Sm/d(uFull)2}, {@code (ncf+K) x (ncf+K)}. */
+        public double[][] smuuFull() {
+            return entropyHessian(fullWidth());
+        }
+
+        /**
+         * {@code dGm/d(uFull)}. H contributes {@code eci} to the leading
+         * {@code ncf} entries and zero to the trailing composition block, since
+         * {@code Hm = sum_l eci[l]*u[l]} sums over {@code u} only.
+         */
+        public double[] gmuFull() {
+            int width = fullWidth();
+            double[] su = smuFull();
+            double[] gu = new double[width];
+            for (int i = 0; i < width; i++) {
+                double hu = (i < geo.ncf) ? eci[i] : 0.0;
+                gu[i] = hu - temp * su[i];
+            }
+            return gu;
+        }
+
+        /** {@code d2Gm/d(uFull)2 = -T * d2Sm/d(uFull)2}; H contributes zero everywhere. */
+        public double[][] gmuuFull() {
+            int width = fullWidth();
+            double[][] suu = smuuFull();
+            double[][] guu = new double[width][width];
+            for (int i = 0; i < width; i++) {
+                for (int j = 0; j < width; j++) {
+                    guu[i][j] = -temp * suu[i][j];
+                }
+            }
+            return guu;
+        }
+
+        // =========================================================================
+        // Reference energy and absolute totals: G = G0m + Gm
+        // =========================================================================
+
+        /**
+         * Reference energy of the mechanical mixture of pure elements,
+         * {@code G0m = sum_i x_i * G0(element_i, phase, T)}.
+         *
+         * <p>Pure energy: linear in composition, independent of {@code u}, and
+         * carrying no configurational entropy. Hence {@code H0m = G0m},
+         * {@code S0m = 0}, and every {@code u}-derivative of an absolute quantity
+         * equals the mixing one.</p>
+         */
+        public double g0m() {
+            return org.ce.model.equilibrium.LatticeStability.g0m(
+                    geo.elementList, geo.structure, x, temp);
+        }
+
+        /** {@code H0m = G0m} -- the reference term carries no entropy. */
+        public double h0m() {
+            return g0m();
+        }
+
+        /** {@code S0m = 0} -- a mechanical mixture of pure elements has no entropy of mixing. */
+        public double s0m() {
+            return 0.0;
+        }
+
+        /** Absolute Gibbs energy {@code G = G0m + Gm}. */
+        public double g() {
+            return g0m() + gm();
+        }
+
+        /** Absolute enthalpy {@code H = H0m + Hm}. */
+        public double h() {
+            return h0m() + hm();
+        }
+
+        /** Absolute entropy {@code S = S0m + Sm = Sm}. */
+        public double s() {
+            return sm();
+        }
+
+        /**
+         * {@code dG/du = dGm/du}, since {@code G0m} does not depend on {@code u}.
+         */
+        public double[] gu() {
+            return gmu();
+        }
+
+        /** {@code d2G/du2 = d2Gm/du2}. */
+        public double[][] guu() {
+            return gmuu();
+        }
+
+        /**
+         * {@code dG/d(uFull)}: the mixing gradient plus {@code G0m}'s composition
+         * block. {@code G0m} is linear in x with coefficients
+         * {@code G0(element_i, phase, T)}, so no differentiation of the SGTE
+         * polynomials is needed -- only evaluation.
+         */
+        public double[] guFull() {
+            double[] g = gmuFull();
+            for (int i = 0; i < geo.numComponents; i++) {
+                g[geo.ncf + i] += org.ce.model.equilibrium.LatticeStability.g0(
+                        geo.elementList.get(i), geo.structure, temp);
+            }
+            return g;
+        }
+
+        /**
+         * {@code d2G/d(uFull)2 = d2Gm/d(uFull)2}. {@code G0m} is linear in x and
+         * independent of u, so its second derivative vanishes identically.
+         */
+        public double[][] guuFull() {
+            return gmuuFull();
+        }
+
+        // =========================================================================
+        // Correlation functions
+        // =========================================================================
+
+        /**
+         * Full CF vector {@code [u ; x]} at this point, length {@link #fullWidth()}.
+         */
+        public double[] cfs() {
+            return geo.buildFullVector(u, x);
+        }
+
+        // =========================================================================
+        // Shared entropy traversal
+        //
+        // calculateSmu/calculateSmuu and their Full counterparts were four separate
+        // copies of one loop in CVMGibbsModel, differing only in the column bound.
+        // They are parameterised on that bound here: the combinatorial prefactor
+        // kb[t]*mhdis[t]*mh[t][j]*wcv[t][j][v] is then computed in one place, so a
+        // wrong weight cannot appear in one copy and not the others.
+        // =========================================================================
+
+        private double[] entropyGradient(int width) {
+            double[] su = new double[width];
+            for (int t = 0; t < geo.tcdis; t++) {
+                double coeffT = geo.kb[t] * geo.mhdis[t];
+                for (int j = 0; j < geo.lc[t]; j++) {
+                    double mhTj = geo.mh[t][j];
+                    double[][] cm = geo.cmat.get(t).get(j);
+                    int[] w = geo.wcv.get(t).get(j);
+                    int nv = geo.lcv[t][j];
+                    for (int incv = 0; incv < nv; incv++) {
+                        double cvVal = cv[t][j][incv];
+                        double logEff;
+                        if (cvVal > ENTROPY_SMOOTH_EPS) {
+                            logEff = Math.log(cvVal);
+                        } else {
+                            double d = cvVal - ENTROPY_SMOOTH_EPS;
+                            logEff = Math.log(ENTROPY_SMOOTH_EPS) + d / ENTROPY_SMOOTH_EPS;
+                        }
+                        double prefix = coeffT * mhTj * w[incv];
+                        for (int l = 0; l < width; l++) {
+                            double cml = cm[incv][l];
+                            if (cml != 0.0) {
+                                su[l] -= PhysicsConstants.R_GAS * prefix * cml * logEff;
+                            }
+                        }
+                    }
+                }
+            }
+            return su;
+        }
+
+        private double[][] entropyHessian(int width) {
+            double[][] suu = new double[width][width];
+            for (int t = 0; t < geo.tcdis; t++) {
+                double coeffT = geo.kb[t] * geo.mhdis[t];
+                for (int j = 0; j < geo.lc[t]; j++) {
+                    double mhTj = geo.mh[t][j];
+                    double[][] cm = geo.cmat.get(t).get(j);
+                    int[] w = geo.wcv.get(t).get(j);
+                    int nv = geo.lcv[t][j];
+                    for (int incv = 0; incv < nv; incv++) {
+                        double cvVal = cv[t][j][incv];
+                        double invEff = (cvVal > ENTROPY_SMOOTH_EPS)
+                                ? 1.0 / cvVal
+                                : 1.0 / ENTROPY_SMOOTH_EPS;
+                        double prefix = coeffT * mhTj * w[incv];
+                        for (int l1 = 0; l1 < width; l1++) {
+                            double cml1 = cm[incv][l1];
+                            if (cml1 == 0.0) {
+                                continue;
+                            }
+                            for (int l2 = l1; l2 < width; l2++) {
+                                double cml2 = cm[incv][l2];
+                                if (cml2 == 0.0) {
+                                    continue;
+                                }
+                                double val = -PhysicsConstants.R_GAS * prefix * cml1 * cml2 * invEff;
+                                suu[l1][l2] += val;
+                                if (l1 != l2) {
+                                    suu[l2][l1] += val;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return suu;
+        }
+
+        /**
+         * True if every cluster variable lies strictly inside {@code (0, 1)},
+         * across <em>all</em> cluster types <b>including the point block</b> --
+         * the physicality check the Hillert solver applies before accepting a
+         * trial step.
+         *
+         * <p>Deliberately broader than the non-point-only minimum a
+         * fixed-composition minimisation checks ({@code CvmNewtonSolver}
+         * excludes the point type, following the reference's {@code findMin}).
+         * Including the point block also catches a trial point whose
+         * composition itself has drifted to a pure-element boundary
+         * ({@code x_i = 0} or {@code 1}), which is exactly the case the Hillert
+         * backtracking exists to catch. Do not narrow this to the non-point
+         * types; that would silently reduce what it detects.</p>
+         */
+        public boolean isValidIncludingPoints() {
+            for (int t = 0; t < geo.tcdis; t++) {
+                for (int j = 0; j < geo.lc[t]; j++) {
+                    for (int v = 0; v < geo.lcv[t][j]; v++) {
+                        double value = cv[t][j][v];
+                        if (!(value > 0.0 && value < 1.0)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("State[T=%.2f, x=%s, ncf=%d]",
+                    temp, java.util.Arrays.toString(x), geo.ncf);
+        }
+
+
     }
 }

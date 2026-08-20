@@ -13,17 +13,17 @@ import java.util.function.Consumer;
  * {@code dGm/du = 0}.
  *
  * <p>Extracted from {@code CVMGibbsModel}, which was both the evaluator and
- * this optimiser. It now drives a {@link CvmEvaluator} from the outside,
+ * this optimiser. It now drives a {@link CVMGibbsModel} from the outside,
  * holding no physics of its own -- every energy, gradient and Hessian comes
- * from a {@link CvmState} evaluated at the current iterate. What lives here is
+ * from a {@link CVMGibbsModel.State} evaluated at the current iterate. What lives here is
  * only the algorithm: convergence criteria, step limiting, and the iteration
  * bookkeeping.</p>
  *
  * <p><b>Not to be confused with the Hillert per-phase step.</b> This solves at
  * fixed composition, with {@code x} a constraint and {@code u} the unknown.
- * {@code CVMGibbsModel.solvePerPhaseStep} treats composition as an unknown too
+ * {@code HillertPhaseStepSolver} treats composition as an unknown too
  * and solves for a stationary point relative to a trial chemical potential.
- * Both read the same {@link CvmState}; they differ only in which block of it
+ * Both read the same {@link CVMGibbsModel.State}; they differ only in which block of it
  * they use -- the {@code ncf}-wide gradient here, the {@code (ncf+K)}-wide one
  * there.</p>
  *
@@ -44,18 +44,18 @@ public final class CvmNewtonSolver {
      */
     public static final double TOLX = 1.0e-12;
 
-    private final CvmEvaluator evaluator;
+    private final CVMGibbsModel model;
 
-    public CvmNewtonSolver(CvmEvaluator evaluator) {
-        if (evaluator == null) {
-            throw new IllegalArgumentException("evaluator must not be null");
+    public CvmNewtonSolver(CVMGibbsModel model) {
+        if (model == null) {
+            throw new IllegalArgumentException("model must not be null");
         }
-        this.evaluator = evaluator;
+        this.model = model;
     }
 
     /** Outcome of a minimisation: the converged point and how it was reached. */
     public record Result(
-            CvmState state,
+            CVMGibbsModel.State state,
             double[] u,
             boolean converged,
             int iterations,
@@ -102,7 +102,7 @@ public final class CvmNewtonSolver {
             eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
         }
 
-        int ncf = evaluator.ncf();
+        int ncf = model.ncf();
         double[] u = initialU(moleFractions);
         double errf = 0;
 
@@ -111,7 +111,7 @@ public final class CvmNewtonSolver {
                 throw new CancellationException();
             }
 
-            CvmState state = evaluator.stateAt(temperature, moleFractions, u);
+            CVMGibbsModel.State state = model.at(temperature, moleFractions, u);
 
             // Early exit if the *current* point already has a non-positive
             // cluster variable -- mirrors the reference solver's cvMin<=0
@@ -166,7 +166,7 @@ public final class CvmNewtonSolver {
                 }
 
                 if (errx <= TOLX) {
-                    CvmState finalState = evaluator.stateAt(temperature, moleFractions, u);
+                    CVMGibbsModel.State finalState = model.at(temperature, moleFractions, u);
                     return new Result(finalState, u.clone(), true, its, errf);
                 }
 
@@ -185,7 +185,7 @@ public final class CvmNewtonSolver {
             }
         }
 
-        CvmState finalState = evaluator.stateAt(temperature, moleFractions, u);
+        CVMGibbsModel.State finalState = model.at(temperature, moleFractions, u);
         return new Result(finalState, u.clone(), false, MAX_ITER, errf);
     }
 
@@ -194,9 +194,9 @@ public final class CvmNewtonSolver {
      * (random) state at this composition.
      */
     public double[] initialU(double[] moleFractions) {
-        double[] full = evaluator.geometry().basis
-                .computeRandomCvcfCFs(moleFractions, evaluator.geometry().pipelineResult);
-        return Arrays.copyOf(full, evaluator.ncf());
+        double[] full = model.geometry().basis
+                .computeRandomCvcfCFs(moleFractions, model.geometry().pipelineResult);
+        return Arrays.copyOf(full, model.ncf());
     }
 
     /**
@@ -212,9 +212,9 @@ public final class CvmNewtonSolver {
      * physical condition; they differ in which cluster types are in scope, and
      * that difference is intentional on both sides.</p>
      */
-    private double minClusterVariable(CvmState state) {
+    private double minClusterVariable(CVMGibbsModel.State state) {
         double[][][] cv = state.clusterVariables();
-        CvmGeometry geo = evaluator.geometry();
+        CvmGeometry geo = model.geometry();
         double minCv = Double.POSITIVE_INFINITY;
         for (int t = 0; t < geo.tcdis - 1; t++) {
             double[][] tt = cv[t];
@@ -237,7 +237,7 @@ public final class CvmNewtonSolver {
      * landing exactly on it.</p>
      */
     public double stepLimit(double[] uOld, double[] uTrial, double[] moleFractions) {
-        CvmGeometry geo = evaluator.geometry();
+        CvmGeometry geo = model.geometry();
         double fmin = 1.0;
 
         double[][][] cvOld = geo.evaluateCVs(uOld, moleFractions);
@@ -260,8 +260,8 @@ public final class CvmNewtonSolver {
         return (fmin >= 1.0) ? 1.0 : (0.1 * fmin);
     }
 
-    /** The evaluator this solver drives. */
-    public CvmEvaluator evaluator() {
-        return evaluator;
+    /** The model this solver drives. */
+    public CVMGibbsModel model() {
+        return model;
     }
 }

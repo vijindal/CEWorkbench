@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import org.ce.model.cvm.CVMGibbsModel;
-import org.ce.model.cvm.CVMGibbsModel.PerPhaseStepResult;
+import org.ce.model.equilibrium.HillertPhaseStepSolver.PerPhaseStepResult;
 
 /**
  * N-phase equilibrium solver (Hillert's method), ported from the reference
@@ -13,7 +13,7 @@ import org.ce.model.cvm.CVMGibbsModel.PerPhaseStepResult;
  *
  * <p>Outer loop, once per iteration:
  * <ol>
- *   <li>{@link CVMGibbsModel#solvePerPhaseStep} for every phase -- each
+ *   <li>{@link HillertPhaseStepSolver} for every phase -- each
  *       phase's Newton step {@code deltaY(mu)} as an affine function of the
  *       shared trial chemical potential {@code mu}.</li>
  *   <li>Assemble {@link EquilibriumMatrix.PhaseContribution} for every
@@ -23,7 +23,7 @@ import org.ce.model.cvm.CVMGibbsModel.PerPhaseStepResult;
  *       deltaN}.</li>
  *   <li>Backtracking line search: starting at {@code lambda=1}, evaluate the
  *       trial step for every phase and halve {@code lambda} until all
- *       phases' trial state is valid ({@link CVMGibbsModel#isValidParams}),
+ *       phases' trial state is valid ({@code State.isValidIncludingPoints}),
  *       up to {@code jtrMax} tries.</li>
  *   <li>Accept the trial state, then check convergence via the per-phase
  *       step-norm.</li>
@@ -64,7 +64,7 @@ public final class HillertSolver {
         for (outerIter = 1; outerIter <= maxOuterIterations; outerIter++) {
             List<PerPhaseStepResult> steps = new ArrayList<>(phases.size());
             for (PhaseState phase : phases) {
-                steps.add(phase.model.solvePerPhaseStep(phase.uFull, temperature));
+                steps.add(new HillertPhaseStepSolver(phase.model).step(phase.uFull, temperature));
             }
 
             List<EquilibriumMatrix.PhaseContribution> contributions = new ArrayList<>();
@@ -112,7 +112,7 @@ public final class HillertSolver {
 
                     double[] uOnly = java.util.Arrays.copyOfRange(u, 0, phase.ncf);
                     double[] xOnly = java.util.Arrays.copyOfRange(u, phase.ncf, u.length);
-                    if (!phase.model.isValidParams(uOnly, xOnly)) {
+                    if (!phase.model.at(temperature, xOnly, uOnly).isValidIncludingPoints()) {
                         allValid = false;
                     }
                 }
@@ -183,9 +183,7 @@ public final class HillertSolver {
      * model as a side effect of a read.</p>
      */
     private static double currentG(PhaseState phase, double temperature) {
-        return phase.model.getEvaluator()
-                .stateAtFull(temperature, phase.uFull)
-                .g();
+        return phase.model.atFull(temperature, phase.uFull).g();
     }
 
     private static double l2Norm(double[] v) {

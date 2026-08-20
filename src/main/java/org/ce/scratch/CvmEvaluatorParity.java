@@ -3,9 +3,8 @@ package org.ce.scratch;
 import org.ce.CEWorkbenchContext;
 import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
-import org.ce.model.cvm.CvmEvaluator;
+import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CvmGeometry;
-import org.ce.model.cvm.CvmState;
 import org.ce.model.storage.Workspace;
 import org.ce.model.storage.Workspace.SystemId;
 
@@ -13,10 +12,10 @@ import java.util.Random;
 
 /**
  * Parity gate for Step A of the evaluator/solver split: proves
- * {@link CvmEvaluator}/{@link CvmState} reproduce {@link PreFacadeCVMGibbsModel}
+ * {@link CVMGibbsModel} and its {@link CVMGibbsModel.State} reproduce {@link PreFacadeCVMGibbsModel}
  * bit-for-bit at arbitrary points, before any caller is migrated to them.
  *
- * <p>Every expression in {@code CvmState} was ported verbatim from the
+ * <p>Every expression in {@code CVMGibbsModel.State} was ported verbatim from the
  * corresponding {@code CVMGibbsModel.calculateXxx} (frozen in {@link PreFacadeCVMGibbsModel}), so agreement should be
  * exact -- not merely within a tolerance. Anything else means a field was
  * rebound wrongly during the move.</p>
@@ -66,7 +65,7 @@ public final class CvmEvaluatorParity {
 
     public static void main(String[] args) throws Exception {
         System.out.println("=".repeat(80));
-        System.out.println("  CvmEvaluator parity vs CVMGibbsModel, plus finite-difference audit");
+        System.out.println("  CVMGibbsModel parity vs CVMGibbsModel, plus finite-difference audit");
         System.out.println("=".repeat(80));
 
         for (String[] c : CASES) {
@@ -93,7 +92,7 @@ public final class CvmEvaluatorParity {
         legacy.initialize(elements, structure, model, session.cecEntry, null);
 
         CvmGeometry geo = CvmGeometry.build(elements, structure, model, null);
-        CvmEvaluator ev = new CvmEvaluator(geo, session.cecEntry);
+        CVMGibbsModel ev = new CVMGibbsModel(geo, session.cecEntry);
 
         int ncf = geo.ncf;
         int K = geo.numComponents;
@@ -115,10 +114,10 @@ public final class CvmEvaluatorParity {
             // physical intuition to check it against -- but which one is in
             // play is reported so a negative Sm is not mistaken for a defect.
 
-            CvmState st = ev.stateAt(t, x, u);
+            CVMGibbsModel.State st = ev.at(t, x, u);
             PreFacadeCVMGibbsModel.ModelResult legacyResult = legacy.evaluate(u, x, t);
 
-            System.out.printf("  T=%.0f x=%s  cvValid=%s%n", t, fmt(x), st.isValid());
+            System.out.printf("  T=%.0f x=%s  cvValid=%s%n", t, fmt(x), st.isValidIncludingPoints());
 
             checkScalar("Gm", legacyResult.G, st.gm());
             checkScalar("Hm", legacyResult.H, st.hm());
@@ -206,14 +205,14 @@ public final class CvmEvaluatorParity {
     // Finite-difference audit
     // =========================================================================
 
-    private static void fdGradient(CvmEvaluator ev, double t, double[] x, double[] u, CvmState st) {
+    private static void fdGradient(CVMGibbsModel ev, double t, double[] x, double[] u, CVMGibbsModel.State st) {
         double[] analytic = st.gmu();
         double worst = 0;
         int at = -1;
         for (int l = 0; l < ev.ncf(); l++) {
             double h = 1.0e-6 * Math.max(Math.abs(u[l]), 1.0e-3);
-            double plus = ev.stateAt(t, x, bump(u, l, h)).gm();
-            double minus = ev.stateAt(t, x, bump(u, l, -h)).gm();
+            double plus = ev.at(t, x, bump(u, l, h)).gm();
+            double minus = ev.at(t, x, bump(u, l, -h)).gm();
             double num = (plus - minus) / (2 * h);
             double rel = Math.abs(num - analytic[l]) / Math.max(Math.abs(analytic[l]), 1.0);
             if (rel > worst) {
@@ -224,7 +223,7 @@ public final class CvmEvaluatorParity {
         report("    fd dGm/du   ", worst, at, analytic);
     }
 
-    private static void fdGradientFull(CvmEvaluator ev, double t, double[] x, double[] u, CvmState st) {
+    private static void fdGradientFull(CVMGibbsModel ev, double t, double[] x, double[] u, CVMGibbsModel.State st) {
         // Only the leading ncf block is comparable by perturbing u; the
         // trailing composition block cannot be finite-differenced independently
         // because mole fractions are constrained to sum to 1.
@@ -242,7 +241,7 @@ public final class CvmEvaluatorParity {
         }
     }
 
-    private static void fdHessian(CvmEvaluator ev, double t, double[] x, double[] u, CvmState st) {
+    private static void fdHessian(CVMGibbsModel ev, double t, double[] x, double[] u, CVMGibbsModel.State st) {
         double[][] analytic = st.gmuu();
 
         // Symmetry is an exact property of a Hessian and is independent of any
@@ -276,8 +275,8 @@ public final class CvmEvaluatorParity {
         double worst = 0;
         for (int l = 0; l < ev.ncf(); l++) {
             double h = 1.0e-4 * Math.max(Math.abs(u[l]), 1.0e-2);
-            double[] gPlus = ev.stateAt(t, x, bump(u, l, h)).gmu();
-            double[] gMinus = ev.stateAt(t, x, bump(u, l, -h)).gmu();
+            double[] gPlus = ev.at(t, x, bump(u, l, h)).gmu();
+            double[] gMinus = ev.at(t, x, bump(u, l, -h)).gmu();
             for (int m = 0; m < ev.ncf(); m++) {
                 double num = (gPlus[m] - gMinus[m]) / (2 * h);
                 worst = Math.max(worst, Math.abs(num - analytic[m][l]) / scale);

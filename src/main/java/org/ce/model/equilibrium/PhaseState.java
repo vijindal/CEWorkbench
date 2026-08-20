@@ -5,14 +5,18 @@ import org.ce.model.cvm.CVMGibbsModel;
 
 /**
  * Per-phase mutable state for the Hillert multi-phase equilibrium solver
- * (HILLERT_SOLVER_PLAN.md) — one instance per candidate phase, each owning
- * its own {@link CVMGibbsModel} (never shared across phases; {@code
- * CVMGibbsModel} is stateful/non-thread-safe).
+ * (HILLERT_SOLVER_PLAN.md) — one instance per candidate phase.
+ *
+ * <p>The {@link CVMGibbsModel} it carries is a pure evaluator and holds no
+ * per-point state, so it may safely be shared between phases of the same
+ * system; the mutable state of a phase is this object's {@code amount} and
+ * {@code uFull}, not the model's. (An earlier version required a separate
+ * model instance per phase because the model then carried a current
+ * {@code (T, x, u)} internally.)</p>
  *
  * <p>Distinct from a single-phase {@link ModelSession}-driven calculation:
  * a Hillert phase's composition is itself an unknown solved for jointly
- * with its internal CVM parameters (see {@code
- * CVMGibbsModel.solvePerPhaseStep}), not a fixed input the way {@link
+ * with its internal CVM parameters (see {@code HillertPhaseStepSolver}), not a fixed input the way {@link
  * org.ce.calculation.Conditions} treats it for {@code
  * CalculationService.calculate}.</p>
  */
@@ -38,7 +42,7 @@ public final class PhaseState {
         this.label = label;
         this.session = session;
         this.model = model;
-        this.ncf = model.getNcf();
+        this.ncf = model.ncf();
         this.numComponents = initialUFull.length - ncf;
         this.amount = initialAmount;
         this.uFull = initialUFull.clone();
