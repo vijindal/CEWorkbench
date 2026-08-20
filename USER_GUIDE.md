@@ -103,13 +103,15 @@ have interaction data included. For anything else you supply ECIs yourself.
 ./gradlew runGui
 ```
 
-The activity bar on the left has three panels:
+The activity bar on the left has five panels:
 
 | Icon | Panel | Use |
 |---|---|---|
 | **1a** | Data Prep | Run cluster identification for a structure |
 | **1b** | Hamilt. | Create, view, and edit ECI tables |
 | **TH** | Thermo | Run calculations — the main panel |
+| **TP** | Ternary | Ternary isothermal-section composition scans and plots |
+| **QS** | Quat. Sq. | Quaternary square-plot composition scans (Fig. 20 reproduction) |
 
 ### Running a calculation
 
@@ -130,6 +132,20 @@ single point. To scan, set them apart — but **only one axis may vary per run**
 
 Results appear in the output panel on the right, with a log below.
 
+### Running a quaternary square-plot scan
+
+1. In the **Quat. Sq.** panel, set **Elements** (exactly 4, e.g.
+   `Nb-Ti-V-Zr`), **Structure**, and **Model**.
+2. Set **Temperature** and pick a **Quantity** (Gibbs Energy, Enthalpy,
+   Entropy, or SRO — SRO reveals a **Pair** dropdown).
+3. Optionally adjust **Grid resolution (n)** (default 50).
+4. Click **Compute & Plot**.
+
+The panel always computes and shows **two** plots side by side — one for
+each of the two square parametrizations needed to cover all six binary
+edges of the quaternary composition tetrahedron. There is no manual variant
+picker; this is deliberate.
+
 ---
 
 ## Using the command line
@@ -149,6 +165,10 @@ Results appear in the output panel on the right, with a log below.
 | `api` | JSON in/out — see [API.md](API.md) |
 
 Add `--verbose` to any mode for iteration-level detail.
+
+> `ternary_grid` and `quaternary_square` are separate JSON stdin/stdout
+> subcommands (not part of the `<mode> <elements> <structure> <model>`
+> pattern above) for composition-grid scans — see [API.md](API.md).
 
 ### Examples
 

@@ -452,6 +452,141 @@ a real computation was attempted and failed.
 
 ---
 
+## Quaternary square-plot plotting — square geometry, always-both-variants design
+
+`QuaternarySquareScan` (Java, in-process, session-cached) sweeps a 2-D
+`(X,Y)` unit-square grid over a 4-component system at fixed temperature,
+mapping to the quaternary composition simplex via the paper's Fig. 20
+formula (slot0..slot3 are role labels, not literal elements — which system
+element plays which slot is caller policy, see `run`'s `slotOrder`
+parameter):
+
+```
+x(slot0) = Y(1-X)
+x(slot1) = (1-X)(1-Y)
+x(slot2) = X(1-Y)
+x(slot3) = XY
+```
+
+This covers only a 2-D slice of the full 3-D quaternary simplex, not all of
+it: the square's corners and boundaries land exactly on the tetrahedron's
+corners/edges, but the interior sweeps one particular family of paths
+through the tetrahedron's interior, not every possible quaternary
+composition — the same caveat `TernaryGridScan`'s triangle doesn't need,
+since a 2-D triangle *is* the full ternary composition space.
+
+### Why two fixed slot orderings, always
+
+`QuaternarySquareScan.Variant` (`STANDARD` / `V_ZR_SWAPPED`) exists at the
+scan level — it swaps which formula expression feeds slots 2 and 3, so a
+second square reaches edges the first cannot. But all three frontends
+(`QuaternarySquareCommand`, `QuaternarySquarePlotPanel`) made a deliberate
+simplification on top of that: rather than expose a `variant`/`slotOrder`
+picker, each always computes and returns **exactly two** results for the
+caller's elements A-B-C-D — `A-B-C-D` and `A-B-D-C` (last two swapped) —
+both with `Variant.STANDARD`, varying `slotOrder` instead of `Variant` to
+get the second parametrization. Together these two square parametrizations
+reach all six binary edges of the composition tetrahedron; a single square
+only reaches four.
+
+This means `Variant.V_ZR_SWAPPED` is never actually invoked by any shipped
+frontend today — a future reader grepping for its callers will only find it
+in `QuaternarySquareScan` itself and in scratch smoke tests that exercise
+the scan's raw API directly. It is not dead code: it is the mechanism the
+"swap the last two elements" frontend behavior *could* have used, before
+the design settled on expressing the swap via `slotOrder` instead, which
+generalizes better (it works for any `slotOrder`, not just the specific
+Nb-Ti-V-Zr-shaped case the enum's naming suggests).
+
+### Region taxonomy — no `EDGE` region
+
+Unlike the ternary triangle, the square's boundary geometry is genuinely
+different, not just relabeled:
+
+- A ternary triangle boundary zeroes exactly **one** mole fraction (a 1-D
+  edge of a 2-D simplex) — `TernaryGridScan.Region.EDGE`, its own binary
+  sub-session.
+- A quaternary square boundary zeroes exactly **two** mole fractions at
+  once. Working through the formula at a boundary, say X=0:
+  `slot2 = X(1-Y) = 0` and `slot3 = XY = 0` simultaneously. This is already
+  a **binary** point, not a three-element "edge" case — hence the region is
+  named `SQUARE_EDGE_BINARY`, not `EDGE`.
+- A square corner (X,Y both in {0,1}) zeroes exactly **three** mole
+  fractions (a pure element), one more than a triangle corner's two.
+
+Three regions total, reached from `zeroCount` (how many of the four mole
+fractions are exactly 0) rather than which axis is at a boundary:
+
+- **`INTERIOR`** (`zeroCount == 0`) — a genuine quaternary CVM solve.
+- **`SQUARE_EDGE_BINARY`** (`zeroCount == 2`) — a genuine binary CVM solve,
+  extracted the same way `TernaryGridScan`'s `EDGE` points are (see above),
+  just for a 2-of-4 subset instead of 2-of-3.
+- **`CORNER`** (`zeroCount == 3`) — no calculation; G/H/S are trivially 0;
+  no point is emitted for SRO (undefined reference mole fraction).
+
+`zeroCount` can never be exactly 1 under this parametrization — see
+`QuaternarySquareScan.Region`'s Javadoc for the full derivation. An earlier
+draft of this scan assumed (wrongly, by analogy with the triangle) that a
+square boundary would zero exactly one component and built an `EDGE`
+region and a ternary-subsystem fallback for it; a smoke test's region
+counts immediately contradicted that assumption (`EDGE=0` where `>0` was
+expected), and the dead ternary-fallback code was removed rather than left
+unreachable.
+
+### `SubsystemExtractor` generalizes `BinarySubsystemExtractor`
+
+Solving a `SQUARE_EDGE_BINARY` point needs the same trick the ternary
+`EDGE` case needed: extract a true lower-order sub-Hamiltonian rather than
+evaluate the parent Hamiltonian at a zero-composition point (which stays
+numerically fragile even where fewer elements are actually involved — see
+the ternary section above). Here that means extracting a **binary**
+sub-Hamiltonian from a **quaternary** parent — a 2-of-4 subset, not the
+ternary case's 2-of-3.
+
+Rather than duplicate `BinarySubsystemExtractor`'s letter-canonicalization
+logic for a different subset size — which CLAUDE.md's "what not to do"
+section explicitly prohibits for any ECI-matching logic — `SubsystemExtractor.extract(parentEntry,
+parentElements, subsetElements)` generalizes it to **any N-of-M subset**
+(2 ≤ N ≤ M). `BinarySubsystemExtractor.extractBinary` is now a thin wrapper
+that calls it with a 2-element subset; behavior is unchanged (verified
+byte-for-byte against `BinaryExtractionVerification`, which still passes
+24/24 published Table 17 values). The three CVCF term-name spellings it
+resolves — internal letter form (`v21AB`), positional (`CF_45`, via
+`CvCfBasis`), and the paper's element-named form (`e2NbTi1`) — are
+unchanged from the original class, just parameterized over subset size
+instead of hardcoded to 2.
+
+### Why Python still renders, but more simply
+
+`SquarePlotRenderer` + `scripts/square_section.py` follow the same
+Java-computes/Python-renders split as `TernaryPlotRenderer` (see above), but
+the renderer itself is much thinner: the `(X,Y)` square is already
+Cartesian, so no special ternary-axis library is needed — plain
+`matplotlib.pyplot.tricontourf` over the (possibly irregular) computed point
+set does the job.
+
+Contour and colorbar levels are chosen via `matplotlib.ticker.MaxNLocator`
+(`plt.MaxNLocator(nbins=10).tick_values(vmin, vmax)`), which auto-rounds to
+a step sized to the *data's own range* — multiples of 1000 for a
+Gibbs-energy plot spanning tens of thousands of J/mol, multiples of 0.05 for
+an SRO plot spanning roughly [-1,1], multiples of 1 for an entropy plot
+spanning a few J/mol·K — rather than a single hardcoded step that would look
+wrong for at least one of those quantities. Colorbar tick labels are
+formatted with thousands separators and only as many decimals as the chosen
+step actually needs (`0` for a 1000-step, `2` for a 0.05-step).
+
+### SRO — same caveats as ternary
+
+Only 1st-neighbour pair SRO is exposed here too, for the identical reason:
+most triangle/tetrahedron CVCF correlation functions are `diff`-type signed
+combinations of probabilities, not a single physical probability with a
+natural `[0,1]` reference — see the ternary section above ("SRO in the
+ternary grid") for the full argument, which applies unchanged. A pair-SRO
+request only attempts that pair's own `SQUARE_EDGE_BINARY` points, mirroring
+`isPairEdge` in the ternary case.
+
+---
+
 ## Key files for context
 
 | File | Why |
@@ -473,10 +608,15 @@ a real computation was attempted and failed.
 | `ui/cli/ApiCommand.java` | JSON API for external callers |
 | `ui/cli/TernaryGridCommand.java` | JSON API for ternary composition-grid scans (`ternary_grid` subcommand); optional `"render":true` returns a base64 PNG |
 | `calculation/workflow/TernaryGridScan.java` | In-process ternary composition-grid sweep, near-edge interpolation via binary-edge fallback |
-| `calculation/workflow/BinarySubsystemExtractor.java` | Extracts a binary CVCF sub-Hamiltonian for one pair from a ternary+ Hamiltonian's inherited terms |
+| `calculation/workflow/BinarySubsystemExtractor.java` | Thin wrapper over `SubsystemExtractor.extract` for one 2-element pair |
 | `calculation/workflow/TernaryPlotRenderer.java` | Shells out to `scripts/isothermal_section.py` (mpltern) to render a grid result to PNG |
+| `ui/cli/QuaternarySquareCommand.java` | JSON API for quaternary square-plot scans (`quaternary_square` subcommand); always returns two fixed slot-order results (A-B-C-D, A-B-D-C), each with its own optional `"render":true` PNG |
+| `calculation/workflow/QuaternarySquareScan.java` | In-process quaternary (X,Y)-square composition sweep; region taxonomy INTERIOR/SQUARE_EDGE_BINARY/CORNER (no EDGE — see the square-plot section above) |
+| `calculation/workflow/SubsystemExtractor.java` | Extracts a sub-Hamiltonian for any N-of-M element subset; the shared engine behind `BinarySubsystemExtractor` |
+| `calculation/workflow/SquarePlotRenderer.java` | Shells out to `scripts/square_section.py` (plain matplotlib) to render a square-plot grid result to PNG |
 | `ui/gui/DynamicCalculationPanel.java` | GUI calculation entry point |
 | `ui/gui/TernaryPlotPanel.java` | GUI ternary isothermal-section panel (explorer column controls) |
+| `ui/gui/QuaternarySquarePlotPanel.java` | GUI quaternary square-plot panel; always computes/shows both A-B-C-D and A-B-D-C plots side by side |
 | `ui/gui/WorkbenchContext.java` | GUI session state, listeners |
 | `CEWorkbenchContext.java` | App wiring — how layers connect |
 
@@ -552,3 +692,41 @@ cross-comparison alone.
 This covers one interior composition. The near-edge band (e.g. x=[0.05, 0.05, 0.90]
 on the same system) is where **both** solvers still fail — a separate open item,
 not covered here.
+
+For changes to `SubsystemExtractor`/`BinarySubsystemExtractor`
+(`calculation/workflow/**`), also run:
+
+```bash
+./gradlew runScratch -PscratchClass=org.ce.scratch.BinaryExtractionVerification
+```
+
+Extracts all six binary pairs from the Nb-Ti-V-Zr Hamiltonian and checks all
+24 nonzero values against Table 17 of Jindal & Lele 2025 **as published**,
+not against the stored Hamiltonian file — so this checks the stored data
+against the paper, not just internal self-consistency. Expect
+`RESULT: PASS   (0 failures)`.
+
+For changes to `QuaternarySquareScan`/`SquarePlotRenderer` or the
+quaternary-square frontends (`ui/cli/QuaternarySquareCommand.java`,
+`ui/gui/QuaternarySquarePlotPanel.java`), also run:
+
+```bash
+./gradlew runScratch -PscratchClass=org.ce.scratch.QuaternarySquareScanSmokeTest
+./gradlew runScratch -PscratchClass=org.ce.scratch.SquarePlotRenderSmokeTest
+./gradlew runScratch -PscratchClass=org.ce.scratch.QuaternarySquarePlotPanelSmokeTest
+```
+
+`QuaternarySquareScanSmokeTest` runs both `Variant`s at a coarse grid,
+asserts region counts match the derived square geometry (4 `CORNER`, a
+bound on `SQUARE_EDGE_BINARY`, no unaccounted points), and cross-checks an
+`INTERIOR` point's scan value against a direct `CalculationService.calculate`
+call at the same composition. `SquarePlotRenderSmokeTest` runs the real
+Java-computes/Python-renders pipeline end to end (both variants, plus an
+entropy plot at n=50) and saves the PNGs under `scripts/` for visual
+inspection — not an assertion gate, `RESULT: PASS` just means it completed.
+`QuaternarySquarePlotPanelSmokeTest` constructs the real Swing objects
+(`QuaternarySquarePlotPanel`, `OutputPanel`, `ExplorerPanel`, `ActivityBar`)
+without showing a window, catching construction-time and array-index wiring
+bugs a purely computational test can't see — this is what caught the
+slot-default bug described in CHANGELOG.md's 2026-08-20 entry. Expect
+`RESULT: PASS   (0 failures)` from all three.

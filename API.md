@@ -396,3 +396,141 @@ if "image" in resp:
 elif "renderError" in resp:
     print("render failed, using raw points instead:", resp["renderError"])
 ```
+
+---
+
+## Quaternary square plots (`quaternary_square`)
+
+A separate JSON stdin/stdout subcommand for composition-grid scans over a
+4-component system at fixed temperature — the data behind the "square plot"
+of Fig. 20, Jindal & Lele 2025. The unit `(X,Y)` square is mapped onto the
+quaternary composition simplex via that figure's parametrization; see
+CLAUDE.md for the formula and why it covers only a 2-D slice of the full 3-D
+simplex.
+
+**There is no `slotOrder` or `variant` request field.** Given
+`system.elements` as `A-B-C-D`, the command always computes and returns
+**exactly two** square parametrizations — `A-B-C-D` and `A-B-D-C` (the last
+two elements swapped) — because together they reach all six binary edges of
+the composition tetrahedron; a single square only reaches four. This is
+deliberate: the caller doesn't have to know or choose which slot ordering to
+ask for.
+
+```json
+{"system":      {"elements":"Nb-Ti-V-Zr","structure":"BCC_A2","model":"T","engine":"CVM"},
+ "calculation": "GIBBS_ENERGY",
+ "temperature": 1273,
+ "n": 50}
+```
+
+`n` is the grid resolution (subdivisions per square axis; point count is
+`(n+1)^2`, default **50** — note this differs from `ternary_grid`'s default
+of 20). `calculation` accepts `GIBBS_ENERGY`, `ENTHALPY`, `ENTROPY`, or `SRO`.
+
+### Short-range order (`"calculation": "SRO"`)
+
+Same idea as the ternary case: the 1st-neighbour Cowley-Warren pair SRO
+parameter for one unlike species pair, requiring a `"pair"` field (both
+elements must be in `system.elements`):
+
+```json
+{"system":      {"elements":"Nb-Ti-V-Zr","structure":"BCC_A2","model":"T","engine":"CVM"},
+ "calculation": "SRO",
+ "pair":        ["Nb","Ti"],
+ "temperature": 1273,
+ "n": 50}
+```
+
+Only 1st-neighbour pair SRO is exposed, for the same reasons as the ternary
+case — see that section above. `α` is undefined at a pure-element corner; no
+point is emitted there for an SRO request.
+
+### Response
+
+The top-level response always carries a `"results"` array with **exactly two
+entries**, one per slot ordering, each with its own `points`/`skipped`
+(and, if requested, its own `image`):
+
+```json
+{"ok": true,
+ "structure": "BCC_A2", "model": "T", "engine": "CVM",
+ "temperature": 1273.0, "calculation": "GIBBS_ENERGY",
+ "results": [
+   {"slotOrder": "Nb-Ti-V-Zr",
+    "elements": ["Nb","Ti","V","Zr"],
+    "skipped": 0,
+    "points": [
+      {"x":0.0, "y":0.0, "Nb":0.0, "Ti":1.0, "V":0.0, "Zr":0.0, "value":0.0, "region":"CORNER"},
+      {"x":0.5, "y":0.5, "Nb":0.25, "Ti":0.25, "V":0.25, "Zr":0.25, "value":-8123.4, "region":"INTERIOR"}
+    ]},
+   {"slotOrder": "Nb-Ti-Zr-V",
+    "elements": ["Nb","Ti","Zr","V"],
+    "skipped": 0,
+    "points": [ "..." ]}
+ ]}
+```
+
+Each result's points use that result's own `elements` order for the
+per-element mole-fraction keys — `slotOrder: "Nb-Ti-Zr-V"` names its points'
+fields `Nb`/`Ti`/`Zr`/`V`, not `Nb`/`Ti`/`V`/`Zr`.
+
+Every point falls into exactly one of **three** regions — one fewer than the
+ternary case, because the square's geometry is different from the triangle's:
+
+- **`INTERIOR`** (all four mole fractions > 0) — a genuine quaternary CVM
+  solve.
+- **`SQUARE_EDGE_BINARY`** (exactly two mole fractions = 0) — a genuine
+  **binary** CVM solve, extracted the same way `ternary_grid`'s `EDGE`
+  points are (see CLAUDE.md), just for a 2-of-4 subset instead of 2-of-3.
+  There is no `EDGE`-equivalent region here: a square boundary (one of X,Y
+  at 0 or 1) always zeroes two mole fractions at once, not one, so what
+  would be an "edge" case in the triangle is already a binary point here.
+- **`CORNER`** (three mole fractions = 0, i.e. a pure element) — no
+  calculation; G/H/S are analytically 0, and no point is emitted for SRO.
+
+`"skipped"` means the same thing as in `ternary_grid`: a real computation
+was attempted (an interior or square-edge-binary solve) and failed to
+converge, never "this quantity doesn't apply here."
+
+### Getting rendered images, not just numbers
+
+Add `"render": true` to have the server also render each of the two results
+and return each as embedded base64 PNG — **one image per result entry**,
+not one top-level image:
+
+```json
+{"system": {"elements":"Nb-Ti-V-Zr","structure":"BCC_A2","model":"T","engine":"CVM"},
+ "calculation": "GIBBS_ENERGY", "temperature": 1273, "n": 50, "render": true}
+```
+
+```json
+{"ok": true, "...": "...",
+ "results": [
+   {"slotOrder": "Nb-Ti-V-Zr", "...": "...",
+    "image": {"format": "png", "base64": "iVBORw0KGgoAAAANS..."}},
+   {"slotOrder": "Nb-Ti-Zr-V", "...": "...",
+    "image": {"format": "png", "base64": "iVBORw0KGgoAAAANS..."}}
+ ]}
+```
+
+Points are always included regardless of `render`. Rendering shells out to
+`scripts/square_section.py` — plain matplotlib, **not** mpltern; unlike the
+ternary triangle, the `(X,Y)` square is already Cartesian, so no special
+ternary-axis plotting library is needed. Requires a working `python` on
+`PATH` with `matplotlib`/`numpy` installed. A rendering failure is reported
+per-result as `"renderError"` instead of `"image"`, without failing the
+request or the other result.
+
+```python
+resp = call_quaternary_square({  # same call() pattern as above, subcommand "quaternary_square"
+    "system": {"elements":"Nb-Ti-V-Zr","structure":"BCC_A2","model":"T","engine":"CVM"},
+    "calculation": "GIBBS_ENERGY", "temperature": 1273, "n": 50, "render": True,
+})
+import base64
+for r in resp["results"]:
+    if "image" in r:
+        with open(f"square_{r['slotOrder']}.png", "wb") as f:
+            f.write(base64.b64decode(r["image"]["base64"]))
+    elif "renderError" in r:
+        print(f"render failed for {r['slotOrder']}, using raw points instead:", r["renderError"])
+```

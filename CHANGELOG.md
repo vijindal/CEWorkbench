@@ -203,6 +203,20 @@ A frozen verbatim copy of `CVMGibbsModel` as it stood at commit `18b965d`, befor
 
 ---
 
+## 2026-08-20 — Quaternary square-plot feature (CLI, API, GUI)
+
+Implements Fig. 20-style "square plots" (Jindal & Lele 2025) for quaternary systems, sharing one core codebase across CLI, JSON API, and GUI (per CLAUDE.md's frontend-sharing requirement).
+
+- **`QuaternarySquareScan`** (`calculation/workflow/`) — (X,Y)-square composition sweep over a 4-component system at fixed temperature, mirroring `TernaryGridScan`'s region-classification approach but with a genuinely different taxonomy: `INTERIOR` / `SQUARE_EDGE_BINARY` / `CORNER` — no `EDGE` region, since a square boundary zeroes two mole fractions at once (not one, as at a triangle edge) and a square corner zeroes three (not two).
+- **`SubsystemExtractor`** (`calculation/workflow/`) — generalizes `BinarySubsystemExtractor`'s letter-canonicalization logic to an arbitrary N-of-M element subset; `BinarySubsystemExtractor` is now a thin wrapper over it (2-of-N is just one call). Verified byte-for-byte behavior-preserving against the existing `BinaryExtractionVerification` gate.
+- **`SquarePlotRenderer`** + **`scripts/square_section.py`** — Java computes, Python renders, same split as the ternary case, but the renderer is plain matplotlib `tricontourf` rather than mpltern, since the (X,Y) square is already Cartesian and needs no special ternary-axis library. Contour/colorbar levels auto-round to a step sized to the data's own range via matplotlib's `MaxNLocator`, rather than a fixed unit — verified against both a Gibbs-energy plot (clean 1000s) and an entropy plot at n=50 (clean integer J/mol·K steps).
+- **CLI/API**: new `quaternary_square` subcommand (`QuaternarySquareCommand`, wired into `Main.java`). Always computes and returns exactly two fixed slot orderings for the given elements A-B-C-D — A-B-C-D and A-B-D-C — since together they cover all six binary edges of the composition tetrahedron; no manual variant/slot-order picker in the request. Response's top-level `"results"` array always has 2 entries, each with its own points/skipped/image. Default grid resolution `n=50`.
+- **GUI**: new `QuaternarySquarePlotPanel`, 5th explorer tab ("QUATERNARY SQUARE" / "QS" in the activity bar), always renders both plots side by side in `OutputPanel`.
+- A real bug was caught and fixed mid-implementation: the GUI panel's per-slot element-default logic checked `getSelectedItem() == null` to decide when to apply a positional default, but `JComboBox.addItem` always auto-selects the first item after repopulation, so all four slots silently defaulted to the same element. Caught via an actual screenshot of the running app, then pinned with a regression check in `QuaternarySquarePlotPanelSmokeTest`. (This bug predates, and was fixed before, the later design change that removed the slot pickers from the UI entirely — see below.)
+- Partway through the work, the design was simplified: an initial version exposed manual slot-role dropdowns and a `Variant` picker in both the CLI request and the GUI form. This was replaced with the current "always both fixed orderings, derived automatically from element order" contract — simpler for callers, and removes an entire class of "which slots did you mean" user error. `QuaternarySquareScan.Variant` (`STANDARD`/`V_ZR_SWAPPED`) still exists at the core-scan level, but all three frontends now call it only with `STANDARD`, expressing the second parametrization via `slotOrder` instead.
+
+Verified end-to-end (real CLI via the installed launcher, real Python renderer, real Swing wiring, an actual screenshot of the running GUI) with no regressions across existing gates (`BinaryExtractionVerification`, `TernaryReferenceValidation`, `GuiPathSmokeTest`, the three CLAUDE.md CLI baselines).
+
 ## 2026-08-19 — 2026-08-20 — CVM evaluator/solver split, SGTE reference energy, Hillert solver
 
 Undertaken to make the `G` expressions auditable: `CVMGibbsModel` was both evaluator and optimizer, which is what made them hard to review in isolation.

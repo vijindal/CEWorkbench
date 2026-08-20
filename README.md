@@ -57,6 +57,8 @@ The method follows Jindal & Lele, *Calphad* **89** (2025) 102825.
   [USER_GUIDE](USER_GUIDE.md#supported-systems) for exact K coverage).
 - Gibbs energy, enthalpy, entropy, correlation functions, Cowley-Warren SRO.
 - Temperature and composition scans.
+- Ternary isothermal-section and quaternary square-plot composition scans
+  and rendered contour plots (GUI, CLI, JSON API).
 - GUI, CLI, a Java API, and a JSON API for calling from other languages.
 
 **Known limitations — read before relying on results**
