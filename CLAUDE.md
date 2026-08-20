@@ -527,12 +527,23 @@ composition, `ncf` system) and `HillertSolver` (composition as unknown, widened
 evaluator, so agreement between them and with the reference is evidence about
 `CVMGibbsModel` itself.
 
-**The CF comparison applies a known index permutation** (`REF_TO_OURS`):
-`v3ABC1`/`v3ABC3` and the whole `v21`/`v22` pair block are ordered differently
-in our basis than in the reference's `u2List`. Both differences are long-standing
-and deliberately unfixed — our ordering is internally consistent, only the labels
-differ. Comparing position-by-position reports eight false mismatches. If the
-ordering is ever reconciled, that table is what changes.
+**The reference is stored as (ECI, CF) pairs, and checked as pairs.** The two
+codes differ in cluster-algebra conventions — labels may be exchanged, and block
+order differs (the reference emits the 1NN pair block before 2NN; we emit 2NN
+first). Each code is internally consistent, but neither a position nor a label
+identifies a cluster across them on its own. What must correspond is the cluster:
+the ECI and the equilibrium CF have to be the same one. The gate resolves a name,
+checks the ECI at that slot, and only then compares the CF — a CF checked alone
+could pass while attached to the wrong cluster, if a label were exchanged
+consistently in both the ECI input and the CF output.
+
+Two conventions are reconciled, and they differ in kind: pair CFs are spelled
+shell-last in the reference (`v2AB1`) and shell-first here (`v21AB`), which is a
+spelling difference, not a reordering — the `v21`/`v22` blocks are **not**
+transposed, though a positional read of an unlabelled vector makes them look as
+though they are. Separately, `v3ABC1`/`v3ABC3` genuinely are exchanged; both carry
+ECI 0, so the ECI cannot discriminate there and that one mapping rests on the CF
+cross-comparison alone.
 
 μ is not compared entry-by-entry: for a single phase it is underdetermined
 (one Gibbs-Duhem equation, K unknowns), so the gate asserts `Σμᵢxᵢ = G` instead.

@@ -12,6 +12,7 @@ import org.ce.model.storage.Workspace.SystemId;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Validates both CVM minimisers against a Mathematica {@code phaseq} reference
@@ -38,15 +39,29 @@ import java.util.List;
  * <p>Agreement between them, and with an external reference, is therefore
  * evidence about {@code CVMGibbsModel} itself rather than about one loop.</p>
  *
- * <p><b>The CF index permutation is expected, not a defect.</b> Our CVCF basis
- * order and the reference's {@code u2List} order differ by four transpositions
- * (see {@link #REF_TO_OURS}): {@code v3ABC1}/{@code v3ABC3}, and the whole
- * {@code v21}/{@code v22} 1NN/2NN pair block. Both differences are long-known
- * and were deliberately left unfixed -- our ordering is internally consistent
- * and only the labels disagree. This gate therefore compares under the
- * permutation; comparing position-by-position would report eight false
- * mismatches. If the permutation is ever removed, this table is what must
- * change, and the mismatch will be loud rather than silent.</p>
+ * <p><b>The reference is stored as (ECI, CF) pairs</b>, in {@link #REFERENCE}.
+ * The two codes differ in cluster-algebra conventions -- labels may be
+ * exchanged, and block order differs -- so neither a position nor a label
+ * identifies a cluster across them on its own. What must correspond is the
+ * cluster: the ECI and the equilibrium CF have to be the same one. Checking the
+ * ECI at the slot a name resolves to is what establishes that; a CF checked
+ * alone could pass while attached to the wrong cluster, if a label were
+ * exchanged consistently in both input and output. See {@link #REFERENCE} for
+ * the full reasoning.</p>
+ *
+ * <p>Two conventions are reconciled to make the match, and they are different
+ * in kind:</p>
+ * <ol>
+ *   <li><b>A spelling difference, not a reordering.</b> The reference writes
+ *       pair CFs shell-last ({@code v2AB1} = pair AB, 1st shell); we write them
+ *       shell-first ({@code v21AB}). {@link #canonical} decodes both. Every pair
+ *       CF and ECI agrees once decoded -- the {@code v21}/{@code v22} blocks are
+ *       <em>not</em> transposed, though the reference emits 1NN before 2NN while
+ *       we emit 2NN first, which makes a positional read of an unlabelled vector
+ *       look as though they are.</li>
+ *   <li><b>One real labelling difference</b>, {@link #REF_TO_OURS_NAME}:
+ *       {@code v3ABC1} and {@code v3ABC3} are exchanged. Deliberately unfixed.</li>
+ * </ol>
  *
  * <p><b>Chemical potential is deliberately not compared entry-by-entry.</b>
  * For a single phase the only constraint on mu is one Gibbs-Duhem equation, so
@@ -77,28 +92,76 @@ public final class TernaryReferenceValidation {
     /** Reference mu -- one valid solution of the underdetermined np=1 system. */
     private static final double[] REF_MU = { -73827.8, -59613.7, -74148.9 };
 
-    /** Converged CFs in the reference's own {@code u2List} order. */
-    private static final double[] REF_CF = {
-            0.01314,     0.0205594,   0.00865153,  0.016275,    0.0134986,   0.016106,
-            0.00523559,  0.00647258,  0.000333726, 0.0453497,   0.0403362,   0.0437667,
-            0.116077,    0.132253,    0.105641,    0.11387,     0.119071,    0.108481 };
+    /**
+     * The reference point, stored as {@code (name, ECI, converged CF)} triples
+     * in the reference's own emission order.
+     *
+     * <p><b>Why ECI and CF are stored together.</b> The two codes differ in
+     * cluster-algebra conventions: labels may be exchanged, and block order
+     * differs (the reference emits the 1NN pair block before 2NN, we emit 2NN
+     * first). Each code is internally consistent -- within it, ECI slot
+     * {@code i} and CF slot {@code i} describe the same cluster -- but neither
+     * a position nor a label is meaningful across the two on its own.</p>
+     *
+     * <p>The ECI is what identifies the cluster. A CF value checked alone could
+     * pass while attached to the wrong cluster, if a label were exchanged
+     * consistently in both the ECI input and the CF output. Requiring the ECI to
+     * match at the same slot removes that possibility: the pair is the unit of
+     * meaning, so the gate validates pairs.</p>
+     *
+     * <p>ECIs are from the Mo-Nb-Ta Hamiltonian (J/mol, temperature-independent
+     * here); CFs are the converged values at the reference point, cross-checked
+     * against both a labelled Mathematica NR dump and the positional
+     * {@code phaseq} trace, which agree exactly.</p>
+     */
+    private static final RefTerm[] REFERENCE = {
+            new RefTerm("v4AB",        0.0, 0.01314),
+            new RefTerm("v4AC",        0.0, 0.0205594),
+            new RefTerm("v4BC",        0.0, 0.00865153),
+            new RefTerm("v4ABC1",      0.0, 0.016275),
+            new RefTerm("v4ABC2",      0.0, 0.0134986),
+            new RefTerm("v4ABC3",      0.0, 0.016106),
+            new RefTerm("v3AB",      894.0, 0.00523559),
+            new RefTerm("v3AC",    -1802.0, 0.00647258),
+            new RefTerm("v3BC",     -630.0, 0.000333726),
+            new RefTerm("v3ABC1",      0.0, 0.0453497),
+            new RefTerm("v3ABC2",      0.0, 0.0403362),
+            new RefTerm("v3ABC3",      0.0, 0.0437667),
+            new RefTerm("v2AB1",  -23774.0, 0.116077),
+            new RefTerm("v2AC1",  -40107.0, 0.132253),
+            new RefTerm("v2BC1",   -1002.0, 0.105641),
+            new RefTerm("v2AB2",  -11887.0, 0.11387),
+            new RefTerm("v2AC2",  -20054.0, 0.119071),
+            new RefTerm("v2BC2",    -501.0, 0.108481) };
+
+    /** One reference cluster: its name, its ECI, and its converged CF. */
+    private record RefTerm(String name, double eci, double cf) {
+    }
 
     /**
-     * {@code REF_TO_OURS[i]} is the index in <em>our</em> CVCF order holding the
-     * quantity the reference stores at its index {@code i}. Identity except for
-     * the four known transpositions described in the class documentation.
+     * The one genuine labelling difference: our {@code v3ABC1} holds what the
+     * reference calls {@code v3ABC3}, and vice versa. Same three numbers, two
+     * labels transposed -- confirmed by cross-comparing the triple, where each
+     * of our values matches a reference value to ~1e-6 under exactly this
+     * exchange and no other.
+     *
+     * <p>These are {@code diff}-type CVCF correlation functions (signed
+     * combinations of occupation probabilities, per {@code CvCfBasis.VSpec}),
+     * so which of the three symmetry-distinct ABC triangle arrangements gets
+     * index 1 versus 3 is a convention, not physics. Both carry ECI 0 in this
+     * Hamiltonian, so the ECI cannot discriminate between them -- this mapping
+     * rests on the CF cross-comparison alone, and is noted as the weaker of the
+     * two identifications.</p>
      */
-    private static final int[] REF_TO_OURS = {
-            0, 1, 2, 3, 4, 5, 6, 7, 8,
-            11,           // ref v3ABC1 -> our v3ABC3 slot
-            10,
-            9,            // ref v3ABC3 -> our v3ABC1 slot
-            15, 16, 17,   // ref v22{AB,AC,BC} -> our v21 block
-            12, 13, 14 }; // ref v21{AB,AC,BC} -> our v22 block
+    private static final Map<String, String> REF_TO_OURS_NAME = Map.of(
+            "v3ABC1", "v3ABC3",
+            "v3ABC3", "v3ABC1");
 
     /** Scalars are quoted to 6 significant figures in the reference. */
     private static final double SCALAR_TOL = 1e-5;
     private static final double CF_TOL     = 1e-4;
+    /** ECIs are exact integers in the Hamiltonian; allow only rounding slack. */
+    private static final double ECI_TOL    = 0.5;
 
     private static int failures = 0;
 
@@ -182,21 +245,40 @@ public final class TernaryReferenceValidation {
         check(solver + " G == G0m + Gm",
                 Math.abs(st.g() - (st.g0m() + st.gm())) < 1e-9);
 
-        // CFs, compared under the known index permutation.
+        // Each reference cluster is validated as an (ECI, CF) pair. Matching
+        // is by name -- the two naming conventions are decoded by canonical()
+        // -- and the ECI must agree at the slot the name resolves to, which is
+        // what pins the CF to the right cluster rather than merely the right
+        // label. An unresolvable name is a failure, never a skip.
         double[] u = st.u();
+        double[] eci = st.eci();
         int bad = 0;
-        for (int i = 0; i < REF_CF.length; i++) {
-            int j = REF_TO_OURS[i];
-            double r = Math.abs((u[j] - REF_CF[i]) / REF_CF[i]);
+        for (RefTerm t : REFERENCE) {
+            String ourName = REF_TO_OURS_NAME.getOrDefault(t.name(), t.name());
+            int j = indexOfCanonical(names, ourName);
+            if (j < 0) {
+                bad++;
+                System.out.printf("    [!] %-8s has no counterpart in our basis%n", t.name());
+                continue;
+            }
+            // ECI first: it identifies the cluster the CF belongs to.
+            double dEci = Math.abs(eci[j] - t.eci());
+            if (dEci > ECI_TOL) {
+                bad++;
+                System.out.printf("    [!] ECI ref %-7s vs ours %-7s  %.4f vs %.4f  (cluster mismatch)%n",
+                        t.name(), names.get(j), eci[j], t.eci());
+                continue;   // CF is not meaningful if the cluster disagrees
+            }
+            double r = Math.abs((u[j] - t.cf()) / t.cf());
             if (r >= CF_TOL) {
                 bad++;
-                System.out.printf("    [!] CF %-8s ours[%2d]=%.9f  ref[%2d]=%.7f  rel=%.2e%n",
-                        names.get(j), j, u[j], i, REF_CF[i], r);
+                System.out.printf("    [!] CF  ref %-7s vs ours %-7s  %.9f vs %.7f  rel=%.2e%n",
+                        t.name(), names.get(j), u[j], t.cf(), r);
             }
         }
-        check(solver + " all 18 CFs match reference (under permutation)", bad == 0);
-        System.out.printf("    %d/%d CFs match to %.0e relative%n",
-                REF_CF.length - bad, REF_CF.length, CF_TOL);
+        check(solver + " all 18 (ECI, CF) pairs match reference", bad == 0);
+        System.out.printf("    %d/%d (ECI, CF) pairs match  [ECI exact to %.0f J/mol, CF to %.0e rel]%n",
+                REFERENCE.length - bad, REFERENCE.length, ECI_TOL, CF_TOL);
 
         if (mu != null) {
             // mu is underdetermined for np=1: assert the constraint, not the vector.
@@ -208,6 +290,31 @@ public final class TernaryReferenceValidation {
             check(solver + " Gibbs-Duhem: sum(mu*x) == G",
                     Math.abs(dot - st.g()) / Math.abs(st.g()) < 1e-9);
         }
+    }
+
+    /**
+     * Reduces either naming convention to {@code (order, pair, shell)} so the
+     * two can be compared: the reference spells a pair CF {@code v2<pair><shell>}
+     * and we spell it {@code v2<shell><pair>}.
+     */
+    private static String canonical(String name) {
+        if (name.startsWith("v2") && name.length() > 3) {
+            String rest = name.substring(2);
+            return Character.isDigit(rest.charAt(0))
+                    ? "2|" + rest.substring(1) + "|" + rest.charAt(0)   // ours
+                    : "2|" + rest.substring(0, rest.length() - 1)
+                            + "|" + rest.charAt(rest.length() - 1);      // reference
+        }
+        return name;
+    }
+
+    /** Index in {@code names} whose canonical form equals that of {@code wanted}. */
+    private static int indexOfCanonical(List<String> names, String wanted) {
+        String target = canonical(wanted);
+        for (int i = 0; i < names.size(); i++) {
+            if (canonical(names.get(i)).equals(target)) return i;
+        }
+        return -1;
     }
 
     private static void rel(String what, double ours, double ref) {
