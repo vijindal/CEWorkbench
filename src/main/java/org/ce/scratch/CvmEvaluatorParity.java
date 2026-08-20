@@ -3,7 +3,6 @@ package org.ce.scratch;
 import org.ce.CEWorkbenchContext;
 import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
-import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CvmEvaluator;
 import org.ce.model.cvm.CvmGeometry;
 import org.ce.model.cvm.CvmState;
@@ -14,17 +13,17 @@ import java.util.Random;
 
 /**
  * Parity gate for Step A of the evaluator/solver split: proves
- * {@link CvmEvaluator}/{@link CvmState} reproduce {@link CVMGibbsModel}
+ * {@link CvmEvaluator}/{@link CvmState} reproduce {@link PreFacadeCVMGibbsModel}
  * bit-for-bit at arbitrary points, before any caller is migrated to them.
  *
  * <p>Every expression in {@code CvmState} was ported verbatim from the
- * corresponding {@code CVMGibbsModel.calculateXxx}, so agreement should be
+ * corresponding {@code CVMGibbsModel.calculateXxx} (frozen in {@link PreFacadeCVMGibbsModel}), so agreement should be
  * exact -- not merely within a tolerance. Anything else means a field was
  * rebound wrongly during the move.</p>
  *
  * <p>Also runs a <b>finite-difference check of every gradient and Hessian
  * against the new evaluator's own energy</b>. That is the capability the split
- * exists to provide: {@code CVMGibbsModel.checkMinimized()} blocks evaluation
+ * exists to provide: {@code checkMinimized()} blocks evaluation
  * at an arbitrary point, so differentiating its free energy numerically was not
  * possible without going through the solver. This is the tool the {@code Gm}
  * expression audit needs.</p>
@@ -90,7 +89,7 @@ public final class CvmEvaluatorParity {
         ModelSession session = new ModelSession.Builder(context.getHamiltonianStore())
                 .build(new SystemId(elements, structure, model), EngineConfig.CVM, null);
 
-        CVMGibbsModel legacy = new CVMGibbsModel();
+        PreFacadeCVMGibbsModel legacy = new PreFacadeCVMGibbsModel();
         legacy.initialize(elements, structure, model, session.cecEntry, null);
 
         CvmGeometry geo = CvmGeometry.build(elements, structure, model, null);
@@ -117,7 +116,7 @@ public final class CvmEvaluatorParity {
             // play is reported so a negative Sm is not mistaken for a defect.
 
             CvmState st = ev.stateAt(t, x, u);
-            CVMGibbsModel.ModelResult legacyResult = legacy.evaluate(u, x, t);
+            PreFacadeCVMGibbsModel.ModelResult legacyResult = legacy.evaluate(u, x, t);
 
             System.out.printf("  T=%.0f x=%s  cvValid=%s%n", t, fmt(x), st.isValid());
 
@@ -133,7 +132,7 @@ public final class CvmEvaluatorParity {
 
             // Widened quantities: compare against the legacy per-phase path,
             // which is the only consumer of the Full variants.
-            CVMGibbsModel.PerPhaseStepResult ignored = legacy.solvePerPhaseStep(concat(u, x), t);
+            PreFacadeCVMGibbsModel.PerPhaseStepResult ignored = legacy.solvePerPhaseStep(concat(u, x), t);
             if (ignored == null) {
                 fail("solvePerPhaseStep returned null");
             }
