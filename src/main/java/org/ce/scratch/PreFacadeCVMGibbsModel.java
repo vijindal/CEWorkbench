@@ -17,28 +17,51 @@ import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
 
 /**
- * Physical model for the Cluster Variation Method (CVM).
- *
- * <p>
- * Encapsulates the structural geometry, multiplicities, and entropy
- * coefficients.
- * Provides the Gibbs free energy functional, its derivatives, and owns the full
- * Newton-Raphson equilibrium minimisation loop.
- * </p>
- */
-/**
  * Frozen copy of {@code CVMGibbsModel} as it stood at commit 18b965d, before
- * it became a facade over {@code CvmEvaluator}.
+ * it became a facade over the extracted evaluator.
  *
- * <p>Kept solely so {@link CvmEvaluatorParity} retains an independent second
- * implementation of the free-energy expressions. Once the production class
- * delegates to the evaluator, comparing against it would compare the evaluator
- * to itself and pass vacuously -- the same reason
+ * <p>Kept so the parity gates retain an independent second implementation of
+ * the free-energy expressions and the Newton-Raphson loop. Comparing the
+ * production class against itself would pass vacuously -- the same reason
  * {@code HardcodedLatticeStability} was frozen when {@code LatticeStability}
  * became a facade over {@code SgteDatabase}.</p>
  *
  * <p><b>Not for production use, and not to be "fixed".</b> It is a historical
  * artifact carrying the pre-refactor arithmetic verbatim.</p>
+ *
+ * <h2>It is NOT a correctness reference at dilute compositions</h2>
+ *
+ * <p>This copy still applies {@code ENTROPY_SMOOTH_EPS = 1e-6}, the entropy
+ * smoothing that {@code CVMGibbsModel} dropped in commit e0ae850. That
+ * threshold was found to be the cause of near-edge non-convergence: at
+ * Mo-Nb-Ta / 1000 K / x=[0.05, 0.05, 0.90] the true solution has a cluster
+ * variable at 1.9e-08, so the smoothed function being minimised had its
+ * minimum somewhere else entirely.</p>
+ *
+ * <p><b>Where the smoothing engaged, this copy is the buggy version.</b>
+ * Comparing against it at such a composition would assert the bug. The gates
+ * stay honest only because of what they test:</p>
+ * <ul>
+ *   <li>{@link CvmNewtonSolverParity} runs Nb-Ti / Nb-Ti-V / Nb-Ti-V-Zr, whose
+ *       cluster variables never fall below the old threshold, so the smoothing
+ *       never engaged and the comparison is genuine.</li>
+ *   <li>{@link CvmEvaluatorParity} skips states outside the physical region,
+ *       where this copy returns the penalty's value (a positive {@code Gm} and
+ *       a negative entropy of mixing -- both unphysical), and reports the
+ *       count so the skip cannot hide.</li>
+ * </ul>
+ *
+ * <p>Neither gate covers Mo-Nb-Ta, which is why both stayed green throughout
+ * the smoothing investigation. That gap is covered instead by
+ * {@link TernaryReferenceValidation}, against an external Mathematica
+ * reference -- a better anchor than a frozen copy.</p>
+ *
+ * <h2>Scheduled for deletion</h2>
+ *
+ * <p>This file exists to prove the evaluator/solver split preserved behaviour.
+ * Once that is no longer in question it becomes 1300 lines asserting agreement
+ * with a version containing a known bug. See CHANGELOG.md, "Deferred cleanup",
+ * for the removal criteria.</p>
  */
 public class PreFacadeCVMGibbsModel {
 

@@ -183,6 +183,24 @@ Verification plan:
 - *Automated*: queueing verification (concurrent request testing to ensure serial execution); contract verification (unit tests for `ModelSpecification` validation within the engines).
 - *Manual*: GUI feedback (monitoring the "Building..." vs "Running..." states in the terminal); scan visibility (verifying that chart points appear incrementally during a temperature scan).
 
+### 4. Deferred cleanup
+
+Work deliberately postponed, recorded so it is not lost rather than because it is blocked.
+
+**`src/main/java/org/ce/scratch/PreFacadeCVMGibbsModel.java` — 1334 lines, to be deleted.**
+
+A frozen verbatim copy of `CVMGibbsModel` as it stood at commit `18b965d`, before the evaluator/solver split. It exists so the parity gates compare against a real prior implementation instead of against the production class itself, which would pass vacuously.
+
+*Why it is still here:* `CvmNewtonSolverParity` asserts exact iteration-count parity for the Newton–Raphson loop on Nb-Ti / Nb-Ti-V / Nb-Ti-V-Zr, and `CvmEvaluatorParity` still matches 7 of 9 states exactly. That is genuine evidence the refactor preserved behaviour, and the refactor is recent.
+
+*Why it must eventually go:* it still applies `ENTROPY_SMOOTH_EPS = 1e-6`, removed from production in `e0ae850`. **Wherever the smoothing engaged, this copy is the buggy version** — comparing against it there would assert the bug. `CvmEvaluatorParity` already has to skip states outside the physical region for exactly this reason. The gates stay honest only because neither tests Mo-Nb-Ta, which is also why both stayed green throughout the smoothing investigation.
+
+*Delete when* the evaluator/solver split is settled enough that "did the refactor change behaviour?" is no longer a live question — the parity gates go with it. External validation against the Mathematica reference (`TernaryReferenceValidation`) is the better anchor and does not depend on this file.
+
+*Note:* `HardcodedLatticeStability` is the same kind of artifact, frozen when `LatticeStability` became a façade over `SgteDatabase`. It has no equivalent known-wrong region, so it is not on the same clock.
+
+---
+
 ---
 
 ## 2026-08-19 — 2026-08-20 — CVM evaluator/solver split, SGTE reference energy, Hillert solver
