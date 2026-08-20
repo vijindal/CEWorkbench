@@ -1,5 +1,6 @@
 package org.ce.calculation.workflow;
 
+import org.ce.model.cvm.CvCfBasis;
 import org.ce.model.hamiltonian.CECEntry;
 
 import java.util.ArrayList;
@@ -33,6 +34,23 @@ public final class BinarySubsystemExtractor {
 
     /** CVCF term-name pattern: a cluster-type prefix followed by 1-4 letters (species). */
     private static final Pattern TERM_NAME = Pattern.compile("^([a-zA-Z0-9]*?)([A-Z]+)(\\d*)$");
+
+    /**
+     * Positional name, e.g. {@code CF_45} — the spelling the Nb-Ti-V-Zr
+     * Hamiltonian actually stores. {@code CECEvaluator} resolves these as an
+     * index into the basis, and so does this class.
+     */
+    private static final Pattern CF_INDEX = Pattern.compile("^(?i:cf)_(\\d+)$");
+
+    /**
+     * The paper's own concrete spelling: {@code e2<Pair><shell>} with element
+     * symbols rather than letters, e.g. {@code e2NbTi1}, {@code e3NbZr},
+     * {@code e4VZr} (Jindal &amp; Lele 2025, Table 17, "CECs for the
+     * Nb-Ti-V-Zr system in the CVCF basis"). Note the shell trails the pair
+     * here, where our internal names put it first ({@code v21AB}).
+     */
+    private static final Pattern ELEMENT_NAMED =
+            Pattern.compile("^([a-zA-Z]+?)(\\d?)((?:[A-Z][a-z]?)+)(\\d*)$");
 
     /**
      * Extracts the binary sub-Hamiltonian for {@code elementA}/{@code elementB}
@@ -70,9 +88,15 @@ public final class BinarySubsystemExtractor {
         String parentLower = parentElements.get(loIdx);
         String parentHigher = parentElements.get(hiIdx);
 
+        // A Hamiltonian may spell its terms three ways (see canonicalName);
+        // resolve each to the internal letter form first, so the pair filter
+        // below has exactly one shape to reason about.
+        List<String> basisNames = basisNamesOrNull(parentEntry, parentElements.size());
+
         List<CECEntry.CECTerm> binaryTerms = new ArrayList<>();
         for (CECEntry.CECTerm term : parentEntry.cecTerms) {
-            String renamed = renameIfPairOnly(term.name, parentLetterLo, parentLetterHi);
+            String canonical = canonicalName(term.name, parentElements, basisNames);
+            String renamed = renameIfPairOnly(canonical, parentLetterLo, parentLetterHi);
             if (renamed == null) continue; // term references a 3rd/4th element, or isn't a pair-only term
 
             CECEntry.CECTerm copy = new CECEntry.CECTerm();
@@ -86,8 +110,13 @@ public final class BinarySubsystemExtractor {
         }
 
         if (binaryTerms.isEmpty()) {
+            String sample = parentEntry.cecTerms.length == 0 ? "(none)"
+                    : parentEntry.cecTerms[0].name;
             throw new IllegalArgumentException("No binary-pair CVCF terms found for ["
-                    + elementA + "," + elementB + "] in the parent Hamiltonian's cecTerms.");
+                    + elementA + "," + elementB + "] in the parent Hamiltonian's cecTerms"
+                    + " (first term is named '" + sample + "'; recognised spellings are"
+                    + " the internal letter form v21AB, the paper's e2NbTi1, and"
+                    + " positional CF_<index>).");
         }
 
         CECEntry binary = new CECEntry();
@@ -135,6 +164,90 @@ public final class BinarySubsystemExtractor {
         renamed.append(suffix);
         return renamed.toString();
     }
+
+
+    /**
+     * The parent basis's canonical CF names, or null if the combination is not
+     * registered. Only needed to resolve positional {@code CF_<index>} names.
+     */
+    private static List<String> basisNamesOrNull(CECEntry entry, int numComponents) {
+        try {
+            String model = entry.model == null ? "T" : entry.model.replace("_CVCF", "");
+            return CvCfBasis.getNonPointCfNames(entry.structurePhase, model, numComponents);
+        } catch (RuntimeException e) {
+            return null;   // unregistered combination; letter/element names still work
+        }
+    }
+
+    /**
+     * Resolves a stored term name to the internal letter form ({@code v21AB}).
+     *
+     * <p>Three spellings occur in practice and all mean the same cluster:</p>
+     * <ul>
+     *   <li><b>Internal letter form</b> — {@code v21AB}, {@code e21AB},
+     *       {@code v3AD}: species as A,B,C,... letters, shell first. Returned
+     *       unchanged.</li>
+     *   <li><b>Positional</b> — {@code CF_45}: an index into the basis, which
+     *       is what the Nb-Ti-V-Zr Hamiltonian stores. Resolved through
+     *       {@link CvCfBasis} so this class and {@code CECEvaluator} cannot
+     *       disagree about what index 45 means.</li>
+     *   <li><b>The paper's element-named form</b> — {@code e2NbTi1},
+     *       {@code e3NbZr} (Table 17). Element symbols instead of letters, and
+     *       the shell <em>trails</em> the pair. Translated back to letters via
+     *       the parent's element order.</li>
+     * </ul>
+     *
+     * <p>Returns the input unchanged when no rule applies; the caller's pair
+     * filter then rejects it, as it would any unrecognised name.</p>
+     */
+    private static String canonicalName(String name, List<String> parentElements,
+            List<String> basisNames) {
+        if (name == null) return "";
+
+        Matcher cf = CF_INDEX.matcher(name);
+        if (cf.matches() && basisNames != null) {
+            int idx = Integer.parseInt(cf.group(1));
+            if (idx >= 0 && idx < basisNames.size()) return basisNames.get(idx);
+            return name;
+        }
+
+        // Already in letter form? Then every letter is a valid species letter.
+        Matcher letters = TERM_NAME.matcher(name);
+        if (letters.matches() && allSpeciesLetters(letters.group(2), parentElements.size())) {
+            return name;
+        }
+
+        Matcher en = ELEMENT_NAMED.matcher(name);
+        if (en.matches()) {
+            String prefix = en.group(1);          // "e" / "v"
+            String order = en.group(2);           // cluster order digit, e.g. "2"
+            String symbols = en.group(3);         // "NbTi"
+            String shell = en.group(4);           // trailing shell, e.g. "1"
+
+            StringBuilder out = new StringBuilder(prefix).append(order).append(shell);
+            StringBuilder mapped = new StringBuilder();
+            for (Matcher sm = ELEMENT_SYMBOL.matcher(symbols); sm.find(); ) {
+                int i = indexOfIgnoreCase(parentElements, sm.group());
+                if (i < 0) return name;           // not an element of this system
+                mapped.append((char) ('A' + i));
+            }
+            if (mapped.length() == 0) return name;
+            return out.append(mapped).toString();
+        }
+        return name;
+    }
+
+    /** True if every character is a species letter within this system's range. */
+    private static boolean allSpeciesLetters(String letters, int numComponents) {
+        for (int i = 0; i < letters.length(); i++) {
+            int off = letters.charAt(i) - 'A';
+            if (off < 0 || off >= numComponents) return false;
+        }
+        return true;
+    }
+
+    /** One element symbol: an uppercase letter optionally followed by a lowercase one. */
+    private static final Pattern ELEMENT_SYMBOL = Pattern.compile("[A-Z][a-z]?");
 
     private static int indexOfIgnoreCase(List<String> list, String s) {
         for (int i = 0; i < list.size(); i++) {
