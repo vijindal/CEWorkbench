@@ -92,6 +92,15 @@ public class Main {
             return;
         }
 
+        // ── quaternary_square ────────────────────────────────────────────────
+        // JSON request on stdin -> JSON response on stdout: a quaternary
+        // (X,Y)-square composition scan at fixed temperature (Fig. 20 "square plot").
+        if (args.length > 0 && args[0].equals("quaternary_square")) {
+            boolean helpRequested = args.length > 1 && (args[1].equals("--help") || args[1].equals("-h"));
+            System.exit(QuaternarySquareCommand.run(appCtx, System.in, helpRequested));
+            return;
+        }
+
         // ── calc_min ─────────────────────────────────────────────────────────
         if (args.length > 0 && args[0].equals("calc_min")) {
             if (args.length < 6) {

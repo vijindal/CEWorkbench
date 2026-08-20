@@ -1,0 +1,358 @@
+package org.ce.ui.gui;
+
+import org.ce.calculation.CalculationDescriptor.Property;
+import org.ce.calculation.workflow.CalculationService;
+import org.ce.calculation.workflow.QuaternarySquareScan;
+import org.ce.calculation.workflow.SquarePlotRenderer;
+import org.ce.model.ModelSession;
+import org.ce.model.ProgressEvent;
+import org.ce.model.storage.Workspace.SystemId;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.util.List;
+import java.util.function.Consumer;
+
+/**
+ * Quaternary (X,Y)-square plot — control panel (explorer column).
+ *
+ * <p>Inputs only; the two rendered plots are shown side by side in the
+ * shared {@link OutputPanel}, matching {@link TernaryPlotPanel}'s
+ * convention of putting parameters in the explorer and results in the
+ * output panel.</p>
+ *
+ * <p>Always computes and shows exactly two fixed slot orderings for the
+ * given elements A-B-C-D (in the order the user types them): A-B-C-D and
+ * A-B-D-C. No manual slot-role or variant picker — the pair is fixed
+ * because, together, those two square parametrizations reach all six
+ * binary edges of the quaternary composition tetrahedron (see
+ * {@link QuaternarySquareScan.Variant}'s doc for why a single square
+ * cannot).</p>
+ *
+ * <p>Architecture: {@link QuaternarySquareScan} (Java, in-process,
+ * session-cached) computes each (X,Y) grid; each result is written as JSON
+ * and handed to {@code scripts/square_section.py} (plain matplotlib) for
+ * rendering — see {@link SquarePlotRenderer}. Java remains the single
+ * source of truth for the physics; Python only turns numbers into pixels.</p>
+ */
+public class QuaternarySquarePlotPanel extends JPanel {
+
+    private static final Color BG       = new Color(0x1E1E1E);
+    private static final Color LABEL_FG = new Color(0xBBBBBB);
+
+    private final WorkbenchContext          context;
+    private final CalculationService        service;
+    private final Consumer<String>          statusSink;
+    private final Consumer<String>          logSink;
+    private final java.util.function.BiConsumer<BufferedImage, BufferedImage> plotSink;
+    private final Consumer<String>          plotErrorSink;
+
+    private final JComboBox<String> elementsCombo  = makeEditable("Nb-Ti-V-Zr");
+    private final JComboBox<String> structureCombo = makeEditable("BCC_A2", "FCC_A1", "HCP_A3");
+    private final JComboBox<String> modelCombo     = makeEditable("T", "T2");
+    private final JLabel systemStatusLabel = new JLabel(" ");
+    private final JSpinner temperatureSpinner =
+            new JSpinner(new SpinnerNumberModel(1273.0, 1.0, 10000.0, 10.0));
+
+    private static final String SRO_OPTION = "SRO (1NN pair)";
+    private final JComboBox<String> quantityCombo =
+            new JComboBox<>(new String[] { "GIBBS_ENERGY", "ENTHALPY", "ENTROPY", SRO_OPTION });
+    private final JComboBox<String> pairCombo = new JComboBox<>();
+    private final JSpinner resolutionSpinner = new JSpinner(new SpinnerNumberModel(50, 5, 100, 5));
+
+    private final JButton runButton = new JButton("Compute & Plot");
+    private final JProgressBar progressBar = new JProgressBar(0, 100);
+
+    private SwingWorker<File[], Integer> activeWorker = null;
+
+    public QuaternarySquarePlotPanel(org.ce.CEWorkbenchContext appCtx, WorkbenchContext context,
+                             Consumer<String> statusSink, Consumer<String> logSink,
+                             java.util.function.BiConsumer<BufferedImage, BufferedImage> plotSink,
+                             Consumer<String> plotErrorSink) {
+        this.context       = context;
+        this.service       = appCtx.getCalculationService();
+        this.statusSink    = statusSink;
+        this.logSink       = logSink;
+        this.plotSink      = plotSink;
+        this.plotErrorSink = plotErrorSink;
+
+        setBackground(BG);
+        setLayout(new BorderLayout());
+        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        add(buildForm(), BorderLayout.NORTH);
+
+        DocumentListener pushSystem = new DocumentListener() {
+            public void insertUpdate(DocumentEvent e)  { pushSystemToContext(); }
+            public void removeUpdate(DocumentEvent e)  { pushSystemToContext(); }
+            public void changedUpdate(DocumentEvent e) { pushSystemToContext(); }
+        };
+        editorDoc(elementsCombo).addDocumentListener(pushSystem);
+        editorDoc(structureCombo).addDocumentListener(pushSystem);
+        editorDoc(modelCombo).addDocumentListener(pushSystem);
+        elementsCombo.addActionListener(e -> pushSystemToContext());
+        structureCombo.addActionListener(e -> pushSystemToContext());
+        modelCombo.addActionListener(e -> pushSystemToContext());
+
+        context.addChangeListener(this::syncCombosFromContext);
+        syncCombosFromContext();
+
+        runButton.addActionListener(e -> runScan());
+    }
+
+    private JPanel buildForm() {
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        gbc.gridy = 0; gbc.gridx = 0;
+        form.add(styledLabel("Elements:"), gbc);
+        gbc.gridx = 1;
+        form.add(elementsCombo, gbc);
+
+        gbc.gridy = 1; gbc.gridx = 0;
+        form.add(styledLabel("Structure:"), gbc);
+        gbc.gridx = 1;
+        form.add(structureCombo, gbc);
+
+        gbc.gridy = 2; gbc.gridx = 0;
+        form.add(styledLabel("Model:"), gbc);
+        gbc.gridx = 1;
+        form.add(modelCombo, gbc);
+
+        gbc.gridy = 3; gbc.gridx = 0; gbc.gridwidth = 2;
+        styleLabel(systemStatusLabel);
+        form.add(systemStatusLabel, gbc);
+        gbc.gridwidth = 1;
+
+        gbc.gridy = 4; gbc.gridx = 0;
+        form.add(styledLabel("Temperature (K):"), gbc);
+        gbc.gridx = 1;
+        form.add(temperatureSpinner, gbc);
+
+        gbc.gridy = 5; gbc.gridx = 0;
+        form.add(styledLabel("Quantity:"), gbc);
+        gbc.gridx = 1;
+        form.add(quantityCombo, gbc);
+
+        gbc.gridy = 6; gbc.gridx = 0;
+        JLabel pairLabel = styledLabel("Pair:");
+        form.add(pairLabel, gbc);
+        gbc.gridx = 1;
+        form.add(pairCombo, gbc);
+        pairLabel.setVisible(false);
+        pairCombo.setVisible(false);
+        quantityCombo.addActionListener(e -> {
+            boolean sro = SRO_OPTION.equals(quantityCombo.getSelectedItem());
+            pairLabel.setVisible(sro);
+            pairCombo.setVisible(sro);
+        });
+
+        gbc.gridy = 7; gbc.gridx = 0;
+        form.add(styledLabel("Grid resolution (n):"), gbc);
+        gbc.gridx = 1;
+        form.add(resolutionSpinner, gbc);
+
+        gbc.gridy = 8; gbc.gridx = 0; gbc.gridwidth = 2;
+        JLabel note = styledLabel("<html>Always computes both A-B-C-D and A-B-D-C<br>"
+                + "square plots (covers all 6 binary edges).</html>");
+        note.setFont(note.getFont().deriveFont(Font.ITALIC, 10f));
+        form.add(note, gbc);
+
+        gbc.gridy = 9; gbc.gridx = 0; gbc.gridwidth = 2;
+        form.add(runButton, gbc);
+
+        gbc.gridy = 10;
+        progressBar.setStringPainted(true);
+        progressBar.setVisible(false);
+        form.add(progressBar, gbc);
+
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(form, BorderLayout.NORTH);
+        return wrapper;
+    }
+
+    private JLabel styledLabel(String text) {
+        JLabel l = new JLabel(text);
+        styleLabel(l);
+        return l;
+    }
+
+    private void styleLabel(JLabel l) {
+        l.setForeground(LABEL_FG);
+    }
+
+    private void pushSystemToContext() {
+        String el  = editorText(elementsCombo);
+        String str = editorText(structureCombo);
+        String mod = editorText(modelCombo);
+        if (!el.isBlank() && !str.isBlank() && !mod.isBlank()) {
+            context.setSystem(el, str, mod);
+        }
+        updateStatus();
+    }
+
+    private void syncCombosFromContext() {
+        SystemId sys = context.getSystem();
+        if (sys != null) {
+            setEditorText(elementsCombo,  sys.elements());
+            setEditorText(structureCombo, sys.structure());
+            setEditorText(modelCombo,     sys.model());
+        }
+        updateStatus();
+    }
+
+    private void updateStatus() {
+        String el = editorText(elementsCombo);
+        List<String> elements = el.isBlank() ? List.of() : List.of(el.split("-"));
+        if (elements.size() != 4) {
+            systemStatusLabel.setText("<html><span style='color:#F44747'>Requires exactly 4 elements"
+                    + (el.isBlank() ? "" : " (got " + elements.size() + ")") + "</span></html>");
+            runButton.setEnabled(false);
+        } else {
+            systemStatusLabel.setText(" ");
+            runButton.setEnabled(true);
+        }
+        refreshPairCombo(elements);
+    }
+
+    private void refreshPairCombo(List<String> elements) {
+        List<String> pairs = new java.util.ArrayList<>();
+        for (int i = 0; i < elements.size(); i++) {
+            for (int j = i + 1; j < elements.size(); j++) {
+                pairs.add(elements.get(i) + "-" + elements.get(j));
+            }
+        }
+        String current = (String) pairCombo.getSelectedItem();
+        pairCombo.removeAllItems();
+        for (String p : pairs) pairCombo.addItem(p);
+        if (current != null && pairs.contains(current)) pairCombo.setSelectedItem(current);
+    }
+
+    private void runScan() {
+        if (activeWorker != null && !activeWorker.isDone()) return;
+
+        String elStr  = editorText(elementsCombo);
+        String struct = editorText(structureCombo);
+        String model  = editorText(modelCombo);
+        List<String> elements = List.of(elStr.split("-"));
+        if (elements.size() != 4) return;
+        SystemId sys = new SystemId(elStr, struct, model);
+
+        // Fixed pair: A-B-C-D as given, and A-B-D-C (last two swapped) — together
+        // these reach all six binary edges of the composition tetrahedron.
+        List<String> slotOrderAbcd = elements;
+        List<String> slotOrderAbdc = List.of(elements.get(0), elements.get(1), elements.get(3), elements.get(2));
+
+        double temperature = (Double) temperatureSpinner.getValue();
+        int n = (Integer) resolutionSpinner.getValue();
+
+        String quantitySelection = (String) quantityCombo.getSelectedItem();
+        QuaternarySquareScan.Quantity quantity;
+        if (SRO_OPTION.equals(quantitySelection)) {
+            String pairSelection = (String) pairCombo.getSelectedItem();
+            if (pairSelection == null) return;
+            String[] parts = pairSelection.split("-");
+            quantity = new QuaternarySquareScan.PairSroQuantity(parts[0], parts[1]);
+        } else {
+            quantity = new QuaternarySquareScan.PropertyQuantity(Property.valueOf(quantitySelection));
+        }
+
+        runButton.setEnabled(false);
+        progressBar.setVisible(true);
+        progressBar.setValue(0);
+        progressBar.setString("Computing grids...");
+
+        activeWorker = new SwingWorker<>() {
+            @Override
+            protected File[] doInBackground() throws Exception {
+                var modelSpecs = new org.ce.calculation.CalculationDescriptor.ModelSpecifications(
+                        sys.elements(), sys.structure(), sys.model(), org.ce.model.ModelSession.EngineConfig.CVM);
+                ModelSession session = service.getOrBuildSession(modelSpecs, logSink);
+
+                Consumer<ProgressEvent> progressSinkAbcd = evt -> {
+                    if (evt instanceof ProgressEvent.ScanPoint sp) {
+                        publish((int) (50.0 * sp.index / sp.total));
+                    }
+                };
+                Consumer<ProgressEvent> progressSinkAbdc = evt -> {
+                    if (evt instanceof ProgressEvent.ScanPoint sp) {
+                        publish(50 + (int) (50.0 * sp.index / sp.total));
+                    }
+                };
+
+                QuaternarySquareScan.Result resultAbcd = QuaternarySquareScan.run(service, session,
+                        slotOrderAbcd, QuaternarySquareScan.Variant.STANDARD, temperature, quantity, n, progressSinkAbcd);
+                File pngAbcd = SquarePlotRenderer.render(
+                        slotOrderAbcd, sys.structure(), sys.model(), temperature, resultAbcd);
+
+                QuaternarySquareScan.Result resultAbdc = QuaternarySquareScan.run(service, session,
+                        slotOrderAbdc, QuaternarySquareScan.Variant.STANDARD, temperature, quantity, n, progressSinkAbdc);
+                File pngAbdc = SquarePlotRenderer.render(
+                        slotOrderAbdc, sys.structure(), sys.model(), temperature, resultAbdc);
+
+                return new File[] { pngAbcd, pngAbdc };
+            }
+
+            @Override
+            protected void process(List<Integer> chunks) {
+                if (!chunks.isEmpty()) {
+                    int pct = chunks.get(chunks.size() - 1);
+                    progressBar.setValue(pct);
+                    progressBar.setString("Computing grids... " + pct + "%");
+                }
+            }
+
+            @Override
+            protected void done() {
+                progressBar.setVisible(false);
+                runButton.setEnabled(true);
+                try {
+                    File[] pngFiles = get();
+                    BufferedImage imgAbcd = ImageIO.read(pngFiles[0]);
+                    BufferedImage imgAbdc = ImageIO.read(pngFiles[1]);
+                    plotSink.accept(imgAbcd, imgAbdc);
+                    if (statusSink != null) statusSink.accept("Square plots rendered.");
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    plotErrorSink.accept("Plot failed: " + cause.getMessage());
+                    if (logSink != null) logSink.accept("[Square Plot] Error: " + cause.getMessage());
+                }
+            }
+        };
+        activeWorker.execute();
+    }
+
+    // =========================================================================
+    // Static helpers (mirrored from TernaryPlotPanel)
+    // =========================================================================
+
+    private static JComboBox<String> makeEditable(String... items) {
+        JComboBox<String> cb = new JComboBox<>(items);
+        cb.setEditable(true);
+        cb.setPreferredSize(new Dimension(120, 24));
+        return cb;
+    }
+
+    private static javax.swing.text.Document editorDoc(JComboBox<String> cb) {
+        return ((JTextField) cb.getEditor().getEditorComponent()).getDocument();
+    }
+
+    private static String editorText(JComboBox<String> cb) {
+        return ((JTextField) cb.getEditor().getEditorComponent()).getText().trim();
+    }
+
+    private static void setEditorText(JComboBox<String> cb, String text) {
+        JTextField tf = (JTextField) cb.getEditor().getEditorComponent();
+        if (!tf.getText().equals(text)) tf.setText(text);
+    }
+}

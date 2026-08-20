@@ -125,12 +125,16 @@ public class MainWindow extends JFrame {
         TernaryPlotPanel ternaryPanel = new TernaryPlotPanel(appCtx, context, statusSink, logSink,
                 outputPanel::showTernaryPlot, outputPanel::showTernaryError);
 
+        QuaternarySquarePlotPanel squarePanel = new QuaternarySquarePlotPanel(appCtx, context, statusSink, logSink,
+                outputPanel::showSquarePlot, outputPanel::showSquareError);
+
         // ── explorer panel ────────────────────────────────────────────────────
         explorerPanel = new ExplorerPanel();
         explorerPanel.addCard(dataPrepPanel, 0);
         explorerPanel.addCard(cecPanel,      1);
         explorerPanel.addCard(calcPanel,     2);
         explorerPanel.addCard(ternaryPanel,  3);
+        explorerPanel.addCard(squarePanel,   4);
 
         // ── activity bar ──────────────────────────────────────────────────────
         Runnable[] navCallbacks = {
@@ -138,6 +142,7 @@ public class MainWindow extends JFrame {
             () -> navigate(1),
             () -> navigate(2),
             () -> navigate(3),
+            () -> navigate(4),
         };
         activityBar = new ActivityBar(navCallbacks);
 

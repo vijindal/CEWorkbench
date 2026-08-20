@@ -42,11 +42,14 @@ public class OutputPanel extends JPanel {
     private final ResultChartPanel chartPanel;
     private final CECEditorPanel cecEditorPanel;
     private final JLabel ternaryPlotLabel = new JLabel("", SwingConstants.CENTER);
+    private final JLabel squarePlotLabelA = new JLabel("", SwingConstants.CENTER);
+    private final JLabel squarePlotLabelB = new JLabel("", SwingConstants.CENTER);
     private final JPanel resultsBody;
     private final CardLayout resultsBodyLayout;
     private static final String CARD_CHART = "chart";
     private static final String CARD_CEC = "cec";
     private static final String CARD_TERNARY = "ternary";
+    private static final String CARD_SQUARE = "square";
     private final JTextArea logArea = new JTextArea();
 
     public OutputPanel(WorkbenchContext context, QuantityDescriptor.SelectionModel selectionModel) {
@@ -67,6 +70,20 @@ public class OutputPanel extends JPanel {
         ternaryScroll.setBorder(null);
         ternaryScroll.getViewport().setBackground(BG);
         resultsBody.add(ternaryScroll, CARD_TERNARY);
+
+        squarePlotLabelA.setOpaque(true);
+        squarePlotLabelA.setBackground(BG);
+        squarePlotLabelB.setOpaque(true);
+        squarePlotLabelB.setBackground(BG);
+        JPanel squarePair = new JPanel(new GridLayout(1, 2, 4, 0));
+        squarePair.setOpaque(true);
+        squarePair.setBackground(BG);
+        squarePair.add(squarePlotLabelA);
+        squarePair.add(squarePlotLabelB);
+        JScrollPane squareScroll = new JScrollPane(squarePair);
+        squareScroll.setBorder(null);
+        squareScroll.getViewport().setBackground(BG);
+        resultsBody.add(squareScroll, CARD_SQUARE);
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 buildResultsSection(),
@@ -269,6 +286,34 @@ public class OutputPanel extends JPanel {
             ternaryPlotLabel.setIcon(null);
             ternaryPlotLabel.setText("<html><span style='color:#F44747'>" + message + "</span></html>");
             resultsBodyLayout.show(resultsBody, CARD_TERNARY);
+        });
+    }
+
+    /**
+     * Displays the two rendered quaternary square-plot PNGs (produced by
+     * {@code scripts/square_section.py} from Java-computed grid data) side
+     * by side — one for each of the two fixed slot-order variants
+     * (A-B-C-D and A-B-D-C) that are always computed together so the pair
+     * jointly covers all six binary edges. Thread-safe.
+     */
+    public void showSquarePlot(java.awt.image.BufferedImage imageAbcd, java.awt.image.BufferedImage imageAbdc) {
+        SwingUtilities.invokeLater(() -> {
+            squarePlotLabelA.setIcon(new ImageIcon(imageAbcd));
+            squarePlotLabelA.setText(null);
+            squarePlotLabelB.setIcon(new ImageIcon(imageAbdc));
+            squarePlotLabelB.setText(null);
+            resultsBodyLayout.show(resultsBody, CARD_SQUARE);
+        });
+    }
+
+    /** Shows an error message in place of the square plots. Thread-safe. */
+    public void showSquareError(String message) {
+        SwingUtilities.invokeLater(() -> {
+            squarePlotLabelA.setIcon(null);
+            squarePlotLabelA.setText("<html><span style='color:#F44747'>" + message + "</span></html>");
+            squarePlotLabelB.setIcon(null);
+            squarePlotLabelB.setText(null);
+            resultsBodyLayout.show(resultsBody, CARD_SQUARE);
         });
     }
 
