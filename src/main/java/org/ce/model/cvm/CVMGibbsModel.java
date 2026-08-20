@@ -4,6 +4,10 @@ import org.ce.model.PhysicsConstants;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.hamiltonian.CECEvaluator;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -204,6 +208,77 @@ public final class CVMGibbsModel {
      * memoised: the {@code ncf x ncf} Hessian is not always wanted, and a
      * Newton loop asks for each exactly once per iteration.</p>
      */
+    /**
+     * A neighbour shell whose pair cluster variables carry SRO information.
+     *
+     * <p>The cluster-type indices are a property of the BCC_A2 tetrahedron
+     * layout, verified empirically: types run {@code t=0} tetrahedron,
+     * {@code t=1} triangle, {@code t=2} 2nd-NN pair, {@code t=3} 1st-NN pair,
+     * {@code t=4} point. Note the naming trap -- the CVCF term {@code v21}
+     * (1st-NN) is {@code t=3}, while {@code v22} (2nd-NN) is {@code t=2}.</p>
+     *
+     * <p>Pair cluster variables are laid out in upper-triangular species order,
+     * confirmed by evaluating the random state at a skewed composition, where
+     * each entry reproduces {@code x_P * x_R} exactly.</p>
+     */
+    public enum Shell {
+        /** First nearest neighbour; CVCF name {@code v21...}. */
+        FIRST(3, "1NN"),
+        /** Second nearest neighbour; CVCF name {@code v22...}. */
+        SECOND(2, "2NN");
+
+        private final int clusterType;
+        private final String label;
+
+        Shell(int clusterType, String label) {
+            this.clusterType = clusterType;
+            this.label = label;
+        }
+
+        /** Index of this shell's pair cluster among the disordered cluster types. */
+        public int clusterType() {
+            return clusterType;
+        }
+
+        /** Short name used when reporting, e.g. {@code "1NN"}. */
+        public String label() {
+            return label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    /** One Cowley-Warren pair parameter. */
+    public static final class PairSro {
+        /** Index of the first species in the system's canonical element order. */
+        public final int i;
+        /** Index of the second species. */
+        public final int j;
+        /** Cluster probability p_ij^PR from the CVM. */
+        public final double probability;
+        /** Random-state reference x_P*x_R. */
+        public final double reference;
+        /** alpha = 1 - p/(x_P x_R). */
+        public final double alpha;
+
+        public PairSro(int i, int j, double probability, double reference, double alpha) {
+            this.i = i;
+            this.j = j;
+            this.probability = probability;
+            this.reference = reference;
+            this.alpha = alpha;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("PairSro[%d-%d p=%.6f ref=%.6f alpha=%+.6f]",
+                    i, j, probability, reference, alpha);
+        }
+    }
+
     public final class State {
 
         /**
@@ -501,6 +576,113 @@ public final class CVMGibbsModel {
          */
         public double[] cfs() {
             return geo.buildFullVector(u, x);
+        }
+
+        // =====================================================================
+        // Short-range order
+        //
+        // Cowley-Warren SRO is a thermodynamic property of this point, on the
+        // same footing as G/H/S: it is read off the very cluster probabilities
+        // the free energy is built from. Jindal & Lele, Calphad 89 (2025)
+        // 102825, make the point explicitly -- the CVM already produces these
+        // probabilities during minimisation, so no extra machinery is needed:
+        //
+        //   pair:      alpha_ij^PR   = 1 - p_ij^PR / (x_P x_R)          (Eq. 40)
+        //   multisite: alpha^MPRT    = 1 - rho^MPRT / (x_M x_P x_R x_T) (Eq. 41)
+        //
+        // Sign convention:
+        //   alpha < 0   unlike pairs enriched relative to random -- ordering
+        //   alpha = 0   random (ideal) solution
+        //   alpha > 0   unlike pairs depleted -- clustering / phase separation
+        //
+        // Only pair SRO is exposed. Extending to triangle/tetrahedron clusters
+        // looks straightforward -- their probabilities are equally available --
+        // but most CVCF correlation functions for those clusters are not single
+        // physical probabilities: CvCfBasis.VSpec defines each CF as either
+        // product(...) (one site-atom-pair probability, SRO-eligible) or
+        // diff(...)/combo(...) (a signed combination, e.g. v3AB = rho^RPR -
+        // rho^PRP). A diff-type CF has no natural [0,1] reference, so
+        // 1 - value/reference is not meaningful for it. Adding multisite SRO
+        // means splitting those into their constituent product(...) terms
+        // first, not computing from the CF as defined.
+        // =====================================================================
+
+        /**
+         * Cowley-Warren pair SRO parameters for one neighbour shell at this
+         * point, in upper-triangular species order -- for K=3 that is
+         * {@code [AA, AB, AC, BB, BC, CC]}.
+         *
+         * <p>Like pairs ({@code i == j}) are included; they carry the
+         * complementary information to the unlike ones. For the unlike pairs
+         * alone -- the ones normally reported and plotted -- use
+         * {@link #unlikePairSro}.</p>
+         *
+         * @param shell which neighbour shell, {@link Shell#FIRST} or
+         *              {@link Shell#SECOND}
+         * @throws IllegalArgumentException if the cluster-variable block does
+         *         not have the {@code K(K+1)/2} entries a pair cluster must
+         *         have, which would mean the layout assumption no longer holds
+         *         and the species mapping cannot be trusted
+         */
+        public List<PairSro> pairSro(Shell shell) {
+            int K = geo.numComponents;
+            int expected = K * (K + 1) / 2;
+            int t = shell.clusterType();
+
+            if (t < 0 || t >= cv.length || cv[t].length == 0) {
+                throw new IllegalArgumentException(
+                        "No cluster variables for " + shell + " (cluster type t=" + t + ")");
+            }
+
+            double[] p = cv[t][0];
+            if (p.length != expected) {
+                throw new IllegalArgumentException(
+                        shell + " (cluster type t=" + t + ") has " + p.length
+                                + " cluster variables, expected " + expected + " for K=" + K
+                                + " (upper-triangular species pairs). The cluster-variable"
+                                + " layout assumed for pair SRO does not hold for this system.");
+            }
+
+            List<PairSro> out = new ArrayList<>(expected);
+            int v = 0;
+            for (int i = 0; i < K; i++) {
+                for (int j = i; j < K; j++, v++) {
+                    double ref = x[i] * x[j];
+                    double alpha = (ref > 0.0) ? 1.0 - p[v] / ref : Double.NaN;
+                    out.add(new PairSro(i, j, p[v], ref, alpha));
+                }
+            }
+            return out;
+        }
+
+        /** Pair SRO for the unlike pairs ({@code i != j}) only. */
+        public List<PairSro> unlikePairSro(Shell shell) {
+            List<PairSro> out = new ArrayList<>();
+            for (PairSro s : pairSro(shell)) {
+                if (s.i != s.j) out.add(s);
+            }
+            return out;
+        }
+
+        /**
+         * Pair SRO for every shell this geometry supports, keyed by shell name
+         * -- the form the calculation layer reports.
+         *
+         * <p>A shell whose cluster-variable layout is not the expected
+         * upper-triangular pair block is omitted rather than failing: SRO is
+         * supplementary, and an unsupported geometry must not take the rest of
+         * a calculation down with it.</p>
+         */
+        public Map<String, List<PairSro>> pairSroByShell() {
+            Map<String, List<PairSro>> out = new LinkedHashMap<>();
+            for (Shell shell : Shell.values()) {
+                try {
+                    out.put(shell.label(), pairSro(shell));
+                } catch (IllegalArgumentException e) {
+                    // Not a pair block in this geometry; skip this shell.
+                }
+            }
+            return out;
         }
 
         // =========================================================================

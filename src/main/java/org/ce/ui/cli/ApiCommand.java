@@ -19,7 +19,7 @@ import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.cvm.CvCfBasis;
-import org.ce.model.cvm.SroCalculator;
+import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.storage.Workspace.SystemId;
 
@@ -338,7 +338,7 @@ public final class ApiCommand {
             ObjectNode sroNode = p.putObject("sro");
             r.sro.forEach((shell, pairs) -> {
                 ObjectNode shellNode = sroNode.putObject(shell);
-                for (SroCalculator.PairSro s : pairs) {
+                for (CVMGibbsModel.PairSro s : pairs) {
                     if (s.i >= order.size() || s.j >= order.size()) continue;
                     ObjectNode e = shellNode.putObject(order.get(s.i) + "-" + order.get(s.j));
                     e.put("alpha", s.alpha);

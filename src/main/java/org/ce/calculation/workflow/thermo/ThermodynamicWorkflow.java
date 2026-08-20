@@ -8,7 +8,6 @@ import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.equilibrium.CvmNewtonSolver;
-import org.ce.model.cvm.SroCalculator;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCSGeometry;
 import org.ce.model.mcs.MetropolisMC.MCResult;
@@ -207,19 +206,17 @@ public class ThermodynamicWorkflow {
     }
 
     /**
-     * Cowley-Warren SRO parameters from the converged cluster variables
-     * (Jindal &amp; Lele 2025, Eq. 40). Returns null if the CV layout doesn't match
-     * what {@link SroCalculator} can interpret — SRO is supplementary, so an
-     * unsupported geometry must not fail the whole calculation.
+     * Cowley-Warren SRO parameters at the converged point (Jindal &amp; Lele
+     * 2025, Eq. 40), read off the state that already holds the cluster
+     * probabilities. Returns null if the calculation fails outright — SRO is
+     * supplementary, so an unsupported geometry must not fail the whole
+     * calculation; individual unsupported shells are already skipped by
+     * {@link CVMGibbsModel.State#pairSroByShell()}.
      */
-    private Map<String, List<SroCalculator.PairSro>> computeSro(
+    private Map<String, List<CVMGibbsModel.PairSro>> computeSro(
             CVMGibbsModel model, CVMGibbsModel.State state, double[] x, Consumer<String> sink) {
         try {
-            double[][][] cv = state.clusterVariables();
-            Map<String, List<SroCalculator.PairSro>> out = new LinkedHashMap<>();
-            out.put("1NN", SroCalculator.pairSro(cv, x, SroCalculator.T_PAIR_1NN));
-            out.put("2NN", SroCalculator.pairSro(cv, x, SroCalculator.T_PAIR_2NN));
-            return out;
+            return state.pairSroByShell();
         } catch (RuntimeException e) {
             emit(sink, "  [SRO] not computed: " + e.getMessage());
             return null;

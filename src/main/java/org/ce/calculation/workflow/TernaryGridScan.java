@@ -5,7 +5,7 @@ import org.ce.calculation.Conditions;
 import org.ce.model.ModelSession;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
-import org.ce.model.cvm.SroCalculator;
+import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.storage.Workspace.SystemId;
 
@@ -384,12 +384,12 @@ public final class TernaryGridScan {
         }
         if (quantity instanceof PairSroQuantity sq) {
             if (r.sro == null) return Double.NaN;
-            List<SroCalculator.PairSro> shell = r.sro.get("1NN");
+            List<CVMGibbsModel.PairSro> shell = r.sro.get("1NN");
             if (shell == null) return Double.NaN;
             int ia = elements.indexOf(sq.elementA());
             int ib = elements.indexOf(sq.elementB());
             if (ia < 0 || ib < 0) return Double.NaN;
-            for (SroCalculator.PairSro pair : shell) {
+            for (CVMGibbsModel.PairSro pair : shell) {
                 if ((pair.i == ia && pair.j == ib) || (pair.i == ib && pair.j == ia)) {
                     return pair.alpha;
                 }

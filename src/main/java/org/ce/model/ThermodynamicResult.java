@@ -32,11 +32,11 @@ public class ThermodynamicResult {
      * <p>Set separately from the constructor via {@link #withSro} so the existing
      * constructor signatures stay unchanged.</p>
      */
-    public java.util.Map<String, java.util.List<org.ce.model.cvm.SroCalculator.PairSro>> sro;
+    public java.util.Map<String, java.util.List<org.ce.model.cvm.CVMGibbsModel.PairSro>> sro;
 
     /** Attaches SRO parameters and returns {@code this} for chaining. */
     public ThermodynamicResult withSro(
-            java.util.Map<String, java.util.List<org.ce.model.cvm.SroCalculator.PairSro>> sro) {
+            java.util.Map<String, java.util.List<org.ce.model.cvm.CVMGibbsModel.PairSro>> sro) {
         this.sro = sro;
         return this;
     }
