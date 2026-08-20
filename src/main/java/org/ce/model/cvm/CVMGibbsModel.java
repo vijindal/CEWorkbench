@@ -5,7 +5,6 @@ import org.ce.model.hamiltonian.CECEntry;
 import org.ce.model.ProgressEvent;
 
 import java.util.Arrays;
-import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
 
 /**
@@ -48,9 +47,6 @@ import java.util.function.Consumer;
  * will once it is migrated.</p>
  */
 public class CVMGibbsModel {
-
-    private static final int MAX_ITER = 100;
-    private static final double TOLX = 1.0e-12;
 
     /** Immutable lattice combinatorics; replaces the seventeen setup fields. */
     private CvmGeometry geo;
@@ -243,137 +239,33 @@ public class CVMGibbsModel {
     }
 
     /**
-     * Newton-Raphson minimization of the CVM Gibbs free energy at fixed
-     * composition.
+     * Runs the fixed-composition Newton-Raphson minimisation.
      *
-     * <p>Loop structure follows the original (pre-refactor) reference
-     * solver, {@code CVMBINCE.minimize()} (which solves in the *orthogonal*
-     * CF basis): an early exit the moment any cluster variable is
-     * non-positive at the *current* point (not just a step-limit check on
-     * the trial point; see {@link #minClusterVariable}), a gradient-norm
-     * convergence check, then a Newton step whose size is limited by
-     * {@link #calculateStepLimit} (port of the reference's {@code stpmx})
-     * so no cluster variable leaves {@code [0, 1]}, followed by a
-     * raw-Newton-step-size convergence check ({@code errx}). The reference's
-     * additional pre-clamp on the trial correlation functions themselves
-     * ({@code Utils.normalU}, restricting them to a fixed {@code [-1, 1]})
-     * was tried here too but deliberately dropped: that bound is meaningful
-     * for the orthogonal basis's Chebyshev-like CFs, but this solver works
-     * in the CVCF basis, whose {@code u} components have a different,
-     * non-uniform natural range (observed roughly 1e-4 to 0.2 in practice) --
-     * a blind &plusmn;1 clamp there is a no-op, not a safeguard, and did not
-     * change behavior when tested. The near-edge convergence stall this
-     * porting effort was investigating (a dilute-composition Newton
-     * direction that repeatedly re-approaches, but never crosses, a
-     * cluster-variable boundary) remains open; see CLAUDE.md's note on
-     * near-edge ternary solver fragility.</p>
-     *
-     * <p>Every quantity now comes from a {@link CvmState} evaluated at the
-     * current iterate rather than from fields staged by setters. The loop
-     * logic, convergence criteria and step limiting are unchanged.</p>
+     * <p>Delegates to {@link CvmNewtonSolver}, which owns the loop, its
+     * convergence criteria and its step limiting. This method only adapts
+     * between that solver's {@link CvmNewtonSolver.Result} and the
+     * {@link EquilibriumResult}/{@link ModelResult} shape callers expect, and
+     * leaves this model's current point at the converged state so the
+     * {@code cal*} accessors read from it.</p>
      */
     private EquilibriumResult minimize(
             double[] moleFractions, double temperature, double tolerance,
             Consumer<String> progressSink, Consumer<ProgressEvent> eventSink,
             org.ce.calculation.CalculationDescriptor.Property required) {
 
-        if (eventSink != null)
-            eventSink.accept(new ProgressEvent.EngineStart("CVM", 0));
+        CvmNewtonSolver.Result result = new CvmNewtonSolver(evaluator)
+                .solve(temperature, moleFractions, tolerance, progressSink, eventSink);
 
-        setT(temperature, progressSink);
-        setX(moleFractions);
+        // Leave the model sitting at the converged point: ThermodynamicWorkflow
+        // and the GUI minimise first, then read G/H/S off the model.
+        this.pendingT = temperature;
+        this.pendingX = moleFractions.clone();
+        this.pendingU = result.u().clone();
+        this.current = result.state();
 
-        double[] u = computeRandomCFs(moleFractions);
-
-        double errf = 0;
-
-        for (int its = 0; its < MAX_ITER; its++) {
-            if (Thread.currentThread().isInterrupted())
-                throw new CancellationException();
-
-            setU(u);
-
-            // Early exit if the *current* point already has a non-positive
-            // cluster variable -- mirrors the reference solver's cvMin<=0
-            // check. This is NOT a failure: a cluster variable sitting at or
-            // below zero at the current point (e.g. a configuration that is
-            // genuinely disallowed at this composition/order) means there is
-            // nowhere further for the Newton step to usefully go without
-            // dividing by a near-zero probability, so the reference solver
-            // accepts the current point as converged rather than attempting
-            // a step. Runs before the gradient/Newton-step machinery each
-            // iteration, not just as a trial-step limiter.
-            double minCv = minClusterVariable();
-            if (minCv <= 0) {
-                double[] Gu0 = current.gmu();
-                double errf0 = 0;
-                for (double g : Gu0) errf0 += Math.abs(g);
-                return new EquilibriumResult(modelResult(), u.clone(), true, its, errf0);
-            }
-
-            double[] Gu = current.gmu();
-            double G = current.gm();
-            double H = current.hm();
-            double S = current.sm();
-
-            errf = 0;
-            for (double g : Gu)
-                errf += Math.abs(g);
-
-            if (eventSink != null)
-                eventSink.accept(new ProgressEvent.CvmIteration(its, G, errf, H, S, u));
-
-            if (errf <= tolerance) {
-                return new EquilibriumResult(modelResult(), u.clone(), true, its, errf);
-            }
-
-            try {
-                int ncf = geo.ncf;
-                double[] negGu = new double[ncf];
-                for (int i = 0; i < ncf; i++)
-                    negGu[i] = -Gu[i];
-
-                double[][] Guu = current.gmuu();
-                double[] p = LinearAlgebra.solve(Guu, negGu);
-
-                double errx = 0;
-                for (double v : p) errx += Math.abs(v);
-
-                // The reference solver's Utils.normalU pre-clamps the trial
-                // point to a fixed [-1,1] range before the cluster-variable
-                // check below -- but that bound is meaningful for the
-                // *orthogonal* CF basis that reference solves in (Chebyshev
-                // -like polynomials, genuinely bounded by construction). This
-                // solver works in the CVCF basis, whose u components have a
-                // different, non-uniform natural range (observed ~1e-4 to
-                // ~0.2 in practice) -- a blind +-1 clamp there is a no-op, not
-                // a safeguard. So this only applies the cluster-variable-
-                // space clamp (stpmx), directly on the unclamped u+p trial
-                // point, same as before the reference-port attempt.
-                double[] uTrial = new double[ncf];
-                for (int i = 0; i < ncf; i++) uTrial[i] = u[i] + p[i];
-                double alpha = calculateStepLimit(u, uTrial, moleFractions);
-
-                for (int i = 0; i < ncf; i++) {
-                    double delta = alpha * p[i];
-                    u[i] += delta;
-                }
-
-                // errx small means the raw (unclamped) Newton step p was
-                // already tiny -- a genuine sign of convergence, unlike a
-                // small step caused purely by the boundary clamp above.
-                if (errx <= TOLX) {
-                    setU(u);
-                    return new EquilibriumResult(modelResult(), u.clone(), true, its, errf);
-                }
-
-            } catch (Exception e) {
-                return new EquilibriumResult(modelResult(), u.clone(), false, its, errf);
-            }
-        }
-
-        setU(u);
-        return new EquilibriumResult(modelResult(), u.clone(), false, MAX_ITER, errf);
+        return new EquilibriumResult(
+                modelResult(), result.u(), result.converged(),
+                result.iterations(), result.finalGradientNorm());
     }
 
     /** Bundles the current state into the result shape callers expect. */
@@ -385,37 +277,6 @@ public class CVMGibbsModel {
                 current.cfs());
     }
 
-    /**
-     * Minimum cluster variable value across all non-point cluster types, at
-     * the current (u, x) state -- port of the reference solver's
-     * {@code findMin}, which explicitly excludes the last (point) cluster
-     * type ({@code tcdis-1}); the point type holds the mole fractions
-     * themselves, not derived cluster probabilities, and including it here
-     * would make this check spuriously sensitive to composition rather than
-     * to how far the *solve* is from a degenerate cluster configuration.
-     *
-     * <p>Deliberately kept separate from the public, stateless {@link
-     * #isValidParams}: this method reads the current state (only valid after
-     * {@link #setU}/{@link #setX}) and is used exclusively by
-     * {@code minimize()}'s own per-iteration early-exit check;
-     * {@code isValidParams} evaluates an arbitrary trial point without
-     * touching instance state, for external callers. Both check the same
-     * physical condition over the same cluster types, just via different data
-     * sources for different callers.</p>
-     */
-    private double minClusterVariable() {
-        double[][][] cv = current.clusterVariables();
-        double minCv = Double.POSITIVE_INFINITY;
-        for (int t = 0; t < geo.tcdis - 1; t++) {
-            double[][] tt = cv[t];
-            if (tt == null) continue;
-            for (double[] jj : tt) {
-                if (jj == null) continue;
-                for (double v : jj) minCv = Math.min(minCv, v);
-            }
-        }
-        return minCv;
-    }
 
     // =========================================================================
     // Current-point staging
@@ -767,43 +628,27 @@ public class CVMGibbsModel {
     // =========================================================================
 
     /**
-     * Computes the full disordered-state (random) CVCF vector for N-R
-     * initialisation.
+     * Correlation functions of the fully disordered state at this composition
+     * -- the Newton loop's starting iterate.
+     *
+     * <p>Delegates to {@link CvmNewtonSolver}, which owns the minimisation, so
+     * the starting point used here and the one the solver actually starts from
+     * cannot drift apart. Returns the full CVCF vector (length {@code tcf}) for
+     * backwards compatibility; the solver itself takes only the leading
+     * {@code ncf} block.</p>
      */
     public double[] computeRandomCFs(double[] moleFractions) {
         return geo.basis.computeRandomCvcfCFs(moleFractions, geo.pipelineResult);
     }
 
     /**
-     * Finds the largest fraction α &isin; (0, 1] of the step from
-     * {@code uOld} to {@code uTrial} that keeps every cluster variable
-     * within [0, 1] -- port of the reference solver's {@code stpmx(uold,
-     * unew)}. It does not compute the trial point itself: the caller hands in
-     * an already-formed trial point, so this method's only job is the
-     * cluster-variable-space clamp, matching the reference's two-stage
-     * structure.
+     * Largest fraction of the step from {@code uOld} to {@code uTrial} that
+     * keeps every cluster variable within {@code [0, 1]} -- the reference
+     * solver's {@code stpmx}. Delegates to {@link CvmNewtonSolver#stepLimit},
+     * which the minimisation itself uses.
      */
     public double calculateStepLimit(double[] uOld, double[] uTrial, double[] moleFractions) {
-        double fmin = 1.0;
-
-        double[][][] cv_old = evaluateClusterVariables(uOld, moleFractions);
-        double[][][] cv_new = evaluateClusterVariables(uTrial, moleFractions);
-
-        for (int i = 0; i < geo.tcdis - 1; i++) {
-            for (int j = 0; j < geo.lc[i]; j++) {
-                for (int v = 0; v < geo.lcv[i][j]; v++) {
-                    double vO = cv_old[i][j][v], vN = cv_new[i][j][v];
-                    if (vN <= 0)
-                        fmin = Math.min(fmin, Math.abs(vO / (vN - vO)));
-                    if (vN >= 1)
-                        fmin = Math.min(fmin, Math.abs((1.0 - vO) / (vN - vO)));
-                }
-            }
-        }
-        // Reference solver's stpmx: full step (alpha=1) if no cluster
-        // variable would leave [0,1]; otherwise 0.1*fmin, backing well off
-        // the boundary rather than landing exactly on it.
-        return (fmin >= 1.0) ? 1.0 : (0.1 * fmin);
+        return new CvmNewtonSolver(evaluator).stepLimit(uOld, uTrial, moleFractions);
     }
 
     /**
