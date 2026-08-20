@@ -175,7 +175,7 @@ public final class HillertSolver {
      * chemical potentials are equalised across phases and every phase's G must
      * therefore share one zero.
      *
-     * <p>Evaluated through {@link org.ce.model.cvm.CvmEvaluator}, which composes
+     * <p>Evaluated through {@link org.ce.model.cvm.CVMGibbsModel}, which composes
      * the reference and mixing terms itself. This previously called
      * {@code model.evaluate(...).G} for Gm and added
      * {@code LatticeStability.g0m} separately -- a second place where

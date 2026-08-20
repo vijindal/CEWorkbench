@@ -16,7 +16,7 @@ import java.util.List;
  * <p>As that paper notes, the CVM already produces the cluster probabilities during
  * Gibbs-energy minimization, so no extra machinery is needed — the cluster variables
  * {@code cv[t][j][v]} returned by
- * {@link CVMGibbsModel#evaluateClusterVariables(double[], double[])} <em>are</em> the
+ * {@link CVMGibbsModel#clusterVariablesAt(double[], double[])} <em>are</em> the
  * probabilities p and ρ.</p>
  *
  * <h2>Sign convention</h2>
@@ -75,7 +75,7 @@ public final class SroCalculator {
      * are included; they carry the complementary information to the unlike pairs.</p>
      *
      * @param cv            cluster variables from
-     *                      {@link CVMGibbsModel#evaluateClusterVariables(double[], double[])}
+     *                      {@link CVMGibbsModel#clusterVariablesAt(double[], double[])}
      * @param moleFractions composition, length K, in canonical element order
      * @param clusterType   {@link #T_PAIR_1NN} or {@link #T_PAIR_2NN}
      * @throws IllegalArgumentException if the CV block does not have the K(K+1)/2

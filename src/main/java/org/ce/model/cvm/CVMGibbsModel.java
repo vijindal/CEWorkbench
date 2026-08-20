@@ -27,7 +27,7 @@ import java.util.function.Consumer;
  * it from the outside, each owning its own loop:</p>
  *
  * <ul>
- *   <li>{@link CvmNewtonSolver} -- fixed-composition minimisation, where
+ *   <li>{@code CvmNewtonSolver} -- fixed-composition minimisation, where
  *       {@code x} is a constraint and {@code u} the unknown. Reads the
  *       {@code ncf}-wide {@link State#gmu()} and {@link State#gmuu()}.</li>
  *   <li>{@code HillertPhaseStepSolver} -- the multi-phase per-phase step, where
@@ -36,7 +36,9 @@ import java.util.function.Consumer;
  * </ul>
  *
  * <p>Same physics, same evaluation, different active set -- which is why one
- * model serves both.</p>
+ * model serves both. Both live in {@code org.ce.model.equilibrium}, alongside
+ * the multi-phase machinery they serve; this package holds the model they
+ * evaluate against.</p>
  *
  * <p>This class previously carried the Stage 1-4 pipeline, seventeen fields of
  * geometry, a mutable point, five duplicated copies of the entropy expression,

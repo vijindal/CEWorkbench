@@ -5,7 +5,7 @@ import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.cvm.CvmGeometry;
-import org.ce.model.cvm.CvmNewtonSolver;
+import org.ce.model.equilibrium.CvmNewtonSolver;
 import org.ce.model.storage.Workspace;
 import org.ce.model.storage.Workspace.SystemId;
 

@@ -7,7 +7,7 @@ import org.ce.model.PhysicsConstants;
 import org.ce.model.ProgressEvent;
 import org.ce.model.ThermodynamicResult;
 import org.ce.model.cvm.CVMGibbsModel;
-import org.ce.model.cvm.CvmNewtonSolver;
+import org.ce.model.equilibrium.CvmNewtonSolver;
 import org.ce.model.cvm.SroCalculator;
 import org.ce.model.mcs.MCSRunner;
 import org.ce.model.mcs.MCSGeometry;
