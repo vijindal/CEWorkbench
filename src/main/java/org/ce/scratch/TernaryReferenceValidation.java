@@ -312,15 +312,21 @@ public final class TernaryReferenceValidation {
             double dEci = Math.abs(eci[j] - t.eci());
             if (dEci > ECI_TOL) {
                 bad++;
-                System.out.printf("    [!] ECI ref %-7s vs ours %-7s  %.4f vs %.4f  (cluster mismatch)%n",
-                        t.name(), names.get(j), eci[j], t.eci());
+                // Same resolved name means the cluster is agreed and the
+                // value disagrees; different names mean the name resolved to
+                // the wrong cluster. Say which, and keep each value with the
+                // side it came from.
+                boolean sameCluster = canonical(names.get(j)).equals(canonical(t.name()));
+                System.out.printf("    [!] ECI %-7s: ref=%.4f  ours[%s]=%.4f  (%s)%n",
+                        t.name(), t.eci(), names.get(j), eci[j],
+                        sameCluster ? "value differs" : "resolved to wrong cluster");
                 continue;   // CF is not meaningful if the cluster disagrees
             }
             double r = Math.abs((u[j] - t.cf()) / t.cf());
             if (r >= CF_TOL) {
                 bad++;
-                System.out.printf("    [!] CF  ref %-7s vs ours %-7s  %.9f vs %.7f  rel=%.2e%n",
-                        t.name(), names.get(j), u[j], t.cf(), r);
+                System.out.printf("    [!] CF  %-7s: ref=%.7f  ours[%s]=%.9f  rel=%.2e%n",
+                        t.name(), t.cf(), names.get(j), u[j], r);
             }
         }
         check(solver + " all 18 (ECI, CF) pairs match reference", bad == 0);
