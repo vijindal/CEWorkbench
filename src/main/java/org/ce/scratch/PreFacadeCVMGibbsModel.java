@@ -1070,7 +1070,7 @@ public class PreFacadeCVMGibbsModel {
      * equivalent of Mathematica's symbolic substitution is: solve the same
      * system {@code K+1} times against basis right-hand-sides (once for
      * {@code mu=0}, once per unit vector {@code e_k}) to get the affine
-     * coefficients directly, then let {@link EquilibriumMatrix} fold that
+     * coefficients directly, then let {@code HillertSolver.EquilibriumMatrix} fold that
      * affine form into its own equations before solving for {@code mu} --
      * exactly mirroring {@code genEqMat}'s substitution, entirely
      * numerically, with no symbolic algebra.</p>
