@@ -185,6 +185,21 @@ Verification plan:
 
 ---
 
+## 2026-08-19 — 2026-08-20 — CVM evaluator/solver split, SGTE reference energy, Hillert solver
+
+Undertaken to make the `G` expressions auditable: `CVMGibbsModel` was both evaluator and optimizer, which is what made them hard to review in isolation.
+
+- **`CVMGibbsModel` reduced to a pure evaluator.** It answers for G/H/S, their derivatives, and SRO at given system parameters (elements, structure, ECIs), macro parameters (T, x), and micro parameters (u) — and owns no iteration or convergence logic. Results are read through a nested `State` obtained from `model.at(T, x, u)`; scalars compute on demand. Solvers now hold a model and drive it from outside.
+- **Split `model/cvm/` (evaluates) from `model/equilibrium/` (solves).** The Newton–Raphson loop moved out of `CVMGibbsModel` into `CvmNewtonSolver`, its nine stages documented inline; two subtleties are noted where they were previously implicit — the gradient test uses an L1 norm (matching the reference, not Euclidean), and the final step test reads the raw Newton step, not the clamped one.
+- **Extracted `CvmGeometry`** — the immutable Stage 1–4 pipeline product, cluster algebra only, independent of any Hamiltonian, so geometry can be checked on its own inputs. Carries a class-level TODO flagging ordered phases (point set wider than K, sublattice orbit splitting) as unreviewed.
+- **Replaced the hardcoded lattice-stability tables with `SgteDatabase`**, parsing SGTE Unary v4.4 from `inputs/unary.dat`, and reduced `LatticeStability` to a façade over it (867 → 117 lines). This supplies the pure-element reference `G0m`, without which chemical potentials are not comparable across phases. Verified by 176 cross-check agreements against the previous hardcoded values, analytic T-derivatives against finite differences, and external reference values.
+- **Added `HillertSolver`** — multi-phase equilibrium in one file, with `Phase`, `Result`, `PhaseResult`, `PhaseStep`, and `EquilibriumMatrix` nested inside it. Each had exactly one caller and is meaningless outside the outer loop.
+- **Merged `SroCalculator` into `CVMGibbsModel.State`** — SRO is a thermodynamic property of a state, like G/H/S. Also removed `CvmEvaluator`/`CvmState` after they had served as the transitional pair.
+- Net effect on the two packages: fourteen classes down to seven.
+- Verified throughout by parity gates against frozen copies of the pre-refactor implementations, so each step compared against real prior behaviour rather than against itself. The three `CLAUDE.md` reference values are bit-identical.
+
+**Known open, deferred:** the Hillert path is validated only for a single phase; a two-phase reference trace is still needed. It also does not converge at one near-edge composition (Mo-Nb-Ta, 1273 K, x=[0.05, 0.475, 0.475]) where the reference does in 7 outer iterations — the outer loop is a faithful port, so the discrepancy is upstream in the Hessian. Separately, `dGm/du` disagrees with the Mathematica reference on all 18 components for Mo-Nb-Ta while agreeing with finite differences of our own `Gm`; this is pre-existing and unresolved.
+
 ## 2026-08-06 — HCP/B2 CVCF basis rebuild, documentation consolidation
 
 - Fixed `ClusterCFIdentificationPipeline.runFullWorkflow` passing the wrong `maxClusters` (disordered parent instead of ordered phase) to `CMatrixPipeline.run` — the root cause of `BCC_B2` Stage 3 identification failures.

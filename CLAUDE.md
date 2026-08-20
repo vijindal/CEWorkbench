@@ -56,10 +56,15 @@ org.ce
 │   │   ├─ ClusterCFIdentificationPipeline  Stages 1–4, produces PipelineResult
 │   │   ├─ CMatrixPipeline   C-matrix build + evaluateCVs (cluster probabilities)
 │   │   └─ StructurePhaseRegistry, SpaceGroup, ClusterMath, LinearAlgebra, …
-│   ├─ cvm/
-│   │   ├─ CVMGibbsModel     Evaluator AND Newton–Raphson loop (see note below)
-│   │   ├─ CvCfBasis         CVCF basis registry + transformation matrices
-│   │   └─ SroCalculator     Cowley-Warren SRO from cluster variables
+│   ├─ cvm/                  Pure evaluators — no solver loops (see note below)
+│   │   ├─ CVMGibbsModel     Evaluator; nested State/Shell/PairSro
+│   │   ├─ CvmGeometry       Immutable Stage 1–4 product; cluster algebra only
+│   │   └─ CvCfBasis         CVCF basis registry + transformation matrices
+│   ├─ equilibrium/          Solvers + pure-element reference energy
+│   │   ├─ CvmNewtonSolver   Fixed-composition Newton–Raphson (nine stages)
+│   │   ├─ HillertSolver     Multi-phase; nested Phase/Result/PhaseStep/EquilibriumMatrix
+│   │   ├─ LatticeStability  G0m façade
+│   │   └─ SgteDatabase      SGTE Unary v4.4 parser (inputs/unary.dat)
 │   ├─ mcs/                  MCS supercell state, geometry, Metropolis engine
 │   │   ├─ MCSGeometry       Expensive per-(session, L) geometry; built once
 │   │   ├─ MCSRunner         forTemperature(): ECI evaluation + transform
@@ -89,11 +94,26 @@ org.ce
 
 ## Layer roles
 
-**`model/`** — Physics evaluators AND optimizers. Evaluators are queried for
-properties; optimizers own algorithm loops and convergence logic. Both belong here.
-Note `CVMGibbsModel` is currently *both* — it evaluates G/H/S/gradients and owns the
-Newton–Raphson loop (`getEquilibriumState`). Splitting the loop out is a plausible
-future refactor; it has not happened.
+**`model/`** — Physics evaluators AND optimizers. Both belong here, but in
+**separate packages**: `model/cvm/` evaluates, `model/equilibrium/` solves.
+
+`CVMGibbsModel` is a **pure evaluator**. It answers "what are G/H/S and their
+derivatives at these system parameters (elements, structure, ECIs), macro
+parameters (T, x), and micro parameters (u)?" — nothing more. It owns no
+iteration and no convergence logic.
+
+Solvers hold a model and drive it from outside. Both do this the same way, and
+differ only in which unknowns they solve for:
+
+| | `CvmNewtonSolver` | `HillertSolver` |
+|---|---|---|
+| composition | fixed constraint | an unknown |
+| reads | `gmu` / `gmuu` (`ncf`) | `gmuFull` / `gmuuFull` (`ncf+K`) |
+| phases | one | N |
+
+**Do not put a solver loop back on `CVMGibbsModel`.** It was both evaluator and
+optimizer until this split; the mixture is what made the G expressions hard to
+audit.
 
 **`calculation/`** — **Public API, discovery, and dispatch.**
 1. **API**: `CalculationService.calculate`/`calculateScan` is the single named entry
@@ -185,11 +205,14 @@ C-matrix → Stage 4 CVCF transformation. Produces `PipelineResult`, held in mem
 
 **Type-2 CVM** — `ThermodynamicWorkflow.runCvm`:
 ```
-CVMGibbsModel.initialize()      once per session (runs Stages 1–4, cached)
-  → getEquilibriumState(T, x)   Newton–Raphson; returns EquilibriumResult.converged
-     → CECEvaluator.evaluate()  eci[i] = a + b·T, matched by name against the basis
-  → calG/calH/calS, calCfs()
-  → SroCalculator               Cowley-Warren α from cluster variables
+CVMGibbsModel.of(...)              once per session (builds CvmGeometry, cached)
+  → new CvmNewtonSolver(model)
+      .solve(T, x, ...)            Newton–Raphson; returns Result.converged
+       → model.at(T, x, u)         a State per trial point
+          → CECEvaluator.evaluate()  eci[i] = a + b·T, matched by name
+  → Result.state()                 the State at equilibrium u
+     → st.gm() / st.hm() / st.sm() / st.g()   computed on demand
+     → st.pairSroByShell()                    Cowley-Warren α
 ```
 
 **Type-2 MCS** — `ThermodynamicWorkflow.runMcs`:
@@ -389,7 +412,7 @@ calculation path.
 Only pair SRO (1NN) is exposed. Extending this to triangle/tetrahedron
 multi-site SRO looks straightforward at first — cluster probabilities for
 *every* cluster type are already available via
-`CVMGibbsModel.evaluateClusterVariables(...)` — but most CVCF correlation
+`CVMGibbsModel.State`'s cluster variables — but most CVCF correlation
 functions for triangle/tetrahedron clusters are not single physical
 probabilities. `CvCfBasis.VSpec` makes this explicit: each CF is defined as
 either `product(...)` (a single site-atom-pair probability, directly
@@ -399,7 +422,7 @@ binary-triangle CFs `v3AB = ρ^RPR − ρ^PRP`). A `diff`-type CF has no natural
 `[0,1]` reference, so `1 − value/reference` isn't meaningful for it.
 
 The literature confirms there's no shortcut around this: Goff, Li, Sinnott,
-Dabo (PRB 104, 054109, 2021) — one of the two papers `SroCalculator`'s Eq. 41
+Dabo (PRB 104, 054109, 2021) — one of the two papers the Eq. 41 SRO code
 cites — define one SRO-like parameter per distinct, symmetry-labeled
 *occupation probability*, never on a signed difference of probabilities.
 Nor does the "orthogonal" (Chebyshev/Inden-polynomial) basis used internally
@@ -435,9 +458,12 @@ a real computation was attempted and failed.
 |------|-----|
 | `model/ModelSession.java` | Session contract + Builder — most important class |
 | `model/storage/Workspace.java` | `SystemId`, ID derivation, path layout, data-root resolution |
-| `model/cvm/CVMGibbsModel.java` | CVM evaluator + Newton–Raphson loop (`getEquilibriumState`) |
+| `model/cvm/CVMGibbsModel.java` | Pure CVM evaluator; nested `State` (G/H/S, derivatives, SRO) |
+| `model/cvm/CvmGeometry.java` | Immutable Stage 1–4 product; cluster algebra only |
 | `model/cvm/CvCfBasis.java` | CVCF basis registry; expected ECI names per system |
-| `model/cvm/SroCalculator.java` | Cowley-Warren SRO from cluster variables |
+| `model/equilibrium/CvmNewtonSolver.java` | Fixed-composition Newton–Raphson over a model |
+| `model/equilibrium/HillertSolver.java` | Multi-phase equilibrium; whole method in one file |
+| `model/equilibrium/SgteDatabase.java` | SGTE Unary v4.4 parser; G0m and its T-derivatives |
 | `model/hamiltonian/CECEvaluator.java` | Name→basis ECI mapping and its alias rules |
 | `model/mcs/MCSGeometry.java` · `MCSRunner.java` · `MetropolisMC.java` | MCS geometry, ECI setup, sweep loop |
 | `calculation/Conditions.java` | Named-composition API entry type |
@@ -484,3 +510,34 @@ This suite is what caught a real point-CF-column-ordering bug that silently brok
 K≥3 CVCF energies while every internal-consistency check kept passing (see the
 class doc for the full story) — internal-consistency-only checks are not sufficient
 for this codebase's MCS correctness gate.
+
+For CVM solver or evaluator changes (`model/cvm/**`, `model/equilibrium/**`), also run:
+
+```bash
+./gradlew runScratch -PscratchClass=org.ce.scratch.TernaryReferenceValidation
+```
+
+Validates both minimisers against a Mathematica `phaseq` reference point
+(Mo-Nb-Ta / BCC_A2 / T, 1000 K, x=[0.33, 0.33, 0.34]): G/Gm/Hm/Sm to 1e-5
+relative, and all 18 converged CFs to 1e-4. Expect `RESULT: PASS`.
+
+This is an external check, not self-consistency: `CvmNewtonSolver` (fixed
+composition, `ncf` system) and `HillertSolver` (composition as unknown, widened
+`ncf+K` system with a Lagrange constraint and outer μ loop) share only the
+evaluator, so agreement between them and with the reference is evidence about
+`CVMGibbsModel` itself.
+
+**The CF comparison applies a known index permutation** (`REF_TO_OURS`):
+`v3ABC1`/`v3ABC3` and the whole `v21`/`v22` pair block are ordered differently
+in our basis than in the reference's `u2List`. Both differences are long-standing
+and deliberately unfixed — our ordering is internally consistent, only the labels
+differ. Comparing position-by-position reports eight false mismatches. If the
+ordering is ever reconciled, that table is what changes.
+
+μ is not compared entry-by-entry: for a single phase it is underdetermined
+(one Gibbs-Duhem equation, K unknowns), so the gate asserts `Σμᵢxᵢ = G` instead.
+`CvmNewtonSolver` has no μ at all — composition is fixed there.
+
+This covers one interior composition. The near-edge band (e.g. x=[0.05, 0.05, 0.90]
+on the same system) is where **both** solvers still fail — a separate open item,
+not covered here.
