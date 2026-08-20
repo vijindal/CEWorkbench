@@ -159,11 +159,15 @@ public final class HillertSolver {
             }
         }
 
+        // Evaluate each phase once at its final point and keep the state, so a
+        // caller can read any further property (entropy, gradients, SRO) on
+        // demand rather than re-evaluating. G comes from that same state, so
+        // the reported energy and anything derived from it cannot disagree.
         List<PhaseEquilibriumResult.PhaseResultEntry> entries = new ArrayList<>();
         for (PhaseState phase : phases) {
-            double g = currentG(phase, temperature);
+            CVMGibbsModel.State state = phase.model.atFull(temperature, phase.uFull);
             entries.add(new PhaseEquilibriumResult.PhaseResultEntry(
-                    phase.label, phase.amount, phase.composition(), g, converged));
+                    phase.label, phase.amount, phase.composition(), state.g(), state, converged));
         }
 
         return new PhaseEquilibriumResult(entries, mu, converged, outerIter - 1, finalResidualNorm);
