@@ -11,8 +11,8 @@ import java.util.List;
  * iteration (not a reconstruction from first principles; the full
  * {@code genEqMat} source was obtained and ported directly).
  *
- * <p><b>Where this sits relative to {@code HillertPhaseStepSolver}
- * (HILLERT_SOLVER_PLAN.md):</b> {@code HillertPhaseStepSolver.step} solves one
+ * <p><b>Where this sits relative to {@code HillertSolver.PhaseStep}
+ * (HILLERT_SOLVER_PLAN.md):</b> {@code HillertSolver.PhaseStep.step} solves one
  * phase's local Newton step as an <em>affine function of the trial
  * chemical potential {@code mu}</em>, not at one fixed numeric {@code mu}
  * — tracing {@code phaseq}'s actual outer loop showed {@code delxGCVM} is
@@ -50,7 +50,7 @@ import java.util.List;
  * </ul>
  *
  * <p>Deliberately a separate class from {@code CVMGibbsModel} (unlike
- * {@code HillertPhaseStepSolver.step}): its inputs are aggregated quantities from
+ * {@code HillertSolver.PhaseStep.step}): its inputs are aggregated quantities from
  * <em>multiple</em> phases at once, not one {@code CVMGibbsModel}
  * instance's own state — there is no single natural owner among the
  * per-phase models for this cross-phase assembly.</p>
@@ -62,7 +62,7 @@ public final class EquilibriumMatrix {
     /**
      * One phase's contribution to the outer system: current amount,
      * composition, {@code G}, and its affine {@code deltaComposition(mu)}
-     * (from {@link HillertPhaseStepSolver#step}) --
+     * (from {@link HillertSolver.PhaseStep#step}) --
      * {@code deltaComposition0} is the {@code mu=0} value,
      * {@code deltaCompositionSensitivity[k]} is {@code d(deltaComposition)/d(mu_k)}.
      */

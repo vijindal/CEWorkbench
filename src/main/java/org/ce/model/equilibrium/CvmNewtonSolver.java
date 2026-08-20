@@ -20,13 +20,13 @@ import java.util.function.Consumer;
  * is only the algorithm: convergence criteria, step limiting, and the iteration
  * bookkeeping.</p>
  *
- * <p><b>The companion solver.</b> {@link HillertPhaseStepSolver} sits beside
+ * <p><b>The companion solver.</b> {@link HillertSolver.PhaseStep} sits beside
  * this one over the same model, differing only in which unknowns it solves for
  * and therefore which block of the same evaluated state it reads:</p>
  *
  * <table border="1">
  *   <caption>The two solvers over one model</caption>
- *   <tr><th></th><th>this</th><th>HillertPhaseStepSolver</th></tr>
+ *   <tr><th></th><th>this</th><th>HillertSolver.PhaseStep</th></tr>
  *   <tr><td>composition</td><td>fixed constraint</td><td>an unknown</td></tr>
  *   <tr><td>reads</td><td>{@code gmu} / {@code gmuu} ({@code ncf})</td>
  *       <td>{@code gmuFull} / {@code gmuuFull} ({@code ncf+K})</td></tr>

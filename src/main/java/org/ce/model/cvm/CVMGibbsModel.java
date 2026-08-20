@@ -34,7 +34,7 @@ import java.util.function.Consumer;
  *   <li>{@code CvmNewtonSolver} -- fixed-composition minimisation, where
  *       {@code x} is a constraint and {@code u} the unknown. Reads the
  *       {@code ncf}-wide {@link State#gmu()} and {@link State#gmuu()}.</li>
- *   <li>{@code HillertPhaseStepSolver} -- the multi-phase per-phase step, where
+ *   <li>{@code HillertSolver.PhaseStep} -- the multi-phase per-phase step, where
  *       composition is an unknown too. Reads the {@code (ncf+K)}-wide
  *       {@link State#gmuFull()} and {@link State#gmuuFull()}.</li>
  * </ul>
