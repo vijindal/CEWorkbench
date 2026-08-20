@@ -169,14 +169,23 @@ public final class HillertSolver {
         return new PhaseEquilibriumResult(entries, mu, converged, outerIter - 1, finalResidualNorm);
     }
 
-    /** G = G0m (absolute lattice-stability reference) + Gm (mixing energy from the CVM evaluator). */
+    /**
+     * {@code G = G0m + Gm} at this phase's current joint state -- the absolute,
+     * pure-element-anchored energy the outer equilibrium assembly needs, since
+     * chemical potentials are equalised across phases and every phase's G must
+     * therefore share one zero.
+     *
+     * <p>Evaluated through {@link org.ce.model.cvm.CvmEvaluator}, which composes
+     * the reference and mixing terms itself. This previously called
+     * {@code model.evaluate(...).G} for Gm and added
+     * {@code LatticeStability.g0m} separately -- a second place where
+     * {@code G = G0m + Gm} was spelled out, and one that mutated the phase's
+     * model as a side effect of a read.</p>
+     */
     private static double currentG(PhaseState phase, double temperature) {
-        double[] u = java.util.Arrays.copyOfRange(phase.uFull, 0, phase.ncf);
-        double[] x = java.util.Arrays.copyOfRange(phase.uFull, phase.ncf, phase.uFull.length);
-        double gm = phase.model.evaluate(u, x, temperature).G;
-        List<String> elements = List.of(phase.session.systemId.elements().split("-"));
-        double g0m = LatticeStability.g0m(elements, phase.session.systemId.structure(), x, temperature);
-        return g0m + gm;
+        return phase.model.getEvaluator()
+                .stateAtFull(temperature, phase.uFull)
+                .g();
     }
 
     private static double l2Norm(double[] v) {

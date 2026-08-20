@@ -604,29 +604,17 @@ public class CVMGibbsModel {
 
     // =========================================================================
     // Physics evaluation
+    //
+    // There is deliberately no evaluate(u, x, T) here any more. It duplicated
+    // CvmEvaluator.stateAt: a stateless-looking method on a stateful class that
+    // silently moved this model's current point as a side effect of a read, and
+    // computed all nine quantities whether the caller wanted one or all. It
+    // also left isMinimized false, so its result could not be read back through
+    // the cal* accessors -- a method at odds with its own class.
+    //
+    // For evaluation at an arbitrary point use getEvaluator().stateAt(T, x, u),
+    // which builds an immutable CvmState and touches nothing here.
     // =========================================================================
-
-    /** Evaluates the CVM Gibbs free energy and derivatives at the given state. */
-    public ModelResult evaluate(double[] u, double[] moleFractions, double temperature) {
-        setT(temperature);
-        setX(moleFractions);
-        setU(u);
-        return modelResult();
-    }
-
-    /**
-     * Static overload for callers that supply the geometry explicitly, rather
-     * than initialising a model against a stored Hamiltonian.
-     */
-    public static ModelResult evaluate(
-            double[] u, double[] moleFractions, double temperature,
-            CECEntry cecEntry, CvmGeometry geometry) {
-        CVMGibbsModel tempModel = new CVMGibbsModel();
-        tempModel.cecEntry = cecEntry;
-        tempModel.geo = geometry;
-        tempModel.evaluator = new CvmEvaluator(geometry, cecEntry);
-        return tempModel.evaluate(u, moleFractions, temperature);
-    }
 
     /**
      * Result of {@link #solvePerPhaseStep}: the joint Newton step

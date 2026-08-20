@@ -146,19 +146,19 @@ public class SmokeTestG0mDerivatives {
         }
 
         // --- Evaluate at that state (pure evaluation, no solver) -----------
-        CVMGibbsModel.ModelResult mixing = gm.evaluate(u, x, T);
-        double[] gmu = mixing.Gu;
+        org.ce.model.cvm.CvmState mixing = gm.getEvaluator().stateAt(T, x, u);
+        double[] gmu = mixing.gmu();
 
         double g0m = LatticeStability.g0m(List.of(els), structure, x, T);
 
         // --- Scalars -------------------------------------------------------
         System.out.println("\n-- Scalars --------------------------------------------------------");
         System.out.printf("  G0m            = %22.10f%n", g0m);
-        System.out.printf("  Gm             = %22.10f%n", mixing.G);
-        System.out.printf("  G  = G0m + Gm  = %22.10f%n", g0m + mixing.G);
-        System.out.printf("  Hm             = %22.10f%n", mixing.H);
-        System.out.printf("  H  = H0m + Hm  = %22.10f%n", g0m + mixing.H);
-        System.out.printf("  Sm  = S        = %22.10f   (S0m = 0)%n", mixing.S);
+        System.out.printf("  Gm             = %22.10f%n", mixing.gm());
+        System.out.printf("  G  = G0m + Gm  = %22.10f%n", mixing.g());
+        System.out.printf("  Hm             = %22.10f%n", mixing.hm());
+        System.out.printf("  H  = H0m + Hm  = %22.10f%n", mixing.h());
+        System.out.printf("  Sm  = S        = %22.10f   (S0m = 0)%n", mixing.sm());
 
         // --- Gradient comparison, component by component -------------------
         System.out.println("\n-- dGm/du vs Mathematica GcuN (matched by CF name) ----------------");
@@ -211,12 +211,12 @@ public class SmokeTestG0mDerivatives {
                 String.format("G0m = %.10f", g0m));
 
         check("G - Gm == G0m exactly",
-                Math.abs(((g0m + mixing.G) - mixing.G) - g0m) < 1e-9,
-                String.format("G - Gm = %.10f", (g0m + mixing.G) - mixing.G));
+                Math.abs((mixing.g() - mixing.gm()) - g0m) < 1e-9,
+                String.format("G - Gm = %.10f", mixing.g() - mixing.gm()));
 
         check("H - Hm == G0m exactly (H0m == G0m)",
-                Math.abs(((g0m + mixing.H) - mixing.H) - g0m) < 1e-9,
-                String.format("H - Hm = %.10f", (g0m + mixing.H) - mixing.H));
+                Math.abs((mixing.h() - mixing.hm()) - g0m) < 1e-9,
+                String.format("H - Hm = %.10f", mixing.h() - mixing.hm()));
 
         System.out.println("\n" + "=".repeat(78));
         System.out.println(allPass ? "RESULT: PASS" : "RESULT: FAIL");
