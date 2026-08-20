@@ -5,8 +5,6 @@ import org.ce.model.ModelSession;
 import org.ce.model.ModelSession.EngineConfig;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.equilibrium.HillertSolver;
-import org.ce.model.equilibrium.PhaseEquilibriumResult;
-import org.ce.model.equilibrium.PhaseState;
 import org.ce.model.storage.Workspace;
 import org.ce.model.storage.Workspace.SystemId;
 
@@ -55,23 +53,23 @@ public final class HillertStateSmokeTest {
         // Two phases of the same structure at different starting compositions:
         // enough to drive the outer loop without depending on a second
         // structure's Hamiltonian being physically meaningful.
-        List<PhaseState> phases = new ArrayList<>();
+        List<HillertSolver.Phase> phases = new ArrayList<>();
         phases.add(phase("alpha", sessionA2, a2, 0.5, new double[] { 0.35, 0.65 }));
         phases.add(phase("beta", sessionA2, a2, 0.5, new double[] { 0.65, 0.35 }));
 
         System.out.printf("%n  T = %.1f K, %d phases%n", T, phases.size());
-        for (PhaseState p : phases) {
+        for (HillertSolver.Phase p : phases) {
             System.out.printf("    %-6s start x=%s amount=%.3f%n",
                     p.label, fmt(p.composition()), p.amount);
         }
 
-        PhaseEquilibriumResult eq = HillertSolver.solve(phases, T, 50, 20, 1.0e-6, null);
+        HillertSolver.Result eq = HillertSolver.solve(phases, T, 50, 20, 1.0e-6, null);
 
         System.out.printf("%n  overallConverged = %s   outerIterations = %d   residual = %.4e%n",
                 eq.overallConverged(), eq.outerIterations(), eq.finalResidualNorm());
         System.out.println("  mu = " + fmt(eq.mu()));
 
-        for (PhaseEquilibriumResult.PhaseResultEntry p : eq.phases()) {
+        for (HillertSolver.PhaseResult p : eq.phases()) {
             System.out.printf("%n  --- %s ---%n", p.label());
             System.out.printf("    amount      = %.6f%n", p.amount());
             System.out.printf("    composition = %s%n", fmt(p.composition()));
@@ -108,10 +106,10 @@ public final class HillertStateSmokeTest {
     }
 
     /** Builds a phase whose joint vector starts at the random state for {@code x}. */
-    private static PhaseState phase(String label, ModelSession session,
+    private static HillertSolver.Phase phase(String label, ModelSession session,
             CVMGibbsModel model, double amount, double[] x) {
         double[] uFull = model.randomStateFull(x);
-        return new PhaseState(label, session, model, amount, uFull);
+        return new HillertSolver.Phase(label, session, model, amount, uFull);
     }
 
     private static void check(String what, boolean ok) {

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.ce.model.ModelSession;
 import org.ce.model.cvm.CVMGibbsModel;
 import org.ce.model.equilibrium.HillertPhaseStepSolver.PerPhaseStepResult;
 
@@ -38,6 +39,138 @@ public final class HillertSolver {
 
     private HillertSolver() {}
 
+    // =========================================================================
+    // Inputs and outputs
+    //
+    // Nested here for the same reason CvmNewtonSolver.Result is nested in its
+    // solver: these are this solver's working state and its output, used
+    // nowhere else. Keeping them alongside the loop that drives them means the
+    // whole multi-phase contract reads in one place.
+    // =========================================================================
+
+    /**
+     * One candidate phase's mutable state during the solve.
+     *
+     * <p>The {@link CVMGibbsModel} it carries is a pure evaluator and holds no
+     * per-point state, so it may safely be shared between phases of the same
+     * system; what is mutable here is {@link #amount} and {@link #uFull}, which
+     * the outer loop updates. (An earlier version required a separate model
+     * instance per phase, because the model then carried a current
+     * {@code (T, x, u)} internally.)</p>
+     *
+     * <p>Distinct from a single-phase {@link ModelSession}-driven calculation:
+     * a Hillert phase's composition is itself an unknown, solved for jointly
+     * with its internal CVM parameters by {@link HillertPhaseStepSolver} -- not
+     * a fixed input the way {@link org.ce.calculation.Conditions} treats it for
+     * {@code CalculationService.calculate}.</p>
+     */
+    public static final class Phase {
+
+        /**
+         * Amount below which a phase is treated as unstable and excluded from
+         * the outer equilibrium assembly. Matches the reference's
+         * amount-sign-only check ({@code amount > 0}), not a rigorous Gibbs
+         * phase rule.
+         */
+        private static final double STABILITY_THRESHOLD = 0.0;
+
+        public final String label;
+        public final ModelSession session;
+        public final CVMGibbsModel model;
+        public final int ncf;
+        public final int numComponents;
+
+        /** Current phase amount (moles of formula units, "N" in the reference). */
+        public double amount;
+
+        /** Current joint internal-parameter vector {@code uFull = [u ; x]}, length {@code ncf+K}. */
+        public double[] uFull;
+
+        public Phase(String label, ModelSession session, CVMGibbsModel model,
+                double initialAmount, double[] initialUFull) {
+            this.label = label;
+            this.session = session;
+            this.model = model;
+            this.ncf = model.ncf();
+            this.numComponents = initialUFull.length - ncf;
+            this.amount = initialAmount;
+            this.uFull = initialUFull.clone();
+        }
+
+        /**
+         * Current composition -- the trailing {@code K} entries of
+         * {@link #uFull}. Port of the reference's {@code updateComp}:
+         * composition is always exactly this slice, never a separate inversion.
+         */
+        public double[] composition() {
+            double[] x = new double[numComponents];
+            System.arraycopy(uFull, ncf, x, 0, numComponents);
+            return x;
+        }
+
+        /**
+         * True if this phase is currently treated as stable (amount strictly
+         * positive) -- the reference's amount-sign-only check, not a rigorous
+         * Gibbs phase rule.
+         */
+        public boolean isStable() {
+            return amount > STABILITY_THRESHOLD;
+        }
+    }
+
+    /**
+     * Immutable output of {@link #solve} -- the multi-phase counterpart to
+     * {@code ThermodynamicResult} for the single-phase path.
+     *
+     * <p><b>Check {@link #overallConverged} before using any value.</b> A
+     * non-converged run still returns plausible-looking numbers.</p>
+     */
+    public record Result(
+            List<PhaseResult> phases,
+            double[] mu,
+            boolean overallConverged,
+            int outerIterations,
+            double finalResidualNorm) {
+    }
+
+    /**
+     * One phase's outcome: amount, composition, and energetics at the final
+     * iterate.
+     *
+     * <p>{@link #state} is that phase's model evaluated at its converged joint
+     * point {@code uFull = [u ; x]} -- the same object {@code model.atFull(T,
+     * uFull)} would produce, retained rather than discarded so every other
+     * property is reachable without re-solving or re-evaluating:</p>
+     *
+     * <pre>
+     *   for (PhaseResult p : eq.phases()) {
+     *       double s    = p.state().sm();              // entropy of this phase
+     *       double[] dg = p.state().gmuFull();         // its widened gradient
+     *       var sro     = p.state().pairSroByShell();  // its short-range order
+     *   }
+     * </pre>
+     *
+     * <p>{@link #g} is kept as its own field because it is the quantity the
+     * outer equilibrium assembly actually solved with -- the absolute
+     * {@code G = G0m + Gm}, which must share one zero across phases for
+     * chemical potentials to be comparable. It equals {@code state().g()}; the
+     * field records what the solve used, the state offers everything else.</p>
+     */
+    public record PhaseResult(
+            String label,
+            double amount,
+            double[] composition,
+            double g,
+            CVMGibbsModel.State state,
+            boolean phaseConverged) {
+
+        /** The model this phase was evaluated against. */
+        public CVMGibbsModel model() {
+            return state.model();
+        }
+    }
+
+
     /**
      * Runs the outer/inner Hillert iteration to equilibrium.
      *
@@ -47,8 +180,8 @@ public final class HillertSolver {
      * @param innerBacktrackTries max lambda-halving tries per outer iteration
      * @param tol convergence tolerance on the min per-phase step norm
      */
-    public static PhaseEquilibriumResult solve(
-            List<PhaseState> phases,
+    public static Result solve(
+            List<Phase> phases,
             double temperature,
             int maxOuterIterations,
             int innerBacktrackTries,
@@ -63,14 +196,14 @@ public final class HillertSolver {
 
         for (outerIter = 1; outerIter <= maxOuterIterations; outerIter++) {
             List<PerPhaseStepResult> steps = new ArrayList<>(phases.size());
-            for (PhaseState phase : phases) {
+            for (Phase phase : phases) {
                 steps.add(new HillertPhaseStepSolver(phase.model).step(phase.uFull, temperature));
             }
 
             List<EquilibriumMatrix.PhaseContribution> contributions = new ArrayList<>();
             List<Integer> stableIndices = new ArrayList<>();
             for (int p = 0; p < phases.size(); p++) {
-                PhaseState phase = phases.get(p);
+                Phase phase = phases.get(p);
                 if (!phase.isStable()) {
                     continue;
                 }
@@ -95,7 +228,7 @@ public final class HillertSolver {
             for (int tries = 0; tries < innerBacktrackTries; tries++) {
                 boolean allValid = true;
                 for (int p = 0; p < phases.size(); p++) {
-                    PhaseState phase = phases.get(p);
+                    Phase phase = phases.get(p);
                     double[] deltaY = steps.get(p).deltaYAt(mu);
                     double[] u = new double[phase.uFull.length];
                     for (int i = 0; i < u.length; i++) {
@@ -163,14 +296,14 @@ public final class HillertSolver {
         // caller can read any further property (entropy, gradients, SRO) on
         // demand rather than re-evaluating. G comes from that same state, so
         // the reported energy and anything derived from it cannot disagree.
-        List<PhaseEquilibriumResult.PhaseResultEntry> entries = new ArrayList<>();
-        for (PhaseState phase : phases) {
+        List<PhaseResult> entries = new ArrayList<>();
+        for (Phase phase : phases) {
             CVMGibbsModel.State state = phase.model.atFull(temperature, phase.uFull);
-            entries.add(new PhaseEquilibriumResult.PhaseResultEntry(
+            entries.add(new PhaseResult(
                     phase.label, phase.amount, phase.composition(), state.g(), state, converged));
         }
 
-        return new PhaseEquilibriumResult(entries, mu, converged, outerIter - 1, finalResidualNorm);
+        return new Result(entries, mu, converged, outerIter - 1, finalResidualNorm);
     }
 
     /**
@@ -186,7 +319,7 @@ public final class HillertSolver {
      * {@code G = G0m + Gm} was spelled out, and one that mutated the phase's
      * model as a side effect of a read.</p>
      */
-    private static double currentG(PhaseState phase, double temperature) {
+    private static double currentG(Phase phase, double temperature) {
         return phase.model.atFull(temperature, phase.uFull).g();
     }
 
