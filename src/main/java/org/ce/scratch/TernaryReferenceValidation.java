@@ -113,6 +113,23 @@ public final class TernaryReferenceValidation {
      * here); CFs are the converged values at the reference point, cross-checked
      * against both a labelled Mathematica NR dump and the positional
      * {@code phaseq} trace, which agree exactly.</p>
+     *
+     * <p><b>Provenance of the ECIs.</b> They are the three binary CEC sets
+     * inherited into the ternary, verified cell by cell against the published
+     * binary table (element order A=Mo, B=Nb, C=Ta, so AB=Mo-Nb, AC=Mo-Ta,
+     * BC=Nb-Ta):</p>
+     * <pre>
+     *   binary   e21      e22      e3     e4
+     *   Mo-Nb   -23774   -11887   +894    0
+     *   Mo-Ta   -40107   -20054   -1802   0
+     *   Nb-Ta    -1002     -501   -630    0
+     * </pre>
+     * <p>All ternary-specific terms ({@code e3ABC*}, {@code e4ABC*}) are zero:
+     * binary-cluster CECs are inherited unchanged into any higher-order system
+     * containing that pair, and there is no Mo-Nb-Ta ternary DFT data. Because
+     * this gate reads the ECIs back from the evaluator rather than from the
+     * file, it also confirms every name resolved -- an unmatched ECI name is
+     * left silently at 0.0 by {@code CECEvaluator}.</p>
      */
     private static final RefTerm[] REFERENCE = {
             new RefTerm("v4AB",        0.0, 0.01314),
@@ -156,6 +173,15 @@ public final class TernaryReferenceValidation {
     private static final Map<String, String> REF_TO_OURS_NAME = Map.of(
             "v3ABC1", "v3ABC3",
             "v3ABC3", "v3ABC1");
+
+    /**
+     * The published binary CEC table: {@code {binary, pair suffix, e21, e22,
+     * e3, e4}}. Element order A=Mo, B=Nb, C=Ta fixes the suffixes.
+     */
+    private static final String[][] BINARY_TABLE = {
+            { "Mo-Nb", "AB", "-23774", "-11887",   "894", "0" },
+            { "Mo-Ta", "AC", "-40107", "-20054", "-1802", "0" },
+            { "Nb-Ta", "BC",  "-1002",   "-501",  "-630", "0" } };
 
     /** Scalars are quoted to 6 significant figures in the reference. */
     private static final double SCALAR_TOL = 1e-5;
@@ -210,6 +236,27 @@ public final class TernaryReferenceValidation {
             // composition must not have drifted off the input.
             check("Hillert holds x (np=1)", maxAbsDiff(p.composition(), REF_X) < 1e-9);
             check("Hillert amount == 1", Math.abs(p.amount() - 1.0) < 1e-9);
+        }
+
+        // ---- The published binary table ---------------------------------
+        // Checked against the evaluator's resolved ECIs, so this covers the
+        // whole path from stored Hamiltonian through name matching, not just
+        // the file's contents.
+        if (nr.converged()) {
+            System.out.printf("%n--- Published binary CEC table ---%n");
+            double[] eci = nr.state().eci();
+            for (String[] row : BINARY_TABLE) {
+                String pair = row[1];
+                for (int k = 0; k < 4; k++) {
+                    String term = new String[] { "v21", "v22", "v3", "v4" }[k] + pair;
+                    double expect = Double.parseDouble(row[2 + k]);
+                    int j = indexOfCanonical(names, term);
+                    check(String.format("%s %s = %.0f", row[0], term, expect),
+                            j >= 0 && Math.abs(eci[j] - expect) <= ECI_TOL);
+                }
+                System.out.printf("    %-7s e21=%-8s e22=%-8s e3=%-6s e4=%s  ok%n",
+                        row[0], row[2], row[3], row[4], row[5]);
+            }
         }
 
         // ---- The two solvers against each other -------------------------
@@ -277,6 +324,18 @@ public final class TernaryReferenceValidation {
             }
         }
         check(solver + " all 18 (ECI, CF) pairs match reference", bad == 0);
+
+        // The nonzero ECIs, as the evaluator resolved them. Printed because a
+        // name that fails to match leaves its interaction silently at 0.0 --
+        // seeing the values is what distinguishes "matched" from "defaulted".
+        StringBuilder sb = new StringBuilder("    nonzero ECI: ");
+        for (RefTerm t : REFERENCE) {
+            if (t.eci() == 0.0) continue;
+            String on = REF_TO_OURS_NAME.getOrDefault(t.name(), t.name());
+            int j = indexOfCanonical(names, on);
+            sb.append(String.format("%s=%.0f ", names.get(j), eci[j]));
+        }
+        System.out.println(sb.toString().trim());
         System.out.printf("    %d/%d (ECI, CF) pairs match  [ECI exact to %.0f J/mol, CF to %.0e rel]%n",
                 REFERENCE.length - bad, REFERENCE.length, ECI_TOL, CF_TOL);
 
