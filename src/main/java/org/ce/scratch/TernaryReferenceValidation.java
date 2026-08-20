@@ -183,6 +183,16 @@ public final class TernaryReferenceValidation {
             { "Mo-Ta", "AC", "-40107", "-20054", "-1802", "0" },
             { "Nb-Ta", "BC",  "-1002",   "-501",  "-630", "0" } };
 
+    /**
+     * Reference {@code Gm} at the near-edge point x=[0.05, 0.05, 0.90], from a
+     * Mathematica {@code phaseq} trace that converges there to residual
+     * 4.88e-16. Both of our solvers stalled at this point until the entropy
+     * smoothing was removed -- the true solution has a cluster variable at
+     * 1.9e-08, well inside the old 1e-6 threshold, so the smoothed function
+     * being minimised had its minimum somewhere else entirely.
+     */
+    private static final double EDGE_REF_GM = -6300.14;
+
     /** Scalars are quoted to 6 significant figures in the reference. */
     private static final double SCALAR_TOL = 1e-5;
     private static final double CF_TOL     = 1e-4;
@@ -268,6 +278,38 @@ public final class TernaryReferenceValidation {
             agree("Hm",  a.hm(),  b.hm());
             agree("Sm",  a.sm(),  b.sm());
             agree("G0m", a.g0m(), b.g0m());
+        }
+
+        // ---- Near-edge point: convergence regression --------------------
+        // Both solvers stalled here until the entropy smoothing was removed;
+        // the reference converges to residual 4.88e-16. Checked as its own
+        // case because it is the failure mode, not a second sample.
+        System.out.printf("%n--- Near-edge point x=[0.05, 0.05, 0.90] ---%n");
+        double[] xEdge = { 0.05, 0.05, 0.90 };
+        CVMGibbsModel em = CVMGibbsModel.of(ELEMENTS, STRUCTURE, MODEL, session.cecEntry, null);
+        CvmNewtonSolver.Result enr = new CvmNewtonSolver(em).solve(T, xEdge, 1e-5, null, null);
+        System.out.printf("    NR      converged=%s iters=%d Gm=%.5f  (ref %.2f)%n",
+                enr.converged(), enr.iterations(),
+                enr.converged() ? enr.state().gm() : Double.NaN, EDGE_REF_GM);
+        check("NR converges at the near-edge point", enr.converged());
+        if (enr.converged()) {
+            check("NR near-edge Gm matches reference",
+                    Math.abs((enr.state().gm() - EDGE_REF_GM) / EDGE_REF_GM) < SCALAR_TOL);
+        }
+
+        CVMGibbsModel ehm = CVMGibbsModel.of(ELEMENTS, STRUCTURE, MODEL, session.cecEntry, null);
+        List<HillertSolver.Phase> ep = new ArrayList<>();
+        ep.add(new HillertSolver.Phase("bcc", session, ehm, 1.0, ehm.randomStateFull(xEdge)));
+        HillertSolver.Result eeq = HillertSolver.solve(ep, T, 50, 10, 1.0e-6, null);
+        System.out.printf("    Hillert converged=%s outer=%d Gm=%.5f  (ref %.2f)%n",
+                eeq.overallConverged(), eeq.outerIterations(),
+                eeq.overallConverged() ? eeq.phases().get(0).state().gm() : Double.NaN,
+                EDGE_REF_GM);
+        check("Hillert converges at the near-edge point", eeq.overallConverged());
+        if (eeq.overallConverged()) {
+            check("Hillert near-edge Gm matches reference",
+                    Math.abs((eeq.phases().get(0).state().gm() - EDGE_REF_GM) / EDGE_REF_GM)
+                            < SCALAR_TOL);
         }
 
         System.out.println("\n" + "=".repeat(78));

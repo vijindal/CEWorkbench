@@ -62,6 +62,7 @@ public final class CvmEvaluatorParity {
     private static final double PERTURBATION = 0.05;
 
     private static int failures = 0;
+    private static int skipped = 0;
 
     public static void main(String[] args) throws Exception {
         System.out.println("=".repeat(80));
@@ -73,6 +74,7 @@ public final class CvmEvaluatorParity {
         }
 
         System.out.println("\n" + "=".repeat(80));
+        System.out.printf("  (%d state(s) skipped as outside the physical region)%n", skipped);
         System.out.printf("RESULT: %s   (%d failures)%n", failures == 0 ? "PASS" : "FAIL", failures);
         System.out.println("=".repeat(80));
         if (failures > 0) {
@@ -101,23 +103,31 @@ public final class CvmEvaluatorParity {
         for (double t : TEMPERATURES) {
             double[] x = randomComposition(rng, K);
             // Perturb around the random state so cluster variables stay
-            // physical; an arbitrary u would put cv outside (0,1) and exercise
-            // only the entropy-smoothing branch.
+            // physical; an arbitrary u would put cv outside (0,1), where the
+            // evaluator no longer defines a value.
             double[] u = ev.randomStateU(x);
             for (int i = 0; i < ncf; i++) {
                 u[i] *= 1.0 + PERTURBATION * (rng.nextDouble() - 0.5);
             }
-            // A perturbation large enough to drive some cluster variable out of
-            // (0,1) puts the entropy into its ENTROPY_SMOOTH_EPS quadratic
-            // extension, where Sm can legitimately go negative. Both regions
-            // are worth exercising -- the smoothing branch is the one with no
-            // physical intuition to check it against -- but which one is in
-            // play is reported so a negative Sm is not mistaken for a defect.
-
+            // Only valid states are comparable. The frozen legacy copy still
+            // carries the ENTROPY_SMOOTH_EPS quadratic extension that the
+            // evaluator has since dropped, so on a state with cv outside (0,1)
+            // the two deliberately disagree -- legacy returns the penalty's
+            // value (a positive Gm and a negative entropy of mixing, both
+            // unphysical), we return the unregularised one. Neither is
+            // meaningful, and no solver evaluates there: CvmNewtonSolver
+            // rejects at step 3 and HillertSolver at its backtracking check.
+            // Skipping keeps this gate a parity test rather than a comparison
+            // of two arbitrary extrapolations.
             CVMGibbsModel.State st = ev.at(t, x, u);
+            boolean valid = st.isValidIncludingPoints();
+            System.out.printf("  T=%.0f x=%s  cvValid=%s%s%n", t, fmt(x), valid,
+                    valid ? "" : "   [skipped: outside the physical region]");
+            if (!valid) {
+                skipped++;
+                continue;
+            }
             PreFacadeCVMGibbsModel.ModelResult legacyResult = legacy.evaluate(u, x, t);
-
-            System.out.printf("  T=%.0f x=%s  cvValid=%s%n", t, fmt(x), st.isValidIncludingPoints());
 
             checkScalar("Gm", legacyResult.G, st.gm());
             checkScalar("Hm", legacyResult.H, st.hm());

@@ -288,13 +288,6 @@ public final class CVMGibbsModel {
 
     public final class State {
 
-        /**
-         * Cluster variables below this value use a quadratic extension of
-         * {@code cv*ln(cv)} rather than the logarithm itself, keeping the entropy
-         * and its first two derivatives finite as a cluster probability approaches
-         * zero. Matches {@code CVMGibbsModel.ENTROPY_SMOOTH_EPS}.
-         */
-        private static final double ENTROPY_SMOOTH_EPS = 1.0e-6;
 
         /** Temperature (K). */
         private final double temp;
@@ -404,15 +397,11 @@ public final class CVMGibbsModel {
                     int nv = geo.lcv[t][j];
                     for (int incv = 0; incv < nv; incv++) {
                         double cvVal = cv[t][j][incv];
-                        double sContrib;
-                        if (cvVal > ENTROPY_SMOOTH_EPS) {
-                            sContrib = cvVal * Math.log(cvVal);
-                        } else {
-                            double logEps = Math.log(ENTROPY_SMOOTH_EPS);
-                            double d = cvVal - ENTROPY_SMOOTH_EPS;
-                            sContrib = ENTROPY_SMOOTH_EPS * logEps + (1.0 + logEps) * d
-                                    + 0.5 / ENTROPY_SMOOTH_EPS * d * d;
-                        }
+                        // cv*ln(cv) is well behaved in double precision down to
+                        // ~5e-324, far below any physical cluster probability, so
+                        // no regularisation is needed. Only cv == 0 is special:
+                        // its limit is 0, but 0*ln(0) evaluates to 0*(-Inf) = NaN.
+                        double sContrib = cvVal > 0.0 ? cvVal * Math.log(cvVal) : 0.0;
                         sval -= PhysicsConstants.R_GAS * coeffT * mhTj * w[incv] * sContrib;
                     }
                 }
@@ -727,13 +716,13 @@ public final class CVMGibbsModel {
                     int nv = geo.lcv[t][j];
                     for (int incv = 0; incv < nv; incv++) {
                         double cvVal = cv[t][j][incv];
-                        double logEff;
-                        if (cvVal > ENTROPY_SMOOTH_EPS) {
-                            logEff = Math.log(cvVal);
-                        } else {
-                            double d = cvVal - ENTROPY_SMOOTH_EPS;
-                            logEff = Math.log(ENTROPY_SMOOTH_EPS) + d / ENTROPY_SMOOTH_EPS;
-                        }
+                        // No regularisation: see calculateSm. A non-positive cv
+                        // gives -Infinity/NaN here, which is intended -- both
+                        // solvers reject such a state before it reaches this
+                        // point (CvmNewtonSolver step 3, HillertSolver's
+                        // backtracking validity check), so a NaN escaping into
+                        // a gradient means a solver skipped its own guard.
+                        double logEff = Math.log(cvVal);
                         double prefix = coeffT * mhTj * w[incv];
                         for (int l = 0; l < width; l++) {
                             double cml = cm[incv][l];
@@ -758,9 +747,10 @@ public final class CVMGibbsModel {
                     int nv = geo.lcv[t][j];
                     for (int incv = 0; incv < nv; incv++) {
                         double cvVal = cv[t][j][incv];
-                        double invEff = (cvVal > ENTROPY_SMOOTH_EPS)
-                                ? 1.0 / cvVal
-                                : 1.0 / ENTROPY_SMOOTH_EPS;
+                        // 1/cv is the true curvature of cv*ln(cv); it is large
+                        // at a dilute composition because the curvature really
+                        // is large there, not because of a numerical artifact.
+                        double invEff = 1.0 / cvVal;
                         double prefix = coeffT * mhTj * w[incv];
                         for (int l1 = 0; l1 < width; l1++) {
                             double cml1 = cm[incv][l1];
