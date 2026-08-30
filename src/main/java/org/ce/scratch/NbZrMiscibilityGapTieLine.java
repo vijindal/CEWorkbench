@@ -49,7 +49,12 @@ public final class NbZrMiscibilityGapTieLine {
                     p.label, fmt(p.composition()), p.amount);
         }
 
-        HillertSolver.Result eq = HillertSolver.solve(phases, T, 200, 30, 1.0e-8, null);
+        double[] target = new double[model.numComponents()];
+        for (HillertSolver.Phase p : phases) {
+            double[] x = p.composition();
+            for (int i = 0; i < target.length; i++) target[i] += p.amount * x[i];
+        }
+        HillertSolver.Result eq = HillertSolver.solve(phases, target, T, 200, 30, 1.0e-8, null);
 
         System.out.printf("%n  overallConverged = %s   outerIterations = %d   residual = %.4e%n",
                 eq.overallConverged(), eq.outerIterations(), eq.finalResidualNorm());

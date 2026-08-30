@@ -234,7 +234,8 @@ public final class TernaryReferenceValidation {
         List<HillertSolver.Phase> phases = new ArrayList<>();
         phases.add(new HillertSolver.Phase(
                 "bcc", session, hiModel, 1.0, hiModel.randomStateFull(REF_X)));
-        HillertSolver.Result eq = HillertSolver.solve(phases, T, 50, 10, 1.0e-6, null);
+        // np=1, amount 1.0 -> overall inventory is exactly the phase composition.
+        HillertSolver.Result eq = HillertSolver.solve(phases, REF_X.clone(), T, 50, 10, 1.0e-6, null);
         System.out.printf("%n--- Hillert (np=1): converged=%s in %d outer iterations, residual=%.3e ---%n",
                 eq.overallConverged(), eq.outerIterations(), eq.finalResidualNorm());
         check("Hillert converged", eq.overallConverged());
@@ -300,7 +301,7 @@ public final class TernaryReferenceValidation {
         CVMGibbsModel ehm = CVMGibbsModel.of(ELEMENTS, STRUCTURE, MODEL, session.cecEntry, null);
         List<HillertSolver.Phase> ep = new ArrayList<>();
         ep.add(new HillertSolver.Phase("bcc", session, ehm, 1.0, ehm.randomStateFull(xEdge)));
-        HillertSolver.Result eeq = HillertSolver.solve(ep, T, 50, 10, 1.0e-6, null);
+        HillertSolver.Result eeq = HillertSolver.solve(ep, xEdge.clone(), T, 50, 10, 1.0e-6, null);
         System.out.printf("    Hillert converged=%s outer=%d Gm=%.5f  (ref %.2f)%n",
                 eeq.overallConverged(), eeq.outerIterations(),
                 eeq.overallConverged() ? eeq.phases().get(0).state().gm() : Double.NaN,

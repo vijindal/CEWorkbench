@@ -36,7 +36,11 @@ import java.util.function.Consumer;
  *       {@code ncf}-wide {@link State#gmu()} and {@link State#gmuu()}.</li>
  *   <li>{@code HillertSolver.PhaseStep} -- the multi-phase per-phase step, where
  *       composition is an unknown too. Reads the {@code (ncf+K)}-wide
- *       {@link State#gmuFull()} and {@link State#gmuuFull()}.</li>
+ *       <em>absolute</em> gradient {@link State#guFull()} ({@code dG/dY}, whose
+ *       x-block carries the pure-element reference {@code G0_i(T)}) and the
+ *       Hessian {@link State#gmuuFull()} (equal to {@link State#guuFull()} since
+ *       {@code G0m} is linear in composition). The {@code mu} it solves for is
+ *       the absolute (SER-referenced) component chemical potential.</li>
  * </ul>
  *
  * <p>Same physics, same evaluation, different active set -- which is why one

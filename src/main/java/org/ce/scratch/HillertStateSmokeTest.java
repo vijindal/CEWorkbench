@@ -63,7 +63,8 @@ public final class HillertStateSmokeTest {
                     p.label, fmt(p.composition()), p.amount);
         }
 
-        HillertSolver.Result eq = HillertSolver.solve(phases, T, 50, 20, 1.0e-6, null);
+        HillertSolver.Result eq = HillertSolver.solve(
+                phases, targetFromSeed(phases), T, 50, 20, 1.0e-6, null);
 
         System.out.printf("%n  overallConverged = %s   outerIterations = %d   residual = %.4e%n",
                 eq.overallConverged(), eq.outerIterations(), eq.finalResidualNorm());
@@ -110,6 +111,21 @@ public final class HillertStateSmokeTest {
             CVMGibbsModel model, double amount, double[] x) {
         double[] uFull = model.randomStateFull(x);
         return new HillertSolver.Phase(label, session, model, amount, uFull);
+    }
+
+    /**
+     * The overall component inventory the seed phases represent:
+     * {@code target_i = sum_p N_p x^p_i}. Computed at the call site -- the
+     * solver is given this explicitly, never left to infer it.
+     */
+    private static double[] targetFromSeed(java.util.List<HillertSolver.Phase> phases) {
+        int k = phases.get(0).numComponents;
+        double[] t = new double[k];
+        for (HillertSolver.Phase p : phases) {
+            double[] x = p.composition();
+            for (int i = 0; i < k; i++) t[i] += p.amount * x[i];
+        }
+        return t;
     }
 
     private static void check(String what, boolean ok) {
