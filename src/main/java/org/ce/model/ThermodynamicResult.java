@@ -42,6 +42,20 @@ public class ThermodynamicResult {
     }
 
     /**
+     * Cowley-Warren quaternary tetrahedron SRO (Jindal &amp; Lele 2025, Eq.
+     * 41), keyed by CVCF CF name (e.g. {@code "v4ABCD1"}). Null unless the
+     * system is a 4-component CVM run and that CF exists in its basis.
+     */
+    public java.util.Map<String, org.ce.model.cvm.CVMGibbsModel.TetrahedronSro> tetrahedronSro;
+
+    /** Attaches tetrahedron SRO parameters and returns {@code this} for chaining. */
+    public ThermodynamicResult withTetrahedronSro(
+            java.util.Map<String, org.ce.model.cvm.CVMGibbsModel.TetrahedronSro> tetrahedronSro) {
+        this.tetrahedronSro = tetrahedronSro;
+        return this;
+    }
+
+    /**
      * Whether the underlying minimization converged. {@code null} when the engine
      * doesn't report it (MCS). A {@code false} value means the numbers above came
      * from a minimizer that hit its iteration limit and should not be trusted.

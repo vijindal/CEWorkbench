@@ -286,6 +286,35 @@ public final class CVMGibbsModel {
         }
     }
 
+    /**
+     * One Cowley-Warren quaternary tetrahedron parameter (Jindal &amp; Lele
+     * 2025, Eq. 41), {@code alpha^MPRT = 1 - rho^MPRT/(x_M x_P x_R x_T)}, read
+     * off a single {@code product(...)}-type CVCF CF such as {@code v4ABCD1}.
+     */
+    public static final class TetrahedronSro {
+        /** The CVCF CF name this was read from, e.g. {@code "v4ABCD1"}. */
+        public final String cfName;
+        /** Cluster probability rho^MPRT from the CVM. */
+        public final double probability;
+        /** Random-state reference x_M*x_P*x_R*x_T. */
+        public final double reference;
+        /** alpha = 1 - rho/(x_M x_P x_R x_T). */
+        public final double alpha;
+
+        public TetrahedronSro(String cfName, double probability, double reference, double alpha) {
+            this.cfName = cfName;
+            this.probability = probability;
+            this.reference = reference;
+            this.alpha = alpha;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("TetrahedronSro[%s p=%.6f ref=%.6f alpha=%+.6f]",
+                    cfName, probability, reference, alpha);
+        }
+    }
+
     public final class State {
 
 
@@ -693,6 +722,39 @@ public final class CVMGibbsModel {
                 }
             }
             return out;
+        }
+
+        /**
+         * Cowley-Warren quaternary tetrahedron SRO (Eq. 41), read directly off
+         * the named CVCF CF -- {@code v4ABCD1} for the standard 4-component
+         * BCC_A2/T basis. Unlike a pair cluster, the quaternary tetrahedron
+         * has no upper-triangular species enumeration to walk: {@code v4ABCD1}
+         * already names one specific site-to-species assignment and is
+         * exactly {@code rho^ABCD}, a single {@code product(...)}-type
+         * probability (see {@link CvCfBasis.VSpec}) with a well-defined
+         * {@code x_A x_B x_C x_D} reference -- SRO-eligible by the same rule
+         * {@link #pairSro} uses.
+         *
+         * @param cfName the CVCF name of a quaternary tetrahedron CF, e.g.
+         *               {@code "v4ABCD1"}
+         * @throws IllegalArgumentException if this geometry is not a
+         *         4-component system, or {@code cfName} does not resolve in
+         *         its basis
+         */
+        public TetrahedronSro quaternaryTetrahedronSro(String cfName) {
+            if (geo.numComponents != 4) {
+                throw new IllegalArgumentException(
+                        "Quaternary tetrahedron SRO requires numComponents=4, got " + geo.numComponents);
+            }
+            int idx = geo.basis.indexOfCf(cfName);
+            if (idx < 0) {
+                throw new IllegalArgumentException(
+                        "'" + cfName + "' is not a CF in this basis.");
+            }
+            double rho = cfs()[idx];
+            double ref = x[0] * x[1] * x[2] * x[3];
+            double alpha = (ref > 0.0) ? 1.0 - rho / ref : Double.NaN;
+            return new TetrahedronSro(cfName, rho, ref, alpha);
         }
 
         // =========================================================================

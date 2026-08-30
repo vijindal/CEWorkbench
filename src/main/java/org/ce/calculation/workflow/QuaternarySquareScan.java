@@ -82,6 +82,18 @@ public final class QuaternarySquareScan {
     }
 
     /**
+     * Cowley-Warren quaternary tetrahedron SRO alpha (Eq. 41), read off one
+     * named CVCF CF, e.g. {@code "v4ABCD1"} -- the CVCF-basis name in
+     * {@code session}'s own A/B/C/D letter assignment, not the caller's
+     * {@code slotOrder}. Only defined on {@link Region#INTERIOR} points
+     * (all four elements present); undefined at a square boundary/corner,
+     * mirroring {@link PairSroQuantity}'s edge/corner handling.
+     */
+    public record TetrahedronSroQuantity(String cfName) implements Quantity {
+        @Override public String label() { return "SRO_" + cfName; }
+    }
+
+    /**
      * Which composition region a point came from. Unlike the ternary
      * triangle, the (X,Y) square's parametrization never produces a point
      * with exactly one mole fraction at zero — working through the formula
@@ -184,8 +196,9 @@ public final class QuaternarySquareScan {
             if (zeroCount == 3) {
                 // Square corner (X,Y both in {0,1}): a pure element. G/H/S trivially 0;
                 // SRO's reference mole fraction is 0, making alpha undefined (mirrors
-                // TernaryGridScan's corner handling).
-                if (quantity instanceof PairSroQuantity) {
+                // TernaryGridScan's corner handling). Tetrahedron SRO needs all four
+                // elements present, so it is undefined here too.
+                if (quantity instanceof PairSroQuantity || quantity instanceof TetrahedronSroQuantity) {
                     if (eventSink != null) eventSink.accept(new ProgressEvent.ScanPoint(index, total));
                     continue;
                 }
@@ -193,6 +206,13 @@ public final class QuaternarySquareScan {
                 region = Region.CORNER;
             } else if (zeroCount == 2) {
                 // Square boundary (exactly one of X,Y in {0,1}): a true binary edge.
+                // Tetrahedron SRO needs all four elements present, so it is never
+                // attempted here -- only a pair-SRO request whose own pair matches
+                // gets a binary solve.
+                if (quantity instanceof TetrahedronSroQuantity) {
+                    if (eventSink != null) eventSink.accept(new ProgressEvent.ScanPoint(index, total));
+                    continue;
+                }
                 String[] pair = nonZeroPair(order, frac);
                 if (pair == null) {
                     skipped++;
@@ -358,6 +378,11 @@ public final class QuaternarySquareScan {
                 }
             }
             return Double.NaN;
+        }
+        if (quantity instanceof TetrahedronSroQuantity tq) {
+            if (r.tetrahedronSro == null) return Double.NaN;
+            org.ce.model.cvm.CVMGibbsModel.TetrahedronSro t = r.tetrahedronSro.get(tq.cfName());
+            return t == null ? Double.NaN : t.alpha;
         }
         return Double.NaN;
     }

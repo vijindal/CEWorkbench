@@ -42,6 +42,114 @@ public final class LinearAlgebra {
      * @throws IllegalArgumentException if A is singular or dimensions mismatch
      */
     public static double[] solve(double[][] A, double[] b) {
+        return solveChecked(A, b).x();
+    }
+
+    /**
+     * One solved system together with a cheap ill-conditioning signal.
+     *
+     * @param x                 the solution vector
+     * @param relativeResidual  {@code ||A*x - b|| / ||b||} (0 if {@code b} is
+     *                          the zero vector), computed in the original
+     *                          (unscaled) system so it reflects the answer's
+     *                          actual accuracy, not the scaled intermediate
+     *                          one. A well-conditioned solve gives a value at
+     *                          or near machine epsilon; a value orders of
+     *                          magnitude larger means the diagonal rescaling
+     *                          in {@link #solve} was not enough to keep
+     *                          round-off from corrupting the result -- the
+     *                          matrix itself is fundamentally hard for
+     *                          floating-point elimination on this right-hand
+     *                          side, not merely differently scaled.
+     */
+    public record Solution(double[] x, double relativeResidual) {}
+
+    /**
+     * Same elimination as {@link #solve}, but also reports the relative
+     * residual of the returned solution -- see {@link Solution}.
+     *
+     * <p>Exists because {@link #solve} alone gives no signal when a matrix is
+     * merely <em>badly</em> conditioned rather than exactly singular: the
+     * {@code 1e-30} pivot guard only catches the latter. A CVM widened
+     * Hessian near a dilute/near-boundary composition can have diagonal
+     * entries spanning 10+ orders of magnitude (see this class's main doc)
+     * and still clear that pivot threshold at every step while still losing
+     * several digits of accuracy to round-off -- exactly the kind of failure
+     * this residual check is meant to surface to a caller that cares (e.g.
+     * {@code HillertSolver}, which can then warn via its progress sink rather
+     * than silently accepting a degraded Newton step).</p>
+     *
+     * <p><b>Also applies iterative refinement</b> when the initial solve's
+     * relative residual exceeds {@link #REFINEMENT_THRESHOLD}: it solves the
+     * same matrix again against the residual {@code b - A*x} and corrects
+     * {@code x} with that answer, up to {@link #MAX_REFINEMENT_STEPS} times
+     * or until the residual stops improving. This is the standard fix for
+     * exactly the failure mode {@link Solution#relativeResidual()} detects --
+     * a matrix that is not singular but is badly scaled loses accuracy during
+     * elimination in a way a second pass against the leftover residual
+     * recovers, without changing what system is being solved or introducing
+     * any new physics/algorithm. The returned residual reflects the
+     * <em>refined</em> solution, so a caller reading it after this method
+     * returns sees whether refinement actually helped.</p>
+     */
+    public static Solution solveChecked(double[][] A, double[] b) {
+        double[] x = eliminate(A, b);
+        double relative = relativeResidual(A, b, x);
+
+        for (int step = 0; step < MAX_REFINEMENT_STEPS && relative > REFINEMENT_THRESHOLD; step++) {
+            int n = b.length;
+            double[] residual = new double[n];
+            for (int i = 0; i < n; i++) {
+                double rowSum = 0.0;
+                for (int j = 0; j < n; j++) {
+                    rowSum += A[i][j] * x[j];
+                }
+                residual[i] = b[i] - rowSum;
+            }
+            double[] correction = eliminate(A, residual);
+            double[] refined = new double[n];
+            for (int i = 0; i < n; i++) {
+                refined[i] = x[i] + correction[i];
+            }
+            double refinedRelative = relativeResidual(A, b, refined);
+            if (refinedRelative >= relative) {
+                // No further improvement (or it got worse, e.g. the
+                // correction solve is itself hitting the same ill-conditioning) --
+                // stop rather than churn or drift away from the best answer found.
+                break;
+            }
+            x = refined;
+            relative = refinedRelative;
+        }
+
+        return new Solution(x, relative);
+    }
+
+    /** A relative residual at or below this is treated as already accurate enough. */
+    private static final double REFINEMENT_THRESHOLD = 1e-10;
+
+    /** Cap on refinement passes -- each is one more full elimination on the same-size matrix. */
+    private static final int MAX_REFINEMENT_STEPS = 3;
+
+    private static double relativeResidual(double[][] A, double[] b, double[] x) {
+        double residualNorm = 0.0;
+        double bNorm = 0.0;
+        int n = b.length;
+        for (int i = 0; i < n; i++) {
+            double rowSum = 0.0;
+            for (int j = 0; j < n; j++) {
+                rowSum += A[i][j] * x[j];
+            }
+            double r = rowSum - b[i];
+            residualNorm += r * r;
+            bNorm += b[i] * b[i];
+        }
+        residualNorm = Math.sqrt(residualNorm);
+        bNorm = Math.sqrt(bNorm);
+        return (bNorm > 0.0) ? residualNorm / bNorm : residualNorm;
+    }
+
+    private static double[] eliminate(double[][] A, double[] b) {
         int n = A.length;
         if (n == 0) throw new IllegalArgumentException("Empty matrix");
         if (A[0].length != n) throw new IllegalArgumentException("Matrix must be square");

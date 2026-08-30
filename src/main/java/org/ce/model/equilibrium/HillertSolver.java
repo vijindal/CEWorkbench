@@ -229,11 +229,22 @@ public final class HillertSolver {
          *
          * <p>{@code deltaY(mu) = deltaY0 + Σ_k mu[k]*deltaYSensitivity[k]}, and
          * likewise for {@code deltaComposition}/{@code lambda}.</p>
+         *
+         * @param maxRelativeResidual the worst {@link LinearAlgebra.Solution#relativeResidual()}
+         *        across the {@code K+1} linear solves this step required (one
+         *        for {@code mu=0}, one per component's sensitivity column) --
+         *        all share the same coefficient matrix, so this is a single
+         *        ill-conditioning signal for the whole affine step, not just
+         *        one of its solves. Near machine epsilon for a well-behaved
+         *        state; orders of magnitude larger signals the widened
+         *        Hessian's diagonal rescaling was not enough to protect this
+         *        step's accuracy from round-off (see {@link LinearAlgebra#solveChecked}).
          */
         public record Step(
                 double[] deltaY0, double[][] deltaYSensitivity,
                 double[] deltaComposition0, double[][] deltaCompositionSensitivity,
-                double lambda0, double[] lambdaSensitivity) {
+                double lambda0, double[] lambdaSensitivity,
+                double maxRelativeResidual) {
 
             /** Evaluates this affine result at a specific numeric {@code mu}. */
             public double[] deltaCompositionAt(double[] mu) {
@@ -336,7 +347,9 @@ public final class HillertSolver {
             // b0: the mu=0 right-hand side.
             double[] b0 = new double[n];
             for (int i = 0; i < width; i++) b0[i] = -Gu[i];
-            double[] sol0 = LinearAlgebra.solve(A, b0);
+            LinearAlgebra.Solution sol0Checked = LinearAlgebra.solveChecked(A, b0);
+            double[] sol0 = sol0Checked.x();
+            double maxRelativeResidual = sol0Checked.relativeResidual();
 
             // Solving A*z = e_{ncf+k} directly gives d(deltaY)/d(mu_k), since the
             // system is linear and A is shared across right-hand sides.
@@ -346,7 +359,9 @@ public final class HillertSolver {
             for (int k = 0; k < numComponents; k++) {
                 double[] ek = new double[n];
                 ek[ncf + k] = 1.0;
-                double[] solK = LinearAlgebra.solve(A, ek);
+                LinearAlgebra.Solution solKChecked = LinearAlgebra.solveChecked(A, ek);
+                double[] solK = solKChecked.x();
+                maxRelativeResidual = Math.max(maxRelativeResidual, solKChecked.relativeResidual());
                 double[] deltaYk = new double[width];
                 System.arraycopy(solK, 0, deltaYk, 0, width);
                 deltaYSens[k] = deltaYk;
@@ -362,7 +377,8 @@ public final class HillertSolver {
             System.arraycopy(deltaY0, ncf, deltaComposition0, 0, numComponents);
             double lambda0 = sol0[width];
 
-            return new Step(deltaY0, deltaYSens, deltaComposition0, deltaCompSens, lambda0, lambdaSens);
+            return new Step(deltaY0, deltaYSens, deltaComposition0, deltaCompSens, lambda0, lambdaSens,
+                    maxRelativeResidual);
         }
 
 
@@ -524,8 +540,25 @@ public final class HillertSolver {
 
         for (outerIter = 1; outerIter <= maxOuterIterations; outerIter++) {
             List<PhaseStep.Step> steps = new ArrayList<>(phases.size());
-            for (Phase phase : phases) {
-                steps.add(new PhaseStep(phase.model).step(phase.uFull, temperature));
+            for (int p = 0; p < phases.size(); p++) {
+                Phase phase = phases.get(p);
+                PhaseStep.Step step = new PhaseStep(phase.model).step(phase.uFull, temperature);
+                steps.add(step);
+                // See LinearAlgebra.solveChecked: a widened Hessian near a
+                // dilute/near-boundary composition can span 10+ orders of
+                // magnitude on its diagonal and still clear the elimination's
+                // singularity guard while losing real accuracy to round-off.
+                // Surface that here rather than let it silently degrade the
+                // Newton step -- this is exactly the failure mode that made
+                // this solver's trace diverge from the reference phaseq port
+                // on such compositions.
+                if (step.maxRelativeResidual() > 1e-6 && progressSink != null) {
+                    progressSink.accept(String.format(
+                            "Hillert outer iter %d, phase '%s': ill-conditioned Newton step "
+                            + "(relative residual %.3e) -- this state's widened Hessian may be "
+                            + "too badly scaled for a reliable step here.",
+                            outerIter, phase.label, step.maxRelativeResidual()));
+                }
             }
 
             List<EquilibriumMatrix.PhaseContribution> contributions = new ArrayList<>();

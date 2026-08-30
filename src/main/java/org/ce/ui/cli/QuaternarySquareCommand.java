@@ -236,6 +236,13 @@ public final class QuaternarySquareCommand {
                 throw new IllegalArgumentException(
                         "'pair' elements must both be in system.elements (" + elementsRaw + "), got [" + a + "," + b + "].");
             quantity = new QuaternarySquareScan.PairSroQuantity(a, b);
+        } else if ("TETRAHEDRON_SRO".equals(calcName)) {
+            JsonNode cfNode = req.get("cf");
+            if (cfNode == null || cfNode.asText().isBlank())
+                throw new IllegalArgumentException(
+                        "calculation 'TETRAHEDRON_SRO' requires a 'cf' field: the CVCF name of a quaternary"
+                        + " tetrahedron CF in the session's own A/B/C/D letter assignment, e.g. \"v4ABCD1\".");
+            quantity = new QuaternarySquareScan.TetrahedronSroQuantity(cfNode.asText().trim());
         } else {
             quantity = new QuaternarySquareScan.PropertyQuantity(Property.valueOf(calcName));
         }

@@ -202,7 +202,8 @@ public class ThermodynamicWorkflow {
 
         return result
                 .withConvergence(eq.converged(), eq.iterations(), eq.finalGradientNorm())
-                .withSro(computeSro(model, state, x, request.progressSink));
+                .withSro(computeSro(model, state, x, request.progressSink))
+                .withTetrahedronSro(computeTetrahedronSro(state, request.progressSink));
     }
 
     /**
@@ -219,6 +220,41 @@ public class ThermodynamicWorkflow {
             return state.pairSroByShell();
         } catch (RuntimeException e) {
             emit(sink, "  [SRO] not computed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Quaternary tetrahedron CVCF CF names ({@code v4ABCD1/2/3} for the
+     * standard 4-component BCC_A2/T basis) -- the three site-to-species
+     * orbits of the maximal cluster, each a single {@code product(...)}-type
+     * probability (see {@link CVMGibbsModel.State#quaternaryTetrahedronSro}).
+     */
+    private static final java.util.regex.Pattern QUATERNARY_TETRAHEDRON_CF =
+            java.util.regex.Pattern.compile("^v4[A-Z]{4}\\d+$");
+
+    /**
+     * Cowley-Warren quaternary tetrahedron SRO (Eq. 41) for every quaternary
+     * tetrahedron CF this basis defines, keyed by CF name. Returns null for
+     * anything other than a genuine 4-component system, or if none of its CF
+     * names match the quaternary tetrahedron pattern -- this is supplementary,
+     * like pair SRO, so an unsupported geometry must not fail the calculation.
+     */
+    private Map<String, CVMGibbsModel.TetrahedronSro> computeTetrahedronSro(
+            CVMGibbsModel.State state, Consumer<String> sink) {
+        if (state.model().numComponents() != 4) {
+            return null;
+        }
+        try {
+            Map<String, CVMGibbsModel.TetrahedronSro> out = new LinkedHashMap<>();
+            for (String name : state.model().geometry().basis.cfNames) {
+                if (QUATERNARY_TETRAHEDRON_CF.matcher(name).matches()) {
+                    out.put(name, state.quaternaryTetrahedronSro(name));
+                }
+            }
+            return out.isEmpty() ? null : out;
+        } catch (RuntimeException e) {
+            emit(sink, "  [Tetrahedron SRO] not computed: " + e.getMessage());
             return null;
         }
     }
